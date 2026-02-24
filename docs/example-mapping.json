@@ -1,0 +1,100 @@
+{
+  "_comment": "Maps Azure Policy definition IDs and Defender for Cloud rule IDs to STIG control identifiers. Add or extend entries to cover additional STIG controls.",
+  "mappings": {
+    "V-220700": {
+      "stigId": "V-220700",
+      "ruleId": "SV-220700r849121_rule",
+      "groupId": "V-220700",
+      "stigTitle": "Windows 10 STIG",
+      "severity": "CAT II",
+      "title": "Windows 10 must use multifactor authentication for local and network access.",
+      "checkText": "Verify multifactor authentication (MFA) is required for interactive logons. If only password-based authentication is used, this is a finding.",
+      "fixText": "Enable Windows Hello for Business or configure smart card requirements via Group Policy.",
+      "azurePolicyDefinitionIds": [
+        "/providers/Microsoft.Authorization/policyDefinitions/931e118d-4c71-4c0a-8b13-2c18e6c6b3a3",
+        "/providers/Microsoft.Authorization/policyDefinitions/e3e008c3-56b9-4133-8fd7-d3347377402a"
+      ],
+      "defenderRuleIds": [
+        "MDFC-MFA-001"
+      ],
+      "notes": "Covered by Azure AD Conditional Access policy 'Require MFA for all users' when enforced at the subscription level."
+    },
+    "V-220701": {
+      "stigId": "V-220701",
+      "ruleId": "SV-220701r849123_rule",
+      "groupId": "V-220701",
+      "stigTitle": "Windows 10 STIG",
+      "severity": "CAT II",
+      "title": "Windows 10 security event log size must be configured to 32768 KB or greater.",
+      "checkText": "Check: HKLM\\SYSTEM\\CurrentControlSet\\Services\\EventLog\\Security\\MaxSize. Must be >= 0x8000 (32768). If absent or smaller, this is a finding.",
+      "fixText": "Configure via GPO: Computer Configuration > Windows Settings > Security Settings > Event Log > Maximum security log size = 32768 or greater.",
+      "azurePolicyDefinitionIds": [
+        "/providers/Microsoft.Authorization/policyDefinitions/f17c7840-b427-4b7f-8f91-88a7a9c5e6d1"
+      ],
+      "defenderRuleIds": [],
+      "notes": "Also verifiable via Azure Policy guest configuration."
+    },
+    "V-220702": {
+      "stigId": "V-220702",
+      "ruleId": "SV-220702r849125_rule",
+      "groupId": "V-220702",
+      "stigTitle": "Windows 10 STIG",
+      "severity": "CAT I",
+      "title": "Windows 10 domain-joined systems must have a Trusted Platform Module (TPM) enabled.",
+      "checkText": "Verify TPM is enabled in device firmware (UEFI) and readable via Get-Tpm in PowerShell. If TpmPresent is False or TpmReady is False, this is a finding.",
+      "fixText": "Enable TPM in UEFI/BIOS firmware settings. For virtual machines, ensure vTPM is enabled in Hyper-V or Azure VM configuration.",
+      "azurePolicyDefinitionIds": [
+        "/providers/Microsoft.Authorization/policyDefinitions/a8793640-60f7-487c-b5c3-1d37215905c4"
+      ],
+      "defenderRuleIds": [
+        "MDFC-TPM-001"
+      ],
+      "notes": "Azure VMs support vTPM when Generation 2 and Trusted Launch is enabled."
+    },
+    "V-220703": {
+      "stigId": "V-220703",
+      "ruleId": "SV-220703r849127_rule",
+      "groupId": "V-220703",
+      "stigTitle": "Windows 10 STIG",
+      "severity": "CAT II",
+      "title": "Windows 10 must employ automated mechanisms for account management.",
+      "checkText": "Verify Active Directory or Azure AD is used for account management. Local-only accounts for interactive use are a finding.",
+      "fixText": "Join machines to Azure AD or hybrid join with on-premises AD. Disable or remove extraneous local administrator accounts.",
+      "azurePolicyDefinitionIds": [
+        "/providers/Microsoft.Authorization/policyDefinitions/26a828e1-e88f-464e-bbb3-c134a282b9de"
+      ],
+      "defenderRuleIds": [
+        "MDFC-IAM-002",
+        "MDFC-IAM-003"
+      ],
+      "notes": "Maps to 'Audit virtual machines not using managed disks' as an indicator of unmanaged resources."
+    },
+    "V-220704": {
+      "stigId": "V-220704",
+      "ruleId": "SV-220704r849129_rule",
+      "groupId": "V-220704",
+      "stigTitle": "Windows 10 STIG",
+      "severity": "CAT II",
+      "title": "Windows 10 must have an anti-virus solution installed.",
+      "checkText": "Verify Microsoft Defender Antivirus is enabled and signatures are current. If the service is disabled or signatures are > 7 days old, this is a finding.",
+      "fixText": "Enable Microsoft Defender Antivirus and configure automatic signature updates. Use Microsoft Defender for Endpoint (MDE) for endpoint protection.",
+      "azurePolicyDefinitionIds": [
+        "/providers/Microsoft.Authorization/policyDefinitions/af6cd1bd-1635-48cb-bde7-5b15693900b9"
+      ],
+      "defenderRuleIds": [
+        "MDFC-AV-001",
+        "MDFC-AV-002"
+      ],
+      "notes": "Directly surfaced by Defender for Cloud 'Endpoint protection issues should be resolved on your machines' recommendation."
+    }
+  },
+  "meta": {
+    "stigBenchmarkId": "Windows_10_STIG",
+    "stigVersion": "V2R8",
+    "stigRelease": "Release 8",
+    "classification": "UNCLASSIFIED",
+    "generatedAt": "2024-01-01T00:00:00Z",
+    "source": "DISA STIG for Microsoft Windows 10 V2R8",
+    "notes": "This mapping is illustrative. Validate each policy definition ID against your Azure environment and the authoritative STIG benchmark before use in production."
+  }
+}

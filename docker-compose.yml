@@ -1,0 +1,57 @@
+version: '3.9'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: stig-backend
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: development
+      MOCK_MODE: "true"
+      PORT: 3001
+      FRONTEND_URL: http://localhost:5173
+      LOG_LEVEL: debug
+      # Set real values in .env or Azure App Settings:
+      # AZURE_TENANT_ID: ${AZURE_TENANT_ID}
+      # AZURE_CLIENT_ID: ${AZURE_CLIENT_ID}
+      # DATABASE_URL: ${DATABASE_URL}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_MOCK_MODE: "true"
+        VITE_AZURE_CLIENT_ID: "mock"
+        VITE_AZURE_TENANT_ID: "mock"
+        VITE_API_URL: ""
+    container_name: stig-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+  # Optional Postgres — only needed when MOCK_MODE=false
+  postgres:
+    image: postgres:16-alpine
+    container_name: stig-postgres
+    profiles: ["db"]
+    environment:
+      POSTGRES_DB: stigdashboard
+      POSTGRES_USER: stiguser
+      POSTGRES_PASSWORD: stigpassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

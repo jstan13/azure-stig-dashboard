@@ -1,0 +1,126 @@
+import request from 'supertest';
+import app from '../../index';
+import { mockStore } from '../../database/dataSource';
+import { seedMock } from '../../database/mockSeed';
+
+// Re-seed before each test suite
+beforeAll(() => {
+  seedMock(mockStore);
+});
+
+describe('GET /health', () => {
+  it('should return 200 with status ok', async () => {
+    const res = await request(app).get('/health');
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('ok');
+  });
+});
+
+describe('GET /api/machines', () => {
+  it('should return machine list (mock auth injected)', async () => {
+    const res = await request(app).get('/api/machines');
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.total).toBeGreaterThan(0);
+  });
+
+  it('should support search query', async () => {
+    const res = await request(app).get('/api/machines?q=WIN10');
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+  });
+
+  it('should return paginated results', async () => {
+    const res = await request(app).get('/api/machines?page=1&pageSize=1');
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('GET /api/machines/:id', () => {
+  it('should return machine details with findings', async () => {
+    const machineId = mockStore.machines[0]?.id;
+    const res = await request(app).get(`/api/machines/${machineId}`);
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe(machineId);
+    expect(Array.isArray(res.body.findings)).toBe(true);
+    expect(res.body.summary).toBeDefined();
+  });
+
+  it('should return 404 for unknown machine', async () => {
+    const res = await request(app).get('/api/machines/nonexistent-id');
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('GET /api/controls', () => {
+  it('should return control list', async () => {
+    const res = await request(app).get('/api/controls');
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.total).toBeGreaterThan(0);
+  });
+});
+
+describe('GET /api/groups/:id/compliance', () => {
+  it('should return group compliance rollup', async () => {
+    const res = await request(app).get('/api/groups/rg-demo/compliance');
+    expect(res.status).toBe(200);
+    expect(res.body.resourceGroupName).toBe('rg-demo');
+    expect(res.body.machineCount).toBeGreaterThan(0);
+  });
+
+  it('should return all groups when id is all', async () => {
+    const res = await request(app).get('/api/groups/all/compliance');
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+  });
+});
+
+describe('POST /api/export/checklist', () => {
+  it('should return a .ckl XML file', async () => {
+    const machineId = mockStore.machines[0]?.id;
+    const res = await request(app)
+      .post('/api/export/checklist')
+      .send({ machineId, format: 'ckl' });
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('xml');
+    expect(res.text).toContain('<CHECKLIST>');
+  });
+
+  it('should return JSON when format=json', async () => {
+    const machineId = mockStore.machines[0]?.id;
+    const res = await request(app)
+      .post('/api/export/checklist')
+      .send({ machineId, format: 'json' });
+    expect(res.status).toBe(200);
+    expect(res.body.findings).toBeDefined();
+  });
+
+  it('should return CSV when format=csv', async () => {
+    const machineId = mockStore.machines[0]?.id;
+    const res = await request(app)
+      .post('/api/export/checklist')
+      .send({ machineId, format: 'csv' });
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('csv');
+    expect(res.text).toContain('VulnID');
+  });
+
+  it('should return 400 when machineId is missing', async () => {
+    const res = await request(app)
+      .post('/api/export/checklist')
+      .send({ format: 'ckl' });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('POST /api/scan/trigger', () => {
+  it('should accept a scan trigger request', async () => {
+    const res = await request(app)
+      .post('/api/scan/trigger')
+      .send({ subscriptionIds: ['mock-sub-001'] });
+    expect(res.status).toBe(202);
+    expect(res.body.scanId).toBeTruthy();
+  });
+});

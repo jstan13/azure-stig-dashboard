@@ -1,0 +1,388 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Sample STIG Viewer Checklist (.ckl) export
+  Machine:   WIN10-WORKSTATION-01
+  STIG:      Windows 10 STIG V2R8
+  Generated: azure-stig-dashboard CKL Exporter
+  NOTE:      This file is for demonstration purposes only.
+-->
+<CHECKLIST>
+  <ASSET>
+    <ROLE>Workstation</ROLE>
+    <ASSET_TYPE>Computing</ASSET_TYPE>
+    <HOST_NAME>WIN10-WORKSTATION-01</HOST_NAME>
+    <HOST_IP>10.0.1.10</HOST_IP>
+    <HOST_MAC>00:0D:3A:AA:BB:CC</HOST_MAC>
+    <HOST_FQDN>WIN10-WORKSTATION-01.corp.example.com</HOST_FQDN>
+    <TARGET_COMMENT>Azure VM — ResourceGroup: rg-prod-eastus</TARGET_COMMENT>
+    <TECH_AREA></TECH_AREA>
+    <TARGET_KEY>WIN10-WORKSTATION-01</TARGET_KEY>
+    <WEB_OR_DATABASE>false</WEB_OR_DATABASE>
+    <WEB_DB_SITE></WEB_DB_SITE>
+    <WEB_DB_INSTANCE></WEB_DB_INSTANCE>
+  </ASSET>
+  <STIGS>
+    <iSTIG>
+      <STIG_INFO>
+        <SI_DATA>
+          <SID_NAME>version</SID_NAME>
+          <SID_DATA>2</SID_DATA>
+        </SI_DATA>
+        <SI_DATA>
+          <SID_NAME>classification</SID_NAME>
+          <SID_DATA>UNCLASSIFIED</SID_DATA>
+        </SI_DATA>
+        <SI_DATA>
+          <SID_NAME>customname</SID_NAME>
+          <SID_DATA></SID_DATA>
+        </SI_DATA>
+        <SI_DATA>
+          <SID_NAME>stigid</SID_NAME>
+          <SID_DATA>Windows_10_STIG</SID_DATA>
+        </SI_DATA>
+        <SI_DATA>
+          <SID_NAME>description</SID_NAME>
+          <SID_DATA>This Security Technical Implementation Guide provides the technical security policies, requirements, and implementation details for applying security concepts to Windows 10.</SID_DATA>
+        </SI_DATA>
+        <SI_DATA>
+          <SID_NAME>filename</SID_NAME>
+          <SID_DATA>U_MS_Windows_10_STIG_V2R8_Manual-xccdf.xml</SID_DATA>
+        </SI_DATA>
+        <SI_DATA>
+          <SID_NAME>releaseinfo</SID_NAME>
+          <SID_DATA>Release: 8 Benchmark Date: 26 Oct 2023</SID_DATA>
+        </SI_DATA>
+        <SI_DATA>
+          <SID_NAME>title</SID_NAME>
+          <SID_DATA>Microsoft Windows 10 Security Technical Implementation Guide</SID_DATA>
+        </SI_DATA>
+        <SI_DATA>
+          <SID_NAME>uuid</SID_NAME>
+          <SID_DATA>d1adf35a-24eb-4e86-9c17-6b36d93e3898</SID_DATA>
+        </SI_DATA>
+        <SI_DATA>
+          <SID_NAME>notice</SID_NAME>
+          <SID_DATA>terms-of-use</SID_DATA>
+        </SI_DATA>
+        <SI_DATA>
+          <SID_NAME>source</SID_NAME>
+          <SID_DATA>STIG.DOD.MIL</SID_DATA>
+        </SI_DATA>
+      </STIG_INFO>
+
+      <!-- V-220700: MFA — Open (finding exists) -->
+      <VULN>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Vuln_Num</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>V-220700</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Severity</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>medium</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Group_Title</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>SRG-OS-000001-GPOS-00001</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Rule_ID</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>SV-220700r849121_rule</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Rule_Ver</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>WN10-00-000031</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Rule_Title</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Windows 10 must use multifactor authentication for local and network access.</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Vuln_Discuss</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Without the use of multifactor authentication, the ease of access to privileged and non-privileged functions is immediately increased.</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Check_Content</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Verify multifactor authentication is required for interactive logons. If only password-based authentication is used, this is a finding.</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Fix_Text</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Enable Windows Hello for Business or configure smart card requirements via Group Policy.</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>False_Positives</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA></ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>False_Negatives</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA></ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Documentable</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>false</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Mitigations</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA></ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Potential_Impact</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA></ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Third_Party_Tools</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA></ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Mitigation_Control</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA></ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Responsibility</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Information Assurance Officer</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Security_Override_Guidance</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA></ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Check_Content_Ref</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>M</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Weight</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>10.0</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Class</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Unclass</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>STIGRef</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Microsoft Windows 10 Security Technical Implementation Guide :: Version 2, Release 8</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>TargetKey</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>WIN10-WORKSTATION-01</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STATUS>Open</STATUS>
+        <FINDING_DETAILS>Azure AD Conditional Access MFA policy is not enforced for this device. Device found non-compliant by PolicyConnector via policyDefinitionId /providers/Microsoft.Authorization/policyDefinitions/931e118d-4c71-4c0a-8b13-2c18e6c6b3a3.</FINDING_DETAILS>
+        <COMMENTS>Remediation ticket TKT-20240115-001 open. Target completion: 2024-02-15.</COMMENTS>
+        <SEVERITY_OVERRIDE></SEVERITY_OVERRIDE>
+        <SEVERITY_JUSTIFICATION></SEVERITY_JUSTIFICATION>
+      </VULN>
+
+      <!-- V-220701: Event log size — NotAFinding -->
+      <VULN>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Vuln_Num</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>V-220701</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Severity</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>medium</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Group_Title</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>SRG-OS-000341-GPOS-00132</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Rule_ID</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>SV-220701r849123_rule</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Rule_Ver</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>WN10-AU-000500</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Rule_Title</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Windows 10 security event log size must be configured to 32768 KB or greater.</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Vuln_Discuss</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Inadequate log size will cause the log to fill quickly and may result in auditing events being lost.</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Check_Content</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Check HKLM\SYSTEM\CurrentControlSet\Services\EventLog\Security\MaxSize. Must be >= 0x8000 (32768).</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Fix_Text</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Configure via GPO: Computer Configuration &gt; Windows Settings &gt; Security Settings &gt; Event Log &gt; Maximum security log size = 32768 or greater.</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>STIGRef</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Microsoft Windows 10 Security Technical Implementation Guide :: Version 2, Release 8</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>TargetKey</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>WIN10-WORKSTATION-01</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STATUS>NotAFinding</STATUS>
+        <FINDING_DETAILS>Registry key confirmed: MaxSize = 0x10000 (65536 KB). Compliant.</FINDING_DETAILS>
+        <COMMENTS>Verified by Azure Policy guest configuration audit. Last checked: 2024-01-20.</COMMENTS>
+        <SEVERITY_OVERRIDE></SEVERITY_OVERRIDE>
+        <SEVERITY_JUSTIFICATION></SEVERITY_JUSTIFICATION>
+      </VULN>
+
+      <!-- V-220702: TPM — Not_Applicable (virtual machine) -->
+      <VULN>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Vuln_Num</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>V-220702</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Severity</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>high</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Group_Title</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>SRG-OS-000480-GPOS-00227</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Rule_ID</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>SV-220702r849125_rule</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Rule_Ver</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>WN10-00-000010</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Rule_Title</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Windows 10 domain-joined systems must have a Trusted Platform Module (TPM) enabled.</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Vuln_Discuss</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Credential Guard uses virtualization-based security and requires a TPM to protect secrets.</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Check_Content</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Verify TPM is enabled in device firmware and readable via Get-Tpm in PowerShell.</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Fix_Text</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Enable TPM in UEFI/BIOS firmware settings. For Azure VMs, enable Trusted Launch with vTPM.</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>STIGRef</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Microsoft Windows 10 Security Technical Implementation Guide :: Version 2, Release 8</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>TargetKey</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>WIN10-WORKSTATION-01</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STATUS>Not_Applicable</STATUS>
+        <FINDING_DETAILS>Machine is a Generation 1 Azure VM without Trusted Launch. vTPM not available for Gen1 images.</FINDING_DETAILS>
+        <COMMENTS>Exception approved. Compensating control: BitLocker with software protection applied. Exception ID: EX-2024-001. Expiry: 2025-01-01.</COMMENTS>
+        <SEVERITY_OVERRIDE></SEVERITY_OVERRIDE>
+        <SEVERITY_JUSTIFICATION></SEVERITY_JUSTIFICATION>
+      </VULN>
+
+      <!-- V-220703: Account management — Open -->
+      <VULN>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Vuln_Num</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>V-220703</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Severity</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>medium</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Group_Title</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>SRG-OS-000001-GPOS-00001</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Rule_ID</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>SV-220703r849127_rule</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Rule_Ver</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>WN10-00-000030</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Rule_Title</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Windows 10 must employ automated mechanisms for account management.</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Vuln_Discuss</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Enterprise environments make account management challenging. Active Directory or Azure AD provide automated mechanisms.</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Check_Content</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Verify the system is joined to an Active Directory or Azure AD domain. Local-only accounts for interactive use are a finding.</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Fix_Text</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Join machines to Azure AD or hybrid-join with on-premises AD. Disable or remove extraneous local administrator accounts.</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>STIGRef</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Microsoft Windows 10 Security Technical Implementation Guide :: Version 2, Release 8</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>TargetKey</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>WIN10-WORKSTATION-01</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STATUS>Open</STATUS>
+        <FINDING_DETAILS>Defender for Cloud assessment MDFC-IAM-002 flagged: 3 local administrator accounts not managed by Azure AD. Accounts: localadmin1, testuser, svc_backup.</FINDING_DETAILS>
+        <COMMENTS>Referencing IT ticket TKT-20240118-007 for account cleanup.</COMMENTS>
+        <SEVERITY_OVERRIDE></SEVERITY_OVERRIDE>
+        <SEVERITY_JUSTIFICATION></SEVERITY_JUSTIFICATION>
+      </VULN>
+
+      <!-- V-220704: Anti-virus — NotAFinding -->
+      <VULN>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Vuln_Num</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>V-220704</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Severity</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>medium</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Group_Title</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>SRG-OS-000480-GPOS-00227</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Rule_ID</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>SV-220704r849129_rule</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Rule_Ver</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>WN10-00-000045</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Rule_Title</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Windows 10 must have an anti-virus solution installed.</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Vuln_Discuss</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Malicious software can establish a presence by exploiting vulnerabilities or misconfigurations in software. Anti-virus software is a key detection and prevention control.</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Check_Content</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Verify Microsoft Defender Antivirus is enabled and signatures are &lt;= 7 days old.</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>Fix_Text</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Enable Microsoft Defender Antivirus and configure automatic signature updates. Use Microsoft Defender for Endpoint (MDE) for endpoint protection.</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>STIGRef</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>Microsoft Windows 10 Security Technical Implementation Guide :: Version 2, Release 8</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STIG_DATA>
+          <VULN_ATTRIBUTE>TargetKey</VULN_ATTRIBUTE>
+          <ATTRIBUTE_DATA>WIN10-WORKSTATION-01</ATTRIBUTE_DATA>
+        </STIG_DATA>
+        <STATUS>NotAFinding</STATUS>
+        <FINDING_DETAILS>Microsoft Defender Antivirus active. Signatures updated 2024-01-20 (0 days old). MDE onboarded.</FINDING_DETAILS>
+        <COMMENTS>Confirmed by Defender for Cloud assessment MDFC-AV-001: compliant.</COMMENTS>
+        <SEVERITY_OVERRIDE></SEVERITY_OVERRIDE>
+        <SEVERITY_JUSTIFICATION></SEVERITY_JUSTIFICATION>
+      </VULN>
+
+    </iSTIG>
+  </STIGS>
+</CHECKLIST>
