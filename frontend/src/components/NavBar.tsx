@@ -51,6 +51,13 @@ export default function NavBar() {
       checked: location.pathname === '/audit',
       onClick: () => navigate('/audit'),
     },
+    {
+      key: 'stigs',
+      text: 'STIG Library',
+      iconProps: { iconName: 'Shield' },
+      checked: location.pathname.startsWith('/stigs'),
+      onClick: () => navigate('/stigs'),
+    },
   ];
 
   const farItems: ICommandBarItemProps[] = [

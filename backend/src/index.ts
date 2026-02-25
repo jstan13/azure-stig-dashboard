@@ -12,7 +12,7 @@ import { json } from 'express';
 import swaggerUi from 'swagger-ui-express';
 import path from 'path';
 
-import { initializeDatabase } from './database/dataSource';
+import { initializeDatabase, AppDataSource } from './database/dataSource';
 import { logger } from './utils/logger';
 import { errorHandler } from './middleware/errorHandler';
 import { authenticateToken } from './middleware/auth';
@@ -25,6 +25,9 @@ import exportRouter from './routes/export';
 import controlRouter from './routes/controls';
 import auditRouter from './routes/audit';
 import healthRouter from './routes/health';
+import stigsRouter from './routes/stigs';
+
+import { startStigUpdateScheduler } from './stigs/stigUpdateScheduler';
 
 // Application Insights (optional, only if instrumentation key is set)
 if (process.env.APPINSIGHTS_INSTRUMENTATIONKEY) {
@@ -79,6 +82,7 @@ app.use('/api/groups', groupRouter);
 app.use('/api/export', exportRouter);
 app.use('/api/controls', controlRouter);
 app.use('/api/audit', auditRouter);
+app.use('/api/stigs', stigsRouter);
 
 // ─── Error handling ──────────────────────────────────────────────────────────
 app.use(errorHandler);
@@ -93,6 +97,11 @@ async function bootstrap() {
       logger.info(`Backend listening on port ${PORT}`);
       logger.info(`Swagger docs available at http://localhost:${PORT}/api/docs`);
     });
+
+    // Start STIG update scheduler (skip in mock mode — no DB)
+    if (process.env.MOCK_MODE !== 'true') {
+      startStigUpdateScheduler(AppDataSource);
+    }
   } catch (err) {
     logger.error('Failed to start application', err);
     process.exit(1);
