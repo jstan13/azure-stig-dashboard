@@ -10,6 +10,7 @@
 import { Router, Request, Response } from 'express';
 import { AppDataSource, mockStore } from '../database/dataSource';
 import { RemediationJobEntity } from '../models/RemediationJob';
+import { requireRole } from '../middleware/auth';
 import { logger } from '../utils/logger';
 
 const router = Router();
@@ -19,16 +20,17 @@ const isMock = () => process.env.MOCK_MODE === 'true';
 router.get('/jobs', async (req: Request, res: Response) => {
   try {
     const { status, page = '1', limit = '20' } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
+    const safeLimit = Math.min(Number(limit), 200);
+    const skip = (Number(page) - 1) * safeLimit;
 
     if (isMock()) {
       let jobs = [...mockStore.remediationJobs];
       if (status) jobs = jobs.filter((j: any) => j.status === status);
-      return res.json({ jobs: jobs.slice(skip, skip + Number(limit)), total: jobs.length });
+      return res.json({ jobs: jobs.slice(skip, skip + safeLimit), total: jobs.length });
     }
 
     const repo = AppDataSource.getRepository(RemediationJobEntity);
-    const qb = repo.createQueryBuilder('j').orderBy('j.createdAt', 'DESC').skip(skip).take(Number(limit));
+    const qb = repo.createQueryBuilder('j').orderBy('j.createdAt', 'DESC').skip(skip).take(safeLimit);
     if (status) qb.where('j.status = :status', { status });
     const [jobs, total] = await qb.getManyAndCount();
     return res.json({ jobs, total });
@@ -55,16 +57,16 @@ router.get('/jobs/:id', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/remediation/jobs — create and queue job
-router.post('/jobs', async (req: Request, res: Response) => {
+// POST /api/remediation/jobs — create and queue job (admin/operator only)
+router.post('/jobs', requireRole('admin', 'operator'), async (req: Request, res: Response) => {
   try {
     const {
       name, machineIds, findingIds, benchmarkId, stigVersion,
       severity, strategy = 'dsc_push',
     } = req.body;
 
-    const requester = (req as any).user;
-    const triggeredByOid  = requester?.oid  ?? 'mock-user';
+    const requester = (req as any).auth;
+    const triggeredByOid  = requester?.oid  ?? 'system';
     const triggeredByName = requester?.name ?? 'System';
 
     if (!machineIds?.length || !findingIds?.length) {
