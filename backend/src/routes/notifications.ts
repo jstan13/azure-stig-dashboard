@@ -10,6 +10,7 @@ import { Router, Request, Response } from 'express';
 import { AppDataSource, mockStore } from '../database/dataSource';
 import { NotificationConfigEntity } from '../models/NotificationConfig';
 import { dispatchNotification } from '../services/notificationService';
+import { requireRole } from '../middleware/auth';
 import { logger } from '../utils/logger';
 
 const router = Router();
@@ -30,8 +31,8 @@ router.get('/configs', async (_req: Request, res: Response) => {
   }
 });
 
-// POST /api/notifications/configs
-router.post('/configs', async (req: Request, res: Response) => {
+// POST /api/notifications/configs — admin only
+router.post('/configs', requireRole('admin'), async (req: Request, res: Response) => {
   try {
     const { trigger, channel, destination, filter, ownerOid, enabled } = req.body;
     if (!trigger || !channel || !destination) {
@@ -62,8 +63,8 @@ router.post('/configs', async (req: Request, res: Response) => {
   }
 });
 
-// PATCH /api/notifications/configs/:id
-router.patch('/configs/:id', async (req: Request, res: Response) => {
+// PATCH /api/notifications/configs/:id — admin only
+router.patch('/configs/:id', requireRole('admin'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const updates = req.body;
@@ -87,8 +88,8 @@ router.patch('/configs/:id', async (req: Request, res: Response) => {
   }
 });
 
-// DELETE /api/notifications/configs/:id
-router.delete('/configs/:id', async (req: Request, res: Response) => {
+// DELETE /api/notifications/configs/:id — admin only
+router.delete('/configs/:id', requireRole('admin'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -110,8 +111,8 @@ router.delete('/configs/:id', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/notifications/test/:id — fire test notification using the config
-router.post('/test/:id', async (req: Request, res: Response) => {
+// POST /api/notifications/test/:id — fire test notification (admin only)
+router.post('/test/:id', requireRole('admin'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 

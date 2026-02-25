@@ -11,6 +11,7 @@
 import { Router, Request, Response } from 'express';
 import { AppDataSource, mockStore } from '../database/dataSource';
 import { UserEntity } from '../models/User';
+import { requireRole } from '../middleware/auth';
 import { logger } from '../utils/logger';
 
 const router = Router();
@@ -24,11 +25,12 @@ const MOCK_USERS = [
   { id: 'user-004', oid: 'oid-auditor-004', displayName: 'Dave Auditor', email: 'dave@example.com', role: 'auditor', enabled: true },
 ];
 
-// GET /api/users
-router.get('/', async (req: Request, res: Response) => {
+// GET /api/users — admin only
+router.get('/', requireRole('admin'), async (req: Request, res: Response) => {
   try {
     const { search, role, page = '1', limit = '50' } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
+    const safeLimit = Math.min(Number(limit), 200);
+    const skip = (Number(page) - 1) * safeLimit;
 
     if (isMock()) {
       let users = [...MOCK_USERS];
@@ -37,11 +39,11 @@ router.get('/', async (req: Request, res: Response) => {
         const s = String(search).toLowerCase();
         users = users.filter((u) => u.displayName.toLowerCase().includes(s) || u.email.toLowerCase().includes(s));
       }
-      return res.json({ users: users.slice(skip, skip + Number(limit)), total: users.length });
+      return res.json({ users: users.slice(skip, skip + safeLimit), total: users.length });
     }
 
     const repo = AppDataSource.getRepository(UserEntity);
-    const qb = repo.createQueryBuilder('u').skip(skip).take(Number(limit)).orderBy('u.displayName', 'ASC');
+    const qb = repo.createQueryBuilder('u').skip(skip).take(safeLimit).orderBy('u.displayName', 'ASC');
     if (role) qb.where('u.role = :role', { role });
     if (search) {
       qb.andWhere('(LOWER(u.displayName) LIKE :s OR LOWER(u.email) LIKE :s)', {
@@ -72,8 +74,8 @@ router.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// PATCH /api/users/:id
-router.patch('/:id', async (req: Request, res: Response) => {
+// PATCH /api/users/:id — admin only
+router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { displayName, role, enabled } = req.body;
@@ -101,8 +103,8 @@ router.patch('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/users/:id/roles
-router.post('/:id/roles', async (req: Request, res: Response) => {
+// POST /api/users/:id/roles — admin only
+router.post('/:id/roles', requireRole('admin'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { roles } = req.body; // string[] or string
@@ -125,8 +127,8 @@ router.post('/:id/roles', async (req: Request, res: Response) => {
   }
 });
 
-// DELETE /api/users/:id
-router.delete('/:id', async (req: Request, res: Response) => {
+// DELETE /api/users/:id — admin only
+router.delete('/:id', requireRole('admin'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     if (isMock()) {

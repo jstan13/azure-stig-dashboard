@@ -68,7 +68,13 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// ─── Swagger / OpenAPI ──────────────────────────────────────────────────────
+// ─── Public routes (no auth required) ──────────────────────────────────────
+app.use('/health', healthRouter);
+
+// ─── Protected routes (JWT required for all /api/* below) ───────────────────
+app.use('/api', authenticateToken);
+
+// Swagger / OpenAPI — mounted after auth so it requires a valid token
 try {
   const YAML = require('yamljs');
   const swaggerDocument = YAML.load(path.join(__dirname, '../openapi.yaml'));
@@ -76,12 +82,6 @@ try {
 } catch {
   logger.warn('openapi.yaml not found — Swagger UI will not be available');
 }
-
-// ─── Public routes (no auth required) ──────────────────────────────────────
-app.use('/health', healthRouter);
-
-// ─── Protected routes ───────────────────────────────────────────────────────
-app.use('/api', authenticateToken);
 app.use('/api/scan', scanRouter);
 app.use('/api/machines', machineRouter);
 app.use('/api/groups', groupRouter);
