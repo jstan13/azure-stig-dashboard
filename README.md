@@ -1,4 +1,4 @@
-# Azure STIG Dashboard
+# Azure STIG Dashboard (Co-Pilot Generated)
 
 A production-ready full-stack TypeScript dashboard for tracking STIG compliance of Azure workloads. Ingests data from Azure Resource Graph, Azure Policy, Microsoft Defender for Cloud, and ARM, normalises findings against STIG controls, and produces STIG Viewer-compatible `.ckl` exports.
 
