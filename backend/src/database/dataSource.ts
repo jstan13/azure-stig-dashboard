@@ -15,6 +15,10 @@ import { AuditLogEntity } from '../models/AuditLog';
 import { StigBenchmarkEntity } from '../models/StigBenchmark';
 import { StigVersionEntity } from '../models/StigVersion';
 import { PowerStigResultEntity } from '../models/PowerStigResult';
+import { PoamEntity, PoamMilestoneEntity } from '../models/Poam';
+import { ComplianceHistoryEntity } from '../models/ComplianceHistory';
+import { NotificationConfigEntity } from '../models/NotificationConfig';
+import { RemediationJobEntity } from '../models/RemediationJob';
 
 const isMockMode = process.env.MOCK_MODE === 'true';
 
@@ -45,6 +49,11 @@ export const AppDataSource = new DataSource({
     StigBenchmarkEntity,
     StigVersionEntity,
     PowerStigResultEntity,
+    PoamEntity,
+    PoamMilestoneEntity,
+    ComplianceHistoryEntity,
+    NotificationConfigEntity,
+    RemediationJobEntity,
   ],
   migrations: ['dist/database/migrations/*.js'],
   migrationsTableName: 'migrations',
@@ -61,6 +70,11 @@ export const mockStore: {
   controls: any[];
   checklists: any[];
   auditLogs: any[];
+  poams: any[];
+  poamMilestones: any[];
+  complianceHistory: any[];
+  remediationJobs: any[];
+  notificationConfigs: any[];
 } = {
   machines: [],
   findings: [],
@@ -68,6 +82,11 @@ export const mockStore: {
   controls: [],
   checklists: [],
   auditLogs: [],
+  poams: [],
+  poamMilestones: [],
+  complianceHistory: [],
+  remediationJobs: [],
+  notificationConfigs: [],
 };
 
 export async function initializeDatabase(): Promise<void> {
