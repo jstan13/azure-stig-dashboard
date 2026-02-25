@@ -10,6 +10,10 @@ import GroupPage from './pages/GroupPage';
 import AuditPage from './pages/AuditPage';
 import StigLibraryPage from './pages/StigLibraryPage';
 import StigDetailPage from './pages/StigDetailPage';
+import PoamPage from './pages/PoamPage';
+import ComplianceTrendPage from './pages/ComplianceTrendPage';
+import UserManagementPage from './pages/UserManagementPage';
+import RmfPage from './pages/RmfPage';
 
 // Initialize Fluent UI icons
 initializeIcons();
@@ -36,6 +40,10 @@ export default function App() {
               <Route path="/audit" element={<AuditPage />} />
               <Route path="/stigs" element={<StigLibraryPage />} />
               <Route path="/stigs/:benchmarkId" element={<StigDetailPage />} />
+              <Route path="/poams" element={<PoamPage />} />
+              <Route path="/trends" element={<ComplianceTrendPage />} />
+              <Route path="/users" element={<UserManagementPage />} />
+              <Route path="/rmf" element={<RmfPage />} />
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </main>

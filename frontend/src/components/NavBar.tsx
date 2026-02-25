@@ -58,6 +58,34 @@ export default function NavBar() {
       checked: location.pathname.startsWith('/stigs'),
       onClick: () => navigate('/stigs'),
     },
+    {
+      key: 'poams',
+      text: 'POA&M',
+      iconProps: { iconName: 'TaskSolid' },
+      checked: location.pathname === '/poams',
+      onClick: () => navigate('/poams'),
+    },
+    {
+      key: 'trends',
+      text: 'Trends',
+      iconProps: { iconName: 'LineChart' },
+      checked: location.pathname === '/trends',
+      onClick: () => navigate('/trends'),
+    },
+    {
+      key: 'rmf',
+      text: 'RMF / NIST',
+      iconProps: { iconName: 'Compliance' },
+      checked: location.pathname === '/rmf',
+      onClick: () => navigate('/rmf'),
+    },
+    {
+      key: 'users',
+      text: 'Users',
+      iconProps: { iconName: 'People' },
+      checked: location.pathname === '/users',
+      onClick: () => navigate('/users'),
+    },
   ];
 
   const farItems: ICommandBarItemProps[] = [

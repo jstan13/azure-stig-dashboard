@@ -1,0 +1,141 @@
+/**
+ * POST   /api/notifications/configs       — create notification rule
+ * GET    /api/notifications/configs       — list all configs
+ * PATCH  /api/notifications/configs/:id  — update config
+ * DELETE /api/notifications/configs/:id  — delete config
+ * POST   /api/notifications/test/:id     — fire a test notification
+ */
+
+import { Router, Request, Response } from 'express';
+import { AppDataSource, mockStore } from '../database/dataSource';
+import { NotificationConfigEntity } from '../models/NotificationConfig';
+import { dispatchNotification } from '../services/notificationService';
+import { logger } from '../utils/logger';
+
+const router = Router();
+const isMock = () => process.env.MOCK_MODE === 'true';
+
+// GET /api/notifications/configs
+router.get('/configs', async (_req: Request, res: Response) => {
+  try {
+    if (isMock()) {
+      return res.json(mockStore.notificationConfigs);
+    }
+    const repo = AppDataSource.getRepository(NotificationConfigEntity);
+    const configs = await repo.find({ order: { trigger: 'ASC' } });
+    return res.json(configs);
+  } catch (err: any) {
+    logger.error('[GET /notifications/configs]', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/notifications/configs
+router.post('/configs', async (req: Request, res: Response) => {
+  try {
+    const { trigger, channel, destination, filter, ownerOid, enabled } = req.body;
+    if (!trigger || !channel || !destination) {
+      return res.status(400).json({ error: 'trigger, channel, and destination are required' });
+    }
+
+    if (isMock()) {
+      const cfg = {
+        id: `notif-${Date.now()}`,
+        trigger, channel, destination,
+        filter: filter ?? null,
+        ownerOid: ownerOid ?? null,
+        enabled: enabled !== false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      mockStore.notificationConfigs.push(cfg);
+      return res.status(201).json(cfg);
+    }
+
+    const repo = AppDataSource.getRepository(NotificationConfigEntity);
+    const cfg = repo.create({ trigger, channel, destination, filter, ownerOid, enabled: enabled !== false });
+    const saved = await repo.save(cfg);
+    return res.status(201).json(saved);
+  } catch (err: any) {
+    logger.error('[POST /notifications/configs]', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/notifications/configs/:id
+router.patch('/configs/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+
+    if (isMock()) {
+      const idx = mockStore.notificationConfigs.findIndex((c: any) => c.id === id);
+      if (idx === -1) return res.status(404).json({ error: 'Not found' });
+      mockStore.notificationConfigs[idx] = { ...mockStore.notificationConfigs[idx], ...updates, updatedAt: new Date().toISOString() };
+      return res.json(mockStore.notificationConfigs[idx]);
+    }
+
+    const repo = AppDataSource.getRepository(NotificationConfigEntity);
+    const cfg = await repo.findOne({ where: { id } });
+    if (!cfg) return res.status(404).json({ error: 'Not found' });
+    Object.assign(cfg, updates);
+    const saved = await repo.save(cfg);
+    return res.json(saved);
+  } catch (err: any) {
+    logger.error('[PATCH /notifications/configs/:id]', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/notifications/configs/:id
+router.delete('/configs/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    if (isMock()) {
+      const idx = mockStore.notificationConfigs.findIndex((c: any) => c.id === id);
+      if (idx === -1) return res.status(404).json({ error: 'Not found' });
+      mockStore.notificationConfigs.splice(idx, 1);
+      return res.status(204).send();
+    }
+
+    const repo = AppDataSource.getRepository(NotificationConfigEntity);
+    const cfg = await repo.findOne({ where: { id } });
+    if (!cfg) return res.status(404).json({ error: 'Not found' });
+    await repo.remove(cfg);
+    return res.status(204).send();
+  } catch (err: any) {
+    logger.error('[DELETE /notifications/configs/:id]', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/notifications/test/:id — fire test notification using the config
+router.post('/test/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    let cfg: any;
+    if (isMock()) {
+      cfg = mockStore.notificationConfigs.find((c: any) => c.id === id);
+    } else {
+      cfg = await AppDataSource.getRepository(NotificationConfigEntity).findOne({ where: { id } });
+    }
+    if (!cfg) return res.status(404).json({ error: 'Config not found' });
+
+    await dispatchNotification({
+      trigger:      cfg.trigger,
+      title:        `[TEST] STIG Dashboard Notification Test`,
+      body:         `This is a test notification sent from the Azure STIG Dashboard.\nChannel: ${cfg.channel}\nTrigger configured: ${cfg.trigger}`,
+      severity:     'medium',
+      metadata:     { test: true, configId: id },
+    });
+
+    return res.json({ ok: true, message: `Test notification dispatched via ${cfg.channel} to ${cfg.destination}` });
+  } catch (err: any) {
+    logger.error('[POST /notifications/test/:id]', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+export default router;

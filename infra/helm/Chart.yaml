@@ -1,0 +1,15 @@
+apiVersion: v2
+name: azure-stig-dashboard
+description: Azure STIG Compliance Dashboard — production Helm chart for AKS
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - stig
+  - compliance
+  - azure
+  - security
+home: https://github.com/jstan13/azure-stig-dashboard
+maintainers:
+  - name: STIG Dashboard Team
+dependencies: []

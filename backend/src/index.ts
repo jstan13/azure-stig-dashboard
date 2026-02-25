@@ -26,6 +26,12 @@ import controlRouter from './routes/controls';
 import auditRouter from './routes/audit';
 import healthRouter from './routes/health';
 import stigsRouter from './routes/stigs';
+import poamsRouter from './routes/poams';
+import notificationsRouter from './routes/notifications';
+import remediationRouter from './routes/remediation';
+import complianceHistoryRouter from './routes/compliance-history';
+import usersRouter from './routes/users';
+import rmfRouter from './routes/rmf';
 
 import { startStigUpdateScheduler } from './stigs/stigUpdateScheduler';
 
@@ -83,6 +89,12 @@ app.use('/api/export', exportRouter);
 app.use('/api/controls', controlRouter);
 app.use('/api/audit', auditRouter);
 app.use('/api/stigs', stigsRouter);
+app.use('/api/poams', poamsRouter);
+app.use('/api/notifications', notificationsRouter);
+app.use('/api/remediation', remediationRouter);
+app.use('/api/compliance-history', complianceHistoryRouter);
+app.use('/api/users', usersRouter);
+app.use('/api/rmf', rmfRouter);
 
 // ─── Error handling ──────────────────────────────────────────────────────────
 app.use(errorHandler);

@@ -1,0 +1,183 @@
+# Default values for azure-stig-dashboard.
+# Override per-environment via: helm install ... -f values-prod.yaml
+
+replicaCount: 2
+
+image:
+  backend:
+    repository: your-acr.azurecr.io/stig-backend
+    pullPolicy: Always
+    tag: "latest"
+  frontend:
+    repository: your-acr.azurecr.io/stig-frontend
+    pullPolicy: Always
+    tag: "latest"
+
+imagePullSecrets:
+  - name: acr-pull-secret
+
+serviceAccount:
+  create: true
+  name: stig-dashboard-sa
+  annotations:
+    # Azure Workload Identity — replace with your managed identity client ID
+    azure.workload.identity/client-id: "00000000-0000-0000-0000-000000000000"
+  labels:
+    azure.workload.identity/use: "true"
+
+podAnnotations:
+  azure.workload.identity/use: "true"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+
+# ── Backend service ────────────────────────────────────────────────────────────
+backend:
+  enabled: true
+  port: 3001
+  env:
+    NODE_ENV: production
+    MOCK_MODE: "false"
+    DB_SSL: "true"
+    # Set these via sealed secrets / Azure Key Vault CSI / Helm --set
+    DATABASE_URL: ""
+    AZURE_TENANT_ID: ""
+    AZURE_CLIENT_ID: ""
+    SENDGRID_API_KEY: ""
+    SENDGRID_FROM_EMAIL: "stig-dashboard@noreply.local"
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 3001
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    failureThreshold: 3
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 3001
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    failureThreshold: 3
+
+# ── Frontend service ───────────────────────────────────────────────────────────
+frontend:
+  enabled: true
+  port: 80
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  livenessProbe:
+    httpGet:
+      path: /
+      port: 80
+    initialDelaySeconds: 10
+    periodSeconds: 15
+
+# ── Service ────────────────────────────────────────────────────────────────────
+service:
+  backend:
+    type: ClusterIP
+    port: 3001
+  frontend:
+    type: ClusterIP
+    port: 80
+
+# ── Ingress ────────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: stig-dashboard.example.com
+      paths:
+        - path: /api
+          pathType: Prefix
+          backend: backend
+        - path: /health
+          pathType: Prefix
+          backend: backend
+        - path: /
+          pathType: Prefix
+          backend: frontend
+  tls:
+    - secretName: stig-dashboard-tls
+      hosts:
+        - stig-dashboard.example.com
+
+# ── Horizontal Pod Autoscaler ──────────────────────────────────────────────────
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# ── Pod Disruption Budget ─────────────────────────────────────────────────────
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# ── PostgreSQL connection (managed via Azure Database for PostgreSQL Flexible) ─
+postgresql:
+  host: ""
+  port: 5432
+  database: stigdashboard
+  sslMode: require
+  # secretName contains keys: username, password
+  secretName: stig-db-credentials
+
+# ── Azure Key Vault CSI secrets ────────────────────────────────────────────────
+keyVault:
+  enabled: false
+  vaultName: ""
+  tenantId: ""
+  secrets:
+    - secretName: stig-backend-secrets
+      objects: |
+        array:
+          - |
+            objectName: SendgridApiKey
+            objectType: secret
+          - |
+            objectName: DatabaseUrl
+            objectType: secret
+
+# ── Node selector / tolerations ───────────────────────────────────────────────
+nodeSelector: {}
+tolerations: []
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - azure-stig-dashboard
+          topologyKey: kubernetes.io/hostname
