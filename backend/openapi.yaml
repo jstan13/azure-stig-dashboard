@@ -214,3 +214,134 @@ paths:
         - { name: action, in: query, schema: { type: string } }
       responses:
         '200': { description: OK }
+
+  # ─── STIG Library ────────────────────────────────────────────────────────────
+  /stigs:
+    get:
+      summary: List all STIG benchmarks
+      tags: [STIGs]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/StigBenchmark'
+                  total: { type: integer }
+
+  /stigs/import:
+    post:
+      summary: Trigger STIG content import from DISA
+      tags: [STIGs]
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                benchmarkTitles:
+                  type: array
+                  items: { type: string }
+                  description: Specific benchmark titles to import (omit for all defaults)
+                force:
+                  type: boolean
+                  default: false
+                  description: Re-import even if version is already active
+                dryRun:
+                  type: boolean
+                  default: false
+      responses:
+        '202': { description: Import started }
+        '401': { description: Unauthorized }
+        '403': { description: Forbidden }
+
+  /stigs/update-check:
+    post:
+      summary: Check DISA catalog for newer STIG versions
+      tags: [STIGs]
+      security:
+        - bearerAuth: []
+      responses:
+        '202': { description: Check started }
+        '409': { description: Check already in progress }
+
+  /stigs/update-check/status:
+    get:
+      summary: Get status of most recent update check
+      tags: [STIGs]
+      responses:
+        '200': { description: OK }
+
+  /stigs/{benchmarkId}:
+    get:
+      summary: Get benchmark details and version history
+      tags: [STIGs]
+      parameters:
+        - { name: benchmarkId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
+
+  /stigs/{benchmarkId}/controls:
+    get:
+      summary: List controls for a STIG benchmark
+      tags: [STIGs]
+      parameters:
+        - { name: benchmarkId, in: path, required: true, schema: { type: string } }
+        - { name: version, in: query, schema: { type: string }, description: 'e.g. V2R8 (defaults to active)' }
+        - { name: severity, in: query, schema: { type: string, enum: [high, medium, low] } }
+        - { name: checkType, in: query, schema: { type: string } }
+        - { name: q, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, default: 100 } }
+      responses:
+        '200': { description: OK }
+        '404': { description: Benchmark or version not found }
+
+  /stigs/{benchmarkId}/scan:
+    post:
+      summary: Trigger PowerSTIG audit scan for this STIG on all machines
+      tags: [STIGs]
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: benchmarkId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                machineIds:
+                  type: array
+                  items: { type: string }
+                  description: Specific machine IDs to scan (omit for all Windows machines)
+                version:
+                  type: string
+                  description: 'STIG version to use e.g. V2R8 (defaults to active)'
+      responses:
+        '202': { description: Scan triggered }
+        '404': { description: Benchmark not found }
+
+components:
+  schemas:
+    StigBenchmark:
+      type: object
+      properties:
+        benchmarkId:            { type: string, example: 'Windows_10_STIG' }
+        title:                  { type: string }
+        category:               { type: string, example: 'Operating System' }
+        platform:               { type: string, example: 'Windows' }
+        latestInstalledVersion: { type: string, nullable: true, example: 'V2R8' }
+        latestAvailableVersion: { type: string, nullable: true, example: 'V2R9' }
+        updateAvailable:        { type: boolean }
+        lastContentUpdate:      { type: string, format: date-time, nullable: true }
+        active:                 { type: boolean }
+

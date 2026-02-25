@@ -8,6 +8,8 @@ import InventoryPage from './pages/InventoryPage';
 import MachinePage from './pages/MachinePage';
 import GroupPage from './pages/GroupPage';
 import AuditPage from './pages/AuditPage';
+import StigLibraryPage from './pages/StigLibraryPage';
+import StigDetailPage from './pages/StigDetailPage';
 
 // Initialize Fluent UI icons
 initializeIcons();
@@ -32,6 +34,8 @@ export default function App() {
               <Route path="/machines/:id" element={<MachinePage />} />
               <Route path="/groups/:id" element={<GroupPage />} />
               <Route path="/audit" element={<AuditPage />} />
+              <Route path="/stigs" element={<StigLibraryPage />} />
+              <Route path="/stigs/:benchmarkId" element={<StigDetailPage />} />
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </main>

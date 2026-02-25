@@ -12,6 +12,9 @@ import { UserEntity } from '../models/User';
 import { RoleEntity } from '../models/Role';
 import { ExceptionEntity } from '../models/Exception';
 import { AuditLogEntity } from '../models/AuditLog';
+import { StigBenchmarkEntity } from '../models/StigBenchmark';
+import { StigVersionEntity } from '../models/StigVersion';
+import { PowerStigResultEntity } from '../models/PowerStigResult';
 
 const isMockMode = process.env.MOCK_MODE === 'true';
 
@@ -39,6 +42,9 @@ export const AppDataSource = new DataSource({
     RoleEntity,
     ExceptionEntity,
     AuditLogEntity,
+    StigBenchmarkEntity,
+    StigVersionEntity,
+    PowerStigResultEntity,
   ],
   migrations: ['dist/database/migrations/*.js'],
   migrationsTableName: 'migrations',
