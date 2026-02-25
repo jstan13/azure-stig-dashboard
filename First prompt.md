@@ -56,6 +56,7 @@ Create a full‑stack TypeScript project named "azure-stig-dashboard" that imple
   - `POST /api/export/checklist` — generate and return `.ckl` or JSON.
   - `GET /api/controls` — list controls and mappings.
 - Implement pagination, filtering, and role checks.
+- get updates from quarterly PowerSTIG and DISA updates to ensure continued coverage.
 
 8) CI/CD and Deploy to Azure
 - Add `azuredeploy.json` or `main.bicep` that provisions:
