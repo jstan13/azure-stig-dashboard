@@ -61,7 +61,8 @@ export class ResourceGraphConnector extends BaseConnector {
 
   private getClient(): ResourceGraphClient {
     if (!this.client) {
-      this.client = new ResourceGraphClient(new DefaultAzureCredential());
+      const { azureClientOptions } = require('./azureClientOptions');
+      this.client = new ResourceGraphClient(new DefaultAzureCredential(), azureClientOptions());
     }
     return this.client;
   }

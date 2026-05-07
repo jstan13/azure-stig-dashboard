@@ -1,21 +1,31 @@
 {
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-  "contentVersion": "1.0.0.0",
+  "contentVersion": "1.1.0.0",
   "metadata": {
-    "description": "Azure STIG Dashboard — deploys App Service (backend+frontend), PostgreSQL Flexible Server, and Application Insights."
+    "description": "Azure STIG Dashboard \u2014 deploys App Service (backend+frontend), PostgreSQL Flexible Server, and Application Insights. Cloud-aware: works in Azure Commercial (portal.azure.com) and Azure US Government (portal.azure.us)."
   },
   "parameters": {
     "baseName": {
       "type": "string",
       "minLength": 3,
-      "maxLength": 20,
+      "maxLength": 14,
       "defaultValue": "stigdash",
-      "metadata": { "description": "Base name for all resources (lowercase alphanumeric)." }
+      "metadata": { "description": "Organization / resource name prefix (lowercase alphanumeric, must start with a letter)." }
     },
     "location": {
       "type": "string",
       "defaultValue": "[resourceGroup().location]",
-      "metadata": { "description": "Azure region." }
+      "metadata": { "description": "Azure region. Must belong to the selected cloudEnvironment." }
+    },
+    "cloudEnvironment": {
+      "type": "string",
+      "defaultValue": "AzureCloud",
+      "allowedValues": [
+        "AzureCloud",
+        "AzureUSGovernment",
+        "AzureUSGovernmentDoD"
+      ],
+      "metadata": { "description": "Target Azure cloud. Drives App Service / Postgres / Microsoft Entra hostname suffixes." }
     },
     "appServiceSku": {
       "type": "string",
@@ -25,15 +35,15 @@
     },
     "azureTenantId": {
       "type": "string",
-      "metadata": { "description": "Azure AD tenant ID." }
+      "metadata": { "description": "Microsoft Entra (Azure AD) tenant ID." }
     },
     "azureClientId": {
       "type": "string",
-      "metadata": { "description": "Azure AD app registration client ID." }
+      "metadata": { "description": "Microsoft Entra app registration (client) ID." }
     },
     "azureClientSecret": {
       "type": "securestring",
-      "metadata": { "description": "Azure AD app registration client secret." }
+      "metadata": { "description": "Microsoft Entra app registration client secret." }
     },
     "dbAdminLogin": {
       "type": "string",
@@ -42,22 +52,33 @@
     },
     "dbAdminPassword": {
       "type": "securestring",
-      "metadata": { "description": "PostgreSQL admin password (min 8 chars)." }
+      "metadata": { "description": "PostgreSQL admin password (12+ chars, complexity required)." }
     },
     "mockMode": {
       "type": "bool",
       "defaultValue": false,
-      "metadata": { "description": "Set to true to run without real Azure subscription data." }
+      "metadata": { "description": "Set to true to run without real Azure subscription data (demo only). MUST be false in production." }
+    },
+    "strictTraceability": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": { "description": "Enforce constitution Principle IV / FR-009: every exported finding must carry a complete mappingChain." }
     }
   },
   "variables": {
-    "planName":    "[concat(parameters('baseName'), '-plan')]",
-    "backendName": "[concat(parameters('baseName'), '-api')]",
-    "frontendName":"[concat(parameters('baseName'), '-web')]",
-    "dbServerName":"[concat(parameters('baseName'), '-pg')]",
-    "dbName":      "stigdashboard",
-    "aiName":      "[concat(parameters('baseName'), '-ai')]",
-    "dbConnectionString": "[concat('postgresql://', parameters('dbAdminLogin'), ':', parameters('dbAdminPassword'), '@', variables('dbServerName'), '.postgres.database.azure.com:5432/', variables('dbName'), '?sslmode=require')]"
+    "isGov":         "[or(equals(parameters('cloudEnvironment'),'AzureUSGovernment'), equals(parameters('cloudEnvironment'),'AzureUSGovernmentDoD'))]",
+    "appHostSuffix": "[if(variables('isGov'), 'azurewebsites.us', 'azurewebsites.net')]",
+    "pgHostSuffix":  "[if(variables('isGov'), 'postgres.database.usgovcloudapi.net', 'postgres.database.azure.com')]",
+    "authorityHost": "[if(variables('isGov'), 'https://login.microsoftonline.us', 'https://login.microsoftonline.com')]",
+    "graphHost":     "[if(variables('isGov'), 'https://graph.microsoft.us', 'https://graph.microsoft.com')]",
+    "armHost":       "[if(variables('isGov'), 'https://management.usgovcloudapi.net', 'https://management.azure.com')]",
+    "planName":     "[concat(parameters('baseName'), '-stig-plan')]",
+    "backendName":  "[concat(parameters('baseName'), '-stig-api')]",
+    "frontendName": "[concat(parameters('baseName'), '-stig-web')]",
+    "dbServerName": "[concat(parameters('baseName'), '-stig-pg')]",
+    "dbName":       "stigdashboard",
+    "aiName":       "[concat(parameters('baseName'), '-stig-ai')]",
+    "dbConnectionString": "[concat('postgresql://', parameters('dbAdminLogin'), ':', parameters('dbAdminPassword'), '@', variables('dbServerName'), '.', variables('pgHostSuffix'), ':5432/', variables('dbName'), '?sslmode=require')]"
   },
   "resources": [
     {
@@ -77,23 +98,16 @@
       "apiVersion": "2023-01-01",
       "name": "[variables('planName')]",
       "location": "[parameters('location')]",
-      "sku": {
-        "name": "[parameters('appServiceSku')]"
-      },
+      "sku": { "name": "[parameters('appServiceSku')]" },
       "kind": "linux",
-      "properties": {
-        "reserved": true
-      }
+      "properties": { "reserved": true }
     },
     {
       "type": "Microsoft.DBforPostgreSQL/flexibleServers",
       "apiVersion": "2023-06-01-preview",
       "name": "[variables('dbServerName')]",
       "location": "[parameters('location')]",
-      "sku": {
-        "name": "Standard_B1ms",
-        "tier": "Burstable"
-      },
+      "sku": { "name": "Standard_B1ms", "tier": "Burstable" },
       "properties": {
         "administratorLogin": "[parameters('dbAdminLogin')]",
         "administratorLoginPassword": "[parameters('dbAdminPassword')]",
@@ -105,16 +119,25 @@
       }
     },
     {
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers/firewallRules",
+      "apiVersion": "2023-06-01-preview",
+      "name": "[concat(variables('dbServerName'), '/AllowAzureServices')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('dbServerName'))]"
+      ],
+      "properties": {
+        "startIpAddress": "0.0.0.0",
+        "endIpAddress":   "0.0.0.0"
+      }
+    },
+    {
       "type": "Microsoft.DBforPostgreSQL/flexibleServers/databases",
       "apiVersion": "2023-06-01-preview",
       "name": "[concat(variables('dbServerName'), '/', variables('dbName'))]",
       "dependsOn": [
         "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('dbServerName'))]"
       ],
-      "properties": {
-        "charset": "UTF8",
-        "collation": "en_US.utf8"
-      }
+      "properties": { "charset": "UTF8", "collation": "en_US.utf8" }
     },
     {
       "type": "Microsoft.Web/sites",
@@ -132,18 +155,24 @@
         "httpsOnly": true,
         "siteConfig": {
           "linuxFxVersion": "NODE|20-lts",
+          "alwaysOn": "[not(equals(parameters('appServiceSku'),'F1'))]",
           "http20Enabled": true,
           "minTlsVersion": "1.2",
           "appSettings": [
             { "name": "NODE_ENV",                       "value": "production" },
             { "name": "MOCK_MODE",                      "value": "[if(parameters('mockMode'), 'true', 'false')]" },
+            { "name": "STRICT_TRACEABILITY",            "value": "[if(parameters('strictTraceability'), 'true', 'false')]" },
+            { "name": "AZURE_CLOUD",                    "value": "[parameters('cloudEnvironment')]" },
+            { "name": "AZURE_AUTHORITY_HOST",           "value": "[variables('authorityHost')]" },
+            { "name": "AZURE_GRAPH_ENDPOINT",           "value": "[variables('graphHost')]" },
+            { "name": "AZURE_ARM_ENDPOINT",             "value": "[variables('armHost')]" },
             { "name": "AZURE_TENANT_ID",                "value": "[parameters('azureTenantId')]" },
             { "name": "AZURE_CLIENT_ID",                "value": "[parameters('azureClientId')]" },
             { "name": "AZURE_CLIENT_SECRET",            "value": "[parameters('azureClientSecret')]" },
             { "name": "DATABASE_URL",                   "value": "[variables('dbConnectionString')]" },
             { "name": "DB_SSL",                         "value": "true" },
             { "name": "APPINSIGHTS_INSTRUMENTATIONKEY", "value": "[reference(resourceId('Microsoft.Insights/components', variables('aiName')), '2020-02-02').InstrumentationKey]" },
-            { "name": "FRONTEND_URL",                   "value": "[concat('https://', variables('frontendName'), '.azurewebsites.net')]" },
+            { "name": "FRONTEND_URL",                   "value": "[concat('https://', variables('frontendName'), '.', variables('appHostSuffix'))]" },
             { "name": "WEBSITE_NODE_DEFAULT_VERSION",   "value": "~20" },
             { "name": "SCM_DO_BUILD_DURING_DEPLOYMENT", "value": "true" }
           ]
@@ -166,23 +195,24 @@
           "http20Enabled": true,
           "minTlsVersion": "1.2",
           "appSettings": [
-            { "name": "VITE_AZURE_CLIENT_ID", "value": "[parameters('azureClientId')]" },
-            { "name": "VITE_AZURE_TENANT_ID", "value": "[parameters('azureTenantId')]" },
-            { "name": "VITE_API_URL",         "value": "[concat('https://', variables('backendName'), '.azurewebsites.net/api')]" },
-            { "name": "VITE_MOCK_MODE",       "value": "[if(parameters('mockMode'), 'true', 'false')]" }
+            { "name": "VITE_AZURE_CLIENT_ID",      "value": "[parameters('azureClientId')]" },
+            { "name": "VITE_AZURE_TENANT_ID",      "value": "[parameters('azureTenantId')]" },
+            { "name": "VITE_AZURE_CLOUD",          "value": "[parameters('cloudEnvironment')]" },
+            { "name": "VITE_AZURE_AUTHORITY_HOST", "value": "[variables('authorityHost')]" },
+            { "name": "VITE_API_URL",              "value": "[concat('https://', variables('backendName'), '.', variables('appHostSuffix'), '/api')]" },
+            { "name": "VITE_MOCK_MODE",            "value": "[if(parameters('mockMode'), 'true', 'false')]" }
           ]
         }
       }
     }
   ],
   "outputs": {
-    "backendUrl": {
+    "cloudEnvironment": { "type": "string", "value": "[parameters('cloudEnvironment')]" },
+    "backendUrl":  { "type": "string", "value": "[concat('https://', variables('backendName'), '.', variables('appHostSuffix'))]" },
+    "frontendUrl": { "type": "string", "value": "[concat('https://', variables('frontendName'), '.', variables('appHostSuffix'))]" },
+    "redirectUriToConfigure": {
       "type": "string",
-      "value": "[concat('https://', reference(resourceId('Microsoft.Web/sites', variables('backendName'))).defaultHostName)]"
-    },
-    "frontendUrl": {
-      "type": "string",
-      "value": "[concat('https://', reference(resourceId('Microsoft.Web/sites', variables('frontendName'))).defaultHostName)]"
+      "value": "[concat('https://', variables('frontendName'), '.', variables('appHostSuffix'))]"
     },
     "backendPrincipalId": {
       "type": "string",

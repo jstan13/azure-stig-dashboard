@@ -54,7 +54,7 @@ export class ARMConnector extends BaseConnector {
     if (!this.clients.has(subscriptionId)) {
       this.clients.set(
         subscriptionId,
-        new ComputeManagementClient(new DefaultAzureCredential(), subscriptionId),
+        new ComputeManagementClient(new DefaultAzureCredential(), subscriptionId, require('./azureClientOptions').azureClientOptions()),
       );
     }
     return this.clients.get(subscriptionId)!;
@@ -64,7 +64,7 @@ export class ARMConnector extends BaseConnector {
     if (!this.hybridClients.has(subscriptionId)) {
       this.hybridClients.set(
         subscriptionId,
-        new HybridComputeManagementClient(new DefaultAzureCredential(), subscriptionId),
+        new HybridComputeManagementClient(new DefaultAzureCredential(), subscriptionId, require('./azureClientOptions').azureClientOptions()),
       );
     }
     return this.hybridClients.get(subscriptionId)!;
