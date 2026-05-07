@@ -1,0 +1,644 @@
+openapi: 3.0.3
+info:
+  title: Azure STIG Dashboard API
+  version: 1.0.0
+  description: |
+    REST API for the Azure STIG Dashboard. Authoritative contract for the
+    backend; client types are generated from this file. See
+    [spec.md](../spec.md) for the user-facing specification and
+    [data-model.md](../data-model.md) for the entity model.
+servers:
+  - url: https://{host}/api
+    variables:
+      host:
+        default: localhost:3001
+security:
+  - bearerAuth: []
+tags:
+  - { name: auth }
+  - { name: collections }
+  - { name: assets }
+  - { name: scans }
+  - { name: findings }
+  - { name: exceptions }
+  - { name: poams }
+  - { name: exports }
+  - { name: imports }
+  - { name: content }
+  - { name: audit }
+  - { name: ops }
+paths:
+  /healthz:
+    get:
+      tags: [ops]
+      security: []
+      summary: Liveness probe
+      responses: { '200': { description: alive } }
+  /readyz:
+    get:
+      tags: [ops]
+      security: []
+      summary: Readiness probe (DB, identity, content cache)
+      responses:
+        '200': { description: ready }
+        '503': { description: not ready }
+
+  /me:
+    get:
+      tags: [auth]
+      summary: Current user with effective roles per Collection
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+
+  /collections:
+    get:
+      tags: [collections]
+      summary: List Collections visible to the caller
+      parameters:
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/PageToken'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CollectionPage' }
+    post:
+      tags: [collections]
+      summary: Create a Collection (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CollectionInput' }
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Collection' }
+
+  /collections/{collectionId}:
+    parameters: [{ $ref: '#/components/parameters/CollectionId' }]
+    get:
+      tags: [collections]
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Collection' }
+    patch:
+      tags: [collections]
+      summary: Update Collection (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CollectionInput' }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Collection' }
+
+  /collections/{collectionId}/assets:
+    parameters: [{ $ref: '#/components/parameters/CollectionId' }]
+    get:
+      tags: [assets]
+      summary: List Assets in a Collection
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/AssetLifecycle' } }
+        - { name: resourceType, in: query, schema: { $ref: '#/components/schemas/ResourceType' } }
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/PageToken'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssetPage' }
+
+  /collections/{collectionId}/compliance:
+    parameters: [{ $ref: '#/components/parameters/CollectionId' }]
+    get:
+      tags: [collections]
+      summary: Aggregate compliance rollup
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComplianceRollup' }
+
+  /assets/{assetId}:
+    parameters: [{ $ref: '#/components/parameters/AssetId' }]
+    get:
+      tags: [assets]
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Asset' }
+
+  /assets/{assetId}/findings:
+    parameters: [{ $ref: '#/components/parameters/AssetId' }]
+    get:
+      tags: [findings]
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/FindingStatus' } }
+        - { name: severity, in: query, schema: { $ref: '#/components/schemas/Severity' } }
+        - { name: benchmarkVersionId, in: query, schema: { type: string } }
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/PageToken'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FindingPage' }
+
+  /findings/{findingId}:
+    parameters: [{ $ref: '#/components/parameters/FindingId' }]
+    get:
+      tags: [findings]
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Finding' }
+    patch:
+      tags: [findings]
+      summary: Update Finding status, comments, or severity override (operator/admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FindingUpdate' }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Finding' }
+
+  /scans:
+    post:
+      tags: [scans]
+      summary: Trigger a scan (operator/admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScanRequest' }
+      responses:
+        '202':
+          description: accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScanBatch' }
+
+  /scans/{scanId}:
+    parameters: [{ name: scanId, in: path, required: true, schema: { type: string } }]
+    get:
+      tags: [scans]
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Scan' }
+
+  /exceptions:
+    get:
+      tags: [exceptions]
+      parameters:
+        - { name: collectionId, in: query, required: true, schema: { type: string } }
+        - { name: state, in: query, schema: { $ref: '#/components/schemas/ExceptionState' } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Exception' }
+    post:
+      tags: [exceptions]
+      summary: Submit an Exception (operator/admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExceptionInput' }
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Exception' }
+
+  /exceptions/{exceptionId}/decision:
+    parameters: [{ name: exceptionId, in: path, required: true, schema: { type: string } }]
+    post:
+      tags: [exceptions]
+      summary: Approve or reject an Exception (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [approve, reject] }
+                notes: { type: string }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Exception' }
+
+  /poams:
+    post:
+      tags: [poams]
+      summary: Create a POA&M (operator/admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/POAMInput' }
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/POAM' }
+
+  /exports:
+    post:
+      tags: [exports]
+      summary: Generate an export (auditor/operator/admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExportRequest' }
+      responses:
+        '200':
+          description: file
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+            application/xml:
+              schema: { type: string }
+            text/csv:
+              schema: { type: string }
+
+  /imports/ckl:
+    post:
+      tags: [imports]
+      summary: Import an external CKL/CKLB (operator/admin)
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        '202':
+          description: accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportResult' }
+
+  /content/packs:
+    get:
+      tags: [content]
+      summary: List ContentPacks (admin)
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ContentPack' }
+  /content/packs/{packId}/activate:
+    parameters: [{ name: packId, in: path, required: true, schema: { type: string } }]
+    post:
+      tags: [content]
+      summary: Activate a verified ContentPack (admin)
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContentPack' }
+
+  /audit:
+    get:
+      tags: [audit]
+      summary: Query audit log
+      parameters:
+        - { name: collectionId, in: query, schema: { type: string } }
+        - { name: actorUserId, in: query, schema: { type: string } }
+        - { name: entityType, in: query, schema: { type: string } }
+        - { name: entityId, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/PageToken'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditLogPage' }
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  parameters:
+    PageSize: { name: pageSize, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+    PageToken: { name: pageToken, in: query, schema: { type: string } }
+    CollectionId: { name: collectionId, in: path, required: true, schema: { type: string } }
+    AssetId: { name: assetId, in: path, required: true, schema: { type: string } }
+    FindingId: { name: findingId, in: path, required: true, schema: { type: string } }
+  schemas:
+    Me:
+      type: object
+      properties:
+        userId: { type: string }
+        upn: { type: string }
+        displayName: { type: string }
+        roles:
+          type: array
+          items:
+            type: object
+            properties:
+              collectionId: { type: string }
+              role: { $ref: '#/components/schemas/RoleName' }
+    RoleName: { type: string, enum: [admin, operator, auditor] }
+    AssetLifecycle: { type: string, enum: [Active, Stale, Retired] }
+    ResourceType: { type: string, enum: [AzureVm, ArcMachine, Aks, ArcK8s, AppService, SqlDb, StorageAccount, KeyVault, Other] }
+    FindingStatus: { type: string, enum: [Open, NotAFinding, Not_Applicable, Not_Reviewed] }
+    Severity: { type: string, enum: [CAT_I, CAT_II, CAT_III] }
+    ExceptionState: { type: string, enum: [Pending, Approved, Rejected, Expired, Revoked] }
+    ExportFormat: { type: string, enum: [ckl, cklb, xccdf, oscal, csv] }
+    Page:
+      type: object
+      properties:
+        nextPageToken: { type: string, nullable: true }
+    Collection:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        selectionMode: { type: string, enum: [Tag, Explicit] }
+        assetCount: { type: integer }
+    CollectionInput:
+      type: object
+      required: [name, selectionMode]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        selectionMode: { type: string, enum: [Tag, Explicit] }
+        tagRule: { type: object, additionalProperties: true }
+    CollectionPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/Collection' } }
+    Asset:
+      type: object
+      properties:
+        id: { type: string }
+        azureResourceId: { type: string }
+        resourceType: { $ref: '#/components/schemas/ResourceType' }
+        displayName: { type: string }
+        hostname: { type: string, nullable: true }
+        fqdn: { type: string, nullable: true }
+        primaryIp: { type: string, nullable: true }
+        primaryMac: { type: string, nullable: true }
+        os:
+          type: object
+          nullable: true
+          properties:
+            family: { type: string }
+            version: { type: string }
+            edition: { type: string, nullable: true }
+            kernel: { type: string, nullable: true }
+        roles: { type: array, items: { type: string } }
+        techAreas: { type: array, items: { type: string } }
+        tags: { type: object, additionalProperties: { type: string } }
+        lifecycle: { $ref: '#/components/schemas/AssetLifecycle' }
+        lastSeenAt: { type: string, format: date-time }
+    AssetPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/Asset' } }
+    Finding:
+      type: object
+      properties:
+        id: { type: string }
+        scanId: { type: string }
+        assetId: { type: string }
+        ruleId: { type: string }
+        vulnNum: { type: string }
+        ruleDisaId: { type: string }
+        benchmarkVersionId: { type: string }
+        benchmarkSha256: { type: string }
+        status: { $ref: '#/components/schemas/FindingStatus' }
+        severity: { $ref: '#/components/schemas/Severity' }
+        severityOverride: { $ref: '#/components/schemas/Severity', nullable: true }
+        findingDetails: { type: string }
+        comments: { type: string }
+        evidence: { type: object, additionalProperties: true }
+        mappingChain:
+          type: object
+          properties:
+            source: { type: string }
+            cciRefs: { type: array, items: { type: string } }
+            nistControls: { type: array, items: { type: string } }
+        producedAt: { type: string, format: date-time }
+        lastEditedAt: { type: string, format: date-time, nullable: true }
+    FindingUpdate:
+      type: object
+      properties:
+        status: { $ref: '#/components/schemas/FindingStatus' }
+        severityOverride: { $ref: '#/components/schemas/Severity', nullable: true }
+        findingDetails: { type: string }
+        comments: { type: string }
+    FindingPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/Finding' } }
+    ScanRequest:
+      type: object
+      required: [scope]
+      properties:
+        scope:
+          oneOf:
+            - { type: object, required: [collectionId], properties: { collectionId: { type: string } } }
+            - { type: object, required: [assetIds], properties: { assetIds: { type: array, items: { type: string } } } }
+        benchmarkVersionIds:
+          type: array
+          items: { type: string }
+          description: Optional explicit list; defaults to all applicable activated benchmarks
+    Scan:
+      type: object
+      properties:
+        id: { type: string }
+        assetId: { type: string }
+        benchmarkVersionId: { type: string }
+        state: { type: string, enum: [Queued, Evaluating, Evaluated, Failed, PartiallyEvaluated] }
+        startedAt: { type: string, format: date-time, nullable: true }
+        completedAt: { type: string, format: date-time, nullable: true }
+        failureReason: { type: string, nullable: true }
+        correlationId: { type: string }
+    ScanBatch:
+      type: object
+      properties:
+        batchId: { type: string }
+        scans:
+          type: array
+          items: { $ref: '#/components/schemas/Scan' }
+    Exception:
+      type: object
+      properties:
+        id: { type: string }
+        collectionId: { type: string }
+        state: { $ref: '#/components/schemas/ExceptionState' }
+        justification: { type: string }
+        expiresAt: { type: string, format: date-time }
+        targets:
+          type: array
+          items:
+            type: object
+            properties:
+              ruleId: { type: string }
+              assetId: { type: string, nullable: true }
+        requestedBy: { type: string }
+        approvedBy: { type: string, nullable: true }
+        decidedAt: { type: string, format: date-time, nullable: true }
+    ExceptionInput:
+      type: object
+      required: [collectionId, justification, expiresAt, targets]
+      properties:
+        collectionId: { type: string }
+        justification: { type: string }
+        expiresAt: { type: string, format: date-time }
+        targets:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [ruleId]
+            properties:
+              ruleId: { type: string }
+              assetId: { type: string, nullable: true }
+    POAM:
+      type: object
+      properties:
+        id: { type: string }
+        findingId: { type: string }
+        assignedTo: { type: string }
+        targetDate: { type: string, format: date }
+        milestones: { type: array, items: { type: object, additionalProperties: true } }
+        state: { type: string, enum: [Open, Closed, Overdue] }
+    POAMInput:
+      type: object
+      required: [findingId, assignedTo, targetDate]
+      properties:
+        findingId: { type: string }
+        assignedTo: { type: string }
+        targetDate: { type: string, format: date }
+        milestones: { type: array, items: { type: object, additionalProperties: true } }
+    ExportRequest:
+      type: object
+      required: [format, scope]
+      properties:
+        format: { $ref: '#/components/schemas/ExportFormat' }
+        scope:
+          oneOf:
+            - { type: object, required: [assetId], properties: { assetId: { type: string }, scanId: { type: string } } }
+            - { type: object, required: [collectionId], properties: { collectionId: { type: string } } }
+    ImportResult:
+      type: object
+      properties:
+        importId: { type: string }
+        accepted: { type: integer }
+        rejected: { type: integer }
+        warnings: { type: array, items: { type: string } }
+    ContentPack:
+      type: object
+      properties:
+        id: { type: string }
+        pulledAt: { type: string, format: date-time }
+        manifestUri: { type: string }
+        manifestSha256: { type: string }
+        verifiedBy: { type: string }
+        state: { type: string, enum: [Pending, Active, Rejected] }
+        diffSummary:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              added: { type: integer }
+              changed: { type: integer }
+              removed: { type: integer }
+    ComplianceRollup:
+      type: object
+      properties:
+        collectionId: { type: string }
+        assetCount: { type: integer }
+        statusCounts:
+          type: object
+          properties:
+            Open: { type: integer }
+            NotAFinding: { type: integer }
+            Not_Applicable: { type: integer }
+            Not_Reviewed: { type: integer }
+        severityCounts:
+          type: object
+          properties:
+            CAT_I: { type: integer }
+            CAT_II: { type: integer }
+            CAT_III: { type: integer }
+        compliancePercent: { type: number, format: float }
+    AuditLogEntry:
+      type: object
+      properties:
+        id: { type: string }
+        actorUserId: { type: string, nullable: true }
+        actorRole: { type: string }
+        action: { type: string }
+        entityType: { type: string }
+        entityId: { type: string }
+        result: { type: string, enum: [Success, Denied, Error] }
+        before: { type: object, nullable: true, additionalProperties: true }
+        after: { type: object, nullable: true, additionalProperties: true }
+        correlationId: { type: string }
+        sourceIp: { type: string }
+        occurredAt: { type: string, format: date-time }
+        recordedAt: { type: string, format: date-time }
+    AuditLogPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/AuditLogEntry' } }
