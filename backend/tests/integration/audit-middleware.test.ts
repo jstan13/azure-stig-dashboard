@@ -12,8 +12,14 @@
  * Azure-deployed instance via the smoke step in that workflow.
  */
 import request from 'supertest';
-import app from '../../../src/index';
-import { mockAuditWriter } from '../../../src/auth/writers';
+import app from '../../src/index';
+import { mockAuditWriter } from '../../src/auth/writers';
+import { mockStore } from '../../src/database/dataSource';
+import { seedMock } from '../../src/database/mockSeed';
+
+beforeAll(() => {
+  seedMock(mockStore);
+});
 
 describe('audit + correlation middleware', () => {
   beforeEach(() => {
@@ -45,5 +51,28 @@ describe('audit + correlation middleware', () => {
     expect(res.status).toBe(200);
     // Public routes do not flow through auditMiddleware.
     expect(res.headers['x-correlation-id']).toBeUndefined();
+  });
+
+  it('records a Success audit entry when POST /api/export/checklist succeeds', async () => {
+    const machineId = mockStore.machines[0]?.id;
+    expect(machineId).toBeTruthy();
+
+    const res = await request(app)
+      .post('/api/export/checklist')
+      .set('x-correlation-id', 'corr-export-1')
+      .send({ machineId, format: 'json' });
+
+    expect(res.status).toBe(200);
+
+    const entry = mockAuditWriter.entries.find(
+      (e) => e.correlationId === 'corr-export-1',
+    );
+    expect(entry).toBeDefined();
+    expect(entry).toMatchObject({
+      action: 'checklist.exported',
+      entityType: 'machine',
+      entityId: machineId,
+      result: 'Success',
+    });
   });
 });
