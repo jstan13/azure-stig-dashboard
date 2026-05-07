@@ -2,14 +2,16 @@
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
   "contentVersion": "1.0.0.0",
   "parameters": {
-    "baseName":          { "value": "${AZURE_BASE_NAME=stigdash}" },
-    "location":          { "value": "${AZURE_LOCATION}" },
-    "appServiceSku":     { "value": "${APP_SERVICE_SKU=B1}" },
-    "azureTenantId":     { "value": "${AZURE_TENANT_ID}" },
-    "azureClientId":     { "value": "${AZURE_CLIENT_ID}" },
-    "azureClientSecret": { "value": "${AZURE_CLIENT_SECRET}" },
-    "dbAdminLogin":      { "value": "${DB_ADMIN_LOGIN=stigadmin}" },
-    "dbAdminPassword":   { "value": "${DB_ADMIN_PASSWORD}" },
-    "mockMode":          { "value": "${MOCK_MODE=false}" }
+    "baseName":           { "value": "${AZURE_BASE_NAME=stigdash}" },
+    "location":           { "value": "${AZURE_LOCATION}" },
+    "cloudEnvironment":   { "value": "${AZURE_CLOUD_ENVIRONMENT=AzureCloud}" },
+    "appServiceSku":      { "value": "${APP_SERVICE_SKU=B1}" },
+    "azureTenantId":      { "value": "${AZURE_TENANT_ID}" },
+    "azureClientId":      { "value": "${AZURE_CLIENT_ID}" },
+    "azureClientSecret":  { "value": "${AZURE_CLIENT_SECRET}" },
+    "dbAdminLogin":       { "value": "${DB_ADMIN_LOGIN=stigadmin}" },
+    "dbAdminPassword":    { "value": "${DB_ADMIN_PASSWORD}" },
+    "mockMode":           { "value": "${MOCK_MODE=false}" },
+    "strictTraceability": { "value": "${STRICT_TRACEABILITY=true}" }
   }
 }

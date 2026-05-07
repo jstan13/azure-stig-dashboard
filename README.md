@@ -2,9 +2,18 @@
 
 A production-ready full-stack TypeScript dashboard for tracking STIG compliance of Azure workloads. Ingests data from Azure Resource Graph, Azure Policy, Microsoft Defender for Cloud, and ARM, normalises findings against STIG controls, and produces STIG Viewer-compatible `.ckl` exports.
 
-[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FYOUR_ORG%2Fazure-stig-dashboard%2Fmain%2Finfra%2Fazuredeploy.json)
+### Deploy to Azure
 
-> **Replace `YOUR_ORG`** in the Deploy to Azure button URL with your GitHub organisation or username before publishing the repo.
+The deployment wizard prompts for your **Organization name**, **Azure cloud environment** (Commercial / US Gov / DoD), region, app registration, and database password — no script edits required.
+
+| Cloud | Button |
+|---|---|
+| **Azure Commercial** (`portal.azure.com`) | [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fjstan13%2Fazure-stig-dashboard%2Fmain%2Finfra%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fraw.githubusercontent.com%2Fjstan13%2Fazure-stig-dashboard%2Fmain%2Finfra%2FcreateUiDefinition.json) |
+| **Azure US Government** (`portal.azure.us`) | [![Deploy to Azure US Gov](https://aka.ms/deploytoazuregovbutton)](https://portal.azure.us/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fjstan13%2Fazure-stig-dashboard%2Fmain%2Finfra%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fraw.githubusercontent.com%2Fjstan13%2Fazure-stig-dashboard%2Fmain%2Finfra%2FcreateUiDefinition.json) |
+
+> The two buttons load the **same** template + UI definition; the difference is which sovereign portal hosts the deployment blade. Choose the one matching the cloud your tenant lives in. Inside the wizard you can still pick `AzureCloud`, `AzureUSGovernment`, or `AzureUSGovernmentDoD` — the template will adjust App Service hostnames (`.azurewebsites.net` vs `.azurewebsites.us`), the PostgreSQL DNS zone, and the Microsoft Entra authority (`login.microsoftonline.com` vs `login.microsoftonline.us`) accordingly.
+
+> If you forked this repo, replace `jstan13/azure-stig-dashboard` in the URLs with `<your-org>/<your-repo>` (the URL must be reachable as a raw `main`-branch file).
 
 ---
 
@@ -110,23 +119,45 @@ Open http://localhost:5173. You are signed in automatically as **Demo Admin** in
 
 ## One-click Deploy to Azure
 
-Click the button at the top of this README. The ARM template provisions:
+Click one of the buttons at the top of this README — Commercial uses `portal.azure.com`, US Gov uses `portal.azure.us`. The portal renders a four-step wizard powered by [`infra/createUiDefinition.json`](infra/createUiDefinition.json):
+
+1. **Basics** — Organization name (resource prefix), Azure cloud environment, region, App Service SKU, MOCK mode toggle.
+2. **Microsoft Entra sign-in** — Tenant ID, app registration client ID + secret.
+3. **PostgreSQL** — admin login + complex password.
+4. **Review + create**.
+
+The ARM template provisions:
 
 | Resource | SKU / tier |
 |---|---|
 | App Service Plan | B1 Linux (configurable) |
 | Backend App Service | Node 20 LTS |
-| Frontend App Service | nginx static |
-| PostgreSQL Flexible Server | Burstable B1ms |
+| Frontend App Service | Node 20 LTS (Vite static bundle) |
+| PostgreSQL Flexible Server | Burstable B1ms + `AllowAzureServices` firewall rule |
 | Application Insights | Pay-as-you-go |
 
+### Sovereign cloud support (Azure US Gov / DoD)
+
+The template is fully cloud-aware. Selecting `AzureUSGovernment` or `AzureUSGovernmentDoD` in the wizard automatically substitutes:
+
+| Resource | Commercial | Azure US Gov |
+|---|---|---|
+| App Service hostname | `*.azurewebsites.net` | `*.azurewebsites.us` |
+| PostgreSQL DNS | `*.postgres.database.azure.com` | `*.postgres.database.usgovcloudapi.net` |
+| Microsoft Entra authority | `login.microsoftonline.com` | `login.microsoftonline.us` |
+| ARM endpoint | `management.azure.com` | `management.usgovcloudapi.net` |
+| Microsoft Graph | `graph.microsoft.com` | `graph.microsoft.us` |
+
+The backend reads `AZURE_AUTHORITY_HOST`, `AZURE_ARM_ENDPOINT`, and `AZURE_GRAPH_ENDPOINT` from app settings, so JWT validation, JWKS fetches, and Azure SDK clients all target the correct sovereign endpoints automatically.
+
 **Before deploying** you must:
-1. Complete the [Azure AD app registration](#azure-ad-app-registration) steps.
-2. Have your Tenant ID and Client IDs ready to paste into the deployment form.
+1. Complete the [Azure AD app registration](#azure-ad-app-registration) steps **inside the matching tenant** (Commercial AAD vs Gov AAD — they are separate directories).
+2. Have your Tenant ID and Client IDs ready to paste into the wizard.
 
 **After deploying** you must:
-1. Navigate to the **backend App Service > Identity > System assigned** — note the Object ID.
-2. Assign the managed identity the following Azure RBAC roles on each subscription you want to scan:
+1. Note the `redirectUriToConfigure` deployment output and add it as an SPA redirect URI on the frontend app registration.
+2. Navigate to the **backend App Service > Identity > System assigned** — note the Object ID.
+3. Assign the managed identity the following Azure RBAC roles on each subscription you want to scan:
    - `Reader`
    - `Security Reader`
 4. For Azure Arc-connected machines: the Arc agent on each on-premises server connects outbound to Azure — no additional Azure RBAC role is needed to read those resources, but the machine must be enrolled in Azure Arc first (`Microsoft.HybridCompute/machines` resource type). Assign the `Azure Connected Machine Resource Reader` built-in role to the managed identity if you need to query Arc-only resource groups.

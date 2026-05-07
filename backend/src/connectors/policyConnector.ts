@@ -32,7 +32,7 @@ export class PolicyConnector extends BaseConnector {
     if (!this.clients.has(subscriptionId)) {
       this.clients.set(
         subscriptionId,
-        new PolicyClient(new DefaultAzureCredential(), subscriptionId),
+        new PolicyClient(new DefaultAzureCredential(), subscriptionId, require('./azureClientOptions').azureClientOptions()),
       );
     }
     return this.clients.get(subscriptionId)!;

@@ -33,7 +33,7 @@ export class DefenderConnector extends BaseConnector {
     if (!this.clients.has(subscriptionId)) {
       this.clients.set(
         subscriptionId,
-        new SecurityCenter(new DefaultAzureCredential(), subscriptionId),
+        new SecurityCenter(new DefaultAzureCredential(), subscriptionId, require('./azureClientOptions').azureClientOptions()),
       );
     }
     return this.clients.get(subscriptionId)!;

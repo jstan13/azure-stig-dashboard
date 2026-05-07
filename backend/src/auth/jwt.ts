@@ -242,10 +242,15 @@ function mapJoseError(err: unknown): JwtValidationError {
 
 /**
  * Production JWKS fetcher hitting Microsoft Entra's discovery endpoint.
- * Use this in `server.ts` wiring; tests inject their own.
+ *
+ * Cloud-aware: honors `AZURE_AUTHORITY_HOST` (set by the ARM/Bicep templates)
+ * so deployments to Azure US Government / DoD point at
+ * `https://login.microsoftonline.us/<tenant>/discovery/v2.0/keys` instead of
+ * the Commercial endpoint. Tests inject their own fetcher and ignore this.
  */
-export function defaultJwksFetcher(tenantId: string): JwksFetcher {
-  const url = `https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`;
+export function defaultJwksFetcher(tenantId: string, authorityHost?: string): JwksFetcher {
+  const host = (authorityHost ?? process.env.AZURE_AUTHORITY_HOST ?? 'https://login.microsoftonline.com').replace(/\/+$/, '');
+  const url = `${host}/${tenantId}/discovery/v2.0/keys`;
   return async () => {
     const res = await fetch(url);
     if (!res.ok) {

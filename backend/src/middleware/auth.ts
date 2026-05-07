@@ -7,6 +7,13 @@ const TENANT_ID = process.env.AZURE_TENANT_ID || '';
 const CLIENT_ID = process.env.AZURE_CLIENT_ID || '';
 const MOCK_MODE = process.env.MOCK_MODE === 'true';
 
+// Cloud-aware Microsoft Entra authority. Defaults to Azure Commercial; the
+// ARM/Bicep templates set AZURE_AUTHORITY_HOST to https://login.microsoftonline.us
+// for Azure US Government / DoD deployments.
+const AUTHORITY_HOST = (process.env.AZURE_AUTHORITY_HOST || 'https://login.microsoftonline.com').replace(/\/+$/, '');
+const AUTHORITY_HOST_BARE = AUTHORITY_HOST.replace(/^https?:\/\//, '');
+const STS_HOST = AUTHORITY_HOST_BARE.replace('login.microsoftonline', 'sts.windows');
+
 /**
  * Validates an Azure AD JWT bearer token.
  * In MOCK_MODE the middleware injects a synthetic admin user
@@ -17,12 +24,12 @@ const jwtCheck = expressjwt({
     cache: true,
     rateLimit: true,
     jwksRequestsPerMinute: 5,
-    jwksUri: `https://login.microsoftonline.com/${TENANT_ID}/discovery/v2.0/keys`,
+    jwksUri: `${AUTHORITY_HOST}/${TENANT_ID}/discovery/v2.0/keys`,
   }) as any,
   audience: `api://${CLIENT_ID}`,
   issuer: [
-    `https://login.microsoftonline.com/${TENANT_ID}/v2.0`,
-    `https://sts.windows.net/${TENANT_ID}/`,
+    `${AUTHORITY_HOST}/${TENANT_ID}/v2.0`,
+    `https://${STS_HOST}/${TENANT_ID}/`,
   ],
   algorithms: ['RS256'],
 });

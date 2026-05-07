@@ -102,6 +102,17 @@ resource pgDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-06
   }
 }
 
+// Allow Azure-hosted services (App Service) to reach the flexible server.
+// 0.0.0.0 -> 0.0.0.0 is the special "Allow Azure services" rule.
+resource pgFirewallAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-06-01-preview' = {
+  parent: pgServer
+  name: 'AllowAzureServices'
+  properties: {
+    startIpAddress: '0.0.0.0'
+    endIpAddress: '0.0.0.0'
+  }
+}
+
 // ── Backend App Service (API) ─────────────────────────────────────────────────
 resource backendApp 'Microsoft.Web/sites@2023-01-01' = {
   name: backendName
@@ -120,13 +131,18 @@ resource backendApp 'Microsoft.Web/sites@2023-01-01' = {
       appSettings: [
         { name: 'NODE_ENV',                       value: 'production'                                    }
         { name: 'MOCK_MODE',                      value: mockMode ? 'true' : 'false'                    }
+        { name: 'STRICT_TRACEABILITY',            value: strictTraceability ? 'true' : 'false'           }
+        { name: 'AZURE_CLOUD',                    value: cloudEnvironment                                }
+        { name: 'AZURE_AUTHORITY_HOST',           value: authorityHost                                   }
+        { name: 'AZURE_GRAPH_ENDPOINT',           value: graphHost                                       }
+        { name: 'AZURE_ARM_ENDPOINT',             value: armHost                                         }
         { name: 'AZURE_TENANT_ID',                value: azureTenantId                                  }
         { name: 'AZURE_CLIENT_ID',                value: azureClientId                                  }
         { name: 'AZURE_CLIENT_SECRET',            value: azureClientSecret                               }
         { name: 'DATABASE_URL',                   value: 'postgresql://${dbAdminLogin}:${dbAdminPassword}@${pgServer.properties.fullyQualifiedDomainName}:5432/${dbName}?sslmode=require' }
         { name: 'DB_SSL',                         value: 'true'                                         }
         { name: 'APPINSIGHTS_INSTRUMENTATIONKEY', value: appInsights.properties.InstrumentationKey      }
-        { name: 'FRONTEND_URL',                   value: 'https://${frontendName}.azurewebsites.net'    }
+        { name: 'FRONTEND_URL',                   value: 'https://${frontendName}.${appHostSuffix}'     }
         { name: 'WEBSITE_NODE_DEFAULT_VERSION',   value: '~20'                                          }
         { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT', value: 'true'                                         }
       ]
@@ -146,18 +162,23 @@ resource frontendApp 'Microsoft.Web/sites@2023-01-01' = {
       http20Enabled: true
       minTlsVersion: '1.2'
       appSettings: [
-        { name: 'VITE_AZURE_CLIENT_ID', value: azureClientId   }
-        { name: 'VITE_AZURE_TENANT_ID', value: azureTenantId   }
-        { name: 'VITE_API_URL',         value: 'https://${backendName}.azurewebsites.net/api' }
-        { name: 'VITE_MOCK_MODE',       value: mockMode ? 'true' : 'false' }
+        { name: 'VITE_AZURE_CLIENT_ID',      value: azureClientId   }
+        { name: 'VITE_AZURE_TENANT_ID',      value: azureTenantId   }
+        { name: 'VITE_AZURE_CLOUD',          value: cloudEnvironment }
+        { name: 'VITE_AZURE_AUTHORITY_HOST', value: authorityHost   }
+        { name: 'VITE_API_URL',              value: 'https://${backendName}.${appHostSuffix}/api' }
+        { name: 'VITE_MOCK_MODE',            value: mockMode ? 'true' : 'false' }
       ]
     }
   }
 }
 
 // ── Outputs ────────────────────────────────────────────────────────────────────
+// ── Outputs ─────────────────────────────────────────────────────────────────
+output cloudEnvironment string = cloudEnvironment
 output backendUrl   string = 'https://${backendApp.properties.defaultHostName}'
 output frontendUrl  string = 'https://${frontendApp.properties.defaultHostName}'
+output redirectUriToConfigure string = 'https://${frontendApp.properties.defaultHostName}'
 output dbServerFqdn string = pgServer.properties.fullyQualifiedDomainName
 output aiKey        string = appInsights.properties.InstrumentationKey
 output backendPrincipalId string = backendApp.identity.principalId
