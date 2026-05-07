@@ -14,6 +14,7 @@
  */
 import type { DataSource, Repository } from 'typeorm';
 import { AuditLogEntity } from '../models/AuditLog';
+import { mockStore } from '../database/dataSource';
 import type { AuditEntry, AuditWriter } from '../auth/audit';
 
 export class TypeOrmAuditWriter implements AuditWriter {
@@ -58,6 +59,22 @@ export class MockAuditWriter implements AuditWriter {
     if (this.entries.length > this.cap) {
       this.entries.splice(0, this.entries.length - this.cap);
     }
+    // Mirror into mockStore.auditLogs in the legacy shape so the existing
+    // GET /api/audit endpoint surfaces canonical-auditor entries alongside
+    // any rows written by legacy direct-push call sites.
+    mockStore.auditLogs.unshift({
+      id: `${entry.correlationId}:${entry.action}:${entry.entityId}`,
+      action: entry.action,
+      actor: entry.actorUserId,
+      actorRole: entry.actorRole,
+      targetId: entry.entityId,
+      targetType: entry.entityType,
+      result: entry.result,
+      correlationId: entry.correlationId,
+      ipAddress: entry.sourceIp,
+      timestamp: entry.occurredAt.toISOString(),
+      details: { before: entry.before, after: entry.after },
+    });
   }
 }
 

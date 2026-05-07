@@ -10,6 +10,7 @@ import { generateCKL, CKLFinding } from '../exporters/cklExporter';
 import { mockStore } from '../database/dataSource';
 import { createError } from '../middleware/errorHandler';
 import { requireRole } from '../middleware/auth';
+import type { AuditRequest } from '../auth';
 import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
@@ -47,16 +48,24 @@ router.post(
           };
         });
 
-      // Log the export
+      // Log the export through the canonical Auditor (FR-003 / Principle II).
+      // The MockAuditWriter mirrors entries into mockStore.auditLogs so the
+      // legacy GET /api/audit endpoint continues to surface them.
+      const auditReq = req as unknown as AuditRequest;
       const actor = (req as any).auth?.email || (req as any).auth?.sub || 'api';
-      mockStore.auditLogs.unshift({
-        id: uuidv4(),
+      const actorRole =
+        ((req as any).auth?.roles as string[] | undefined)?.[0] ?? 'unknown';
+      void auditReq.audit?.record({
+        actorUserId: actor,
+        actorRole,
         action: 'checklist.exported',
-        actor,
-        targetId: machineId,
-        targetType: 'machine',
-        timestamp: new Date().toISOString(),
-        details: { format, machineId, machineName: machine.name },
+        entityType: 'machine',
+        entityId: machineId,
+        before: undefined,
+        after: { format, machineName: machine.name },
+        result: 'Success',
+        correlationId: auditReq.correlationId ?? 'no-correlation',
+        sourceIp: req.ip ?? 'unknown',
       });
 
       // Track checklist
