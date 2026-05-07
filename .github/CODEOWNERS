@@ -1,0 +1,25 @@
+# CODEOWNERS — required reviewers for security-critical and infrastructure paths.
+#
+# Per `specs/001-azure-stig-dashboard/plan.md` and tasks.md (T010), these
+# paths require a reviewer from the security/platform owner group.
+#
+# Replace @jstan13 with the actual GitHub team handle (e.g. @org/security)
+# once the team is created. Until then the repo owner is the fallback owner.
+
+# Default owner for everything in the repo (fallback).
+*                                  @jstan13
+
+# Security-critical: authentication, RBAC, audit, exporters, mappings.
+/backend/src/auth/                 @jstan13
+/backend/src/middleware/auth.ts    @jstan13
+/backend/src/exporters/            @jstan13
+/backend/src/mappings/             @jstan13
+/backend/src/stigmanager/          @jstan13
+
+# Infrastructure & deployment.
+/infra/                            @jstan13
+/.github/workflows/                @jstan13
+
+# Spec & constitution: changes here drive everything else.
+/.specify/memory/constitution.md   @jstan13
+/specs/                            @jstan13

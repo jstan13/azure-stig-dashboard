@@ -1,0 +1,12 @@
+# Reserved for Azure Functions TypeScript v4 (Flex Consumption).
+#
+# Per `specs/001-azure-stig-dashboard/plan.md` and `tasks.md` (T221, T222,
+# T309, T408, T605), this folder will host:
+#   - scanOrchestrator/       (Service Bus trigger)
+#   - findingsIngestor/       (Event Grid trigger)
+#   - exceptionExpirer/       (Timer trigger)
+#   - contentRefresher/       (Timer trigger)
+#   - poamOverdue/            (Timer trigger)
+#
+# Each function shares connector and entity types from `backend/src/` and the
+# cross-package `packages/shared/` module.

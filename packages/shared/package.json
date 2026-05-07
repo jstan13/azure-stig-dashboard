@@ -1,0 +1,22 @@
+{
+  "name": "@stigdash/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cross-package types and constants for the Azure STIG Dashboard.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rimraf dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}
