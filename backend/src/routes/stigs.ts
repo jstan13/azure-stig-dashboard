@@ -18,6 +18,7 @@ import { StigVersionEntity } from '../models/StigVersion';
 import { ControlEntity } from '../models/Control';
 import { MachineEntity } from '../models/Machine';
 import { requireRole } from '../middleware/auth';
+import { recordAudit } from '../auth';
 import { createError } from '../middleware/errorHandler';
 import { logger } from '../utils/logger';
 import { importStigs, DEFAULT_BENCHMARKS } from '../stigs/stigImporter';
@@ -265,6 +266,13 @@ router.post(
 
       const MOCK = process.env.MOCK_MODE === 'true';
       if (MOCK) {
+        await recordAudit(req, {
+          action: 'stig.imported',
+          entityType: 'stig_benchmark',
+          entityId: (benchmarkTitles ?? DEFAULT_BENCHMARKS).join(','),
+          after: { benchmarks: benchmarkTitles ?? DEFAULT_BENCHMARKS, force, dryRun, mock: true },
+          result: 'Success',
+        });
         return res.json({
           message: 'Import triggered (mock mode — no actual download)',
           benchmarks: benchmarkTitles ?? DEFAULT_BENCHMARKS,
@@ -273,6 +281,13 @@ router.post(
 
       // Run import async — respond immediately with 202
       const jobId = `import-${Date.now()}`;
+      await recordAudit(req, {
+        action: 'stig.imported',
+        entityType: 'stig_benchmark',
+        entityId: jobId,
+        after: { benchmarks: benchmarkTitles ?? DEFAULT_BENCHMARKS, force, dryRun, jobId },
+        result: 'Success',
+      });
       res.status(202).json({ message: 'Import started', jobId });
 
       importStigs({
@@ -359,6 +374,13 @@ router.post(
 
       const MOCK = process.env.MOCK_MODE === 'true';
       if (MOCK) {
+        await recordAudit(req, {
+          action: 'stig.scan_triggered',
+          entityType: 'stig_benchmark',
+          entityId: benchmarkId,
+          after: { machineIds: machineIds ?? null, version: version ?? null, mock: true },
+          result: 'Success',
+        });
         return res.json({
           message: `Scan triggered for ${benchmarkId} (mock mode)`,
           machinesQueued: machineIds?.length ?? 3,

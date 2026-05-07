@@ -21,6 +21,7 @@ import { FindingEntity } from '../models/Finding';
 import { ControlEntity } from '../models/Control';
 import { MachineEntity } from '../models/Machine';
 import { requireRole } from '../middleware/auth';
+import { recordAudit } from '../auth';
 import { createError } from '../middleware/errorHandler';
 import { logger } from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
@@ -171,6 +172,13 @@ router.post('/', requireRole('admin', 'operator'), async (req, res, next) => {
         updatedAt: new Date().toISOString(),
       };
       mockStore.poams.push(poam);
+      await recordAudit(req, {
+        action: 'poam.created',
+        entityType: 'poam',
+        entityId: poam.id,
+        after: { findingId, weakness, status: 'open', poamId: poam.poamId },
+        result: 'Success',
+      });
       return res.status(201).json(poam);
     }
 
@@ -194,6 +202,13 @@ router.post('/', requireRole('admin', 'operator'), async (req, res, next) => {
     });
 
     await AppDataSource.getRepository(PoamEntity).save(poam);
+    await recordAudit(req, {
+      action: 'poam.created',
+      entityType: 'poam',
+      entityId: poam.id,
+      after: { findingId, weakness, status: 'open' },
+      result: 'Success',
+    });
     return res.status(201).json(poam);
   } catch (err) { next(err); }
 });
@@ -215,6 +230,7 @@ router.patch('/:id', requireRole('admin', 'operator'), async (req, res, next) =>
     if (MOCK) {
       const idx = (mockStore.poams ?? []).findIndex((x: any) => x.id === id);
       if (idx === -1) return next(createError('POA&M not found', 404, 'NOT_FOUND'));
+      const before = { ...mockStore.poams[idx] };
       for (const k of updatable) {
         if (req.body[k] !== undefined) mockStore.poams[idx][k] = req.body[k];
       }
@@ -222,6 +238,14 @@ router.patch('/:id', requireRole('admin', 'operator'), async (req, res, next) =>
         mockStore.poams[idx].actualCompletion = new Date().toISOString();
       }
       mockStore.poams[idx].updatedAt = new Date().toISOString();
+      await recordAudit(req, {
+        action: 'poam.updated',
+        entityType: 'poam',
+        entityId: id,
+        before: { status: before.status },
+        after: { status: mockStore.poams[idx].status },
+        result: 'Success',
+      });
       return res.json(mockStore.poams[idx]);
     }
 
@@ -332,6 +356,13 @@ router.post('/:id/approve', requireRole('admin'), async (req, res, next) => {
       poam.approvedByOid = actor?.oid ?? actor?.sub;
       poam.approvedAt = new Date().toISOString();
       poam.riskAcceptanceRationale = req.body.rationale ?? poam.riskAcceptanceRationale;
+      await recordAudit(req, {
+        action: 'poam.approved',
+        entityType: 'poam',
+        entityId: id,
+        after: { status: 'risk_accepted', approvedByOid: poam.approvedByOid, rationale: poam.riskAcceptanceRationale },
+        result: 'Success',
+      });
       return res.json(poam);
     }
     const repo = AppDataSource.getRepository(PoamEntity);
@@ -342,6 +373,13 @@ router.post('/:id/approve', requireRole('admin'), async (req, res, next) => {
     poam.approvedAt = new Date();
     if (req.body.rationale) poam.riskAcceptanceRationale = req.body.rationale;
     await repo.save(poam);
+    await recordAudit(req, {
+      action: 'poam.approved',
+      entityType: 'poam',
+      entityId: poam.id,
+      after: { status: 'risk_accepted', approvedByOid: poam.approvedByOid, rationale: poam.riskAcceptanceRationale },
+      result: 'Success',
+    });
     return res.json(poam);
   } catch (err) { next(err); }
 });
@@ -391,6 +429,13 @@ router.post('/bulk-create', requireRole('admin', 'operator'), async (req, res, n
     }
 
     logger.info(`[POAMs] Bulk-created ${created.length} POA&Ms`);
+    await recordAudit(req, {
+      action: 'poam.bulk_created',
+      entityType: 'poam',
+      entityId: 'bulk',
+      after: { count: created.length, machineIds, severity },
+      result: 'Success',
+    });
     return res.status(201).json({ created: created.length, poams: created });
   } catch (err) { next(err); }
 });

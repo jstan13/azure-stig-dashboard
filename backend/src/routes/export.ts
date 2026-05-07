@@ -7,9 +7,14 @@
 
 import { Router } from 'express';
 import { generateCKL, CKLFinding } from '../exporters/cklExporter';
+import {
+  enforceMappingChain,
+  MappingChainViolationError,
+} from '../exporters';
 import { mockStore } from '../database/dataSource';
 import { createError } from '../middleware/errorHandler';
 import { requireRole } from '../middleware/auth';
+import { recordAudit } from '../auth';
 import type { AuditRequest } from '../auth';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -19,7 +24,7 @@ const MOCK_MODE = () => process.env.MOCK_MODE === 'true';
 router.post(
   '/checklist',
   requireRole('admin', 'operator', 'auditor'),
-  (req, res, next) => {
+  async (req, res, next) => {
     const { machineId, format = 'ckl' } = req.body;
 
     if (!machineId) {
@@ -30,9 +35,49 @@ router.post(
       const machine = mockStore.machines.find((m: any) => m.id === machineId);
       if (!machine) return next(createError('Machine not found', 404, 'NOT_FOUND'));
 
-      const findings: CKLFinding[] = mockStore.findings
-        .filter((f: any) => f.machineId === machineId)
-        .map((f: any) => {
+      const rawFindings = mockStore.findings.filter((f: any) => f.machineId === machineId);
+
+      // Constitution Principle IV / FR-009: every exported finding must carry
+      // a complete mappingChain. Enforcement is opt-in via STRICT_TRACEABILITY
+      // so existing fixture-based tests continue to pass; production deployments
+      // set this to `true` (see infra/main.bicep / azure.yaml) and Phase 3+
+      // ingestion will populate mappingChain on every Finding it emits.
+      if (process.env.STRICT_TRACEABILITY === 'true') {
+        try {
+          enforceMappingChain(
+            rawFindings.map((f: any) => ({
+              id: f.id,
+              machineId: f.machineId,
+              controlId: f.controlId,
+              status: f.status,
+              severity: f.severity,
+              mappingChain: f.mappingChain ?? null,
+            })),
+          );
+        } catch (err) {
+          if (err instanceof MappingChainViolationError) {
+            await recordAudit(req, {
+              action: 'checklist.export_rejected',
+              entityType: 'machine',
+              entityId: machineId,
+              after: {
+                format,
+                violations: err.violations,
+                reason: 'mapping_chain_incomplete',
+              },
+              result: 'Denied',
+            });
+            return res.status(422).json({
+              error: err.message,
+              code: err.errorCode,
+              violations: err.violations,
+            });
+          }
+          throw err;
+        }
+      }
+
+      const findings: CKLFinding[] = rawFindings.map((f: any) => {
           const control = mockStore.controls.find((c: any) => c.id === f.controlId);
           return {
             vulnId: control?.id || f.controlId,
