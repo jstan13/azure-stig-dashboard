@@ -6,6 +6,7 @@
 import { Router } from 'express';
 import { mockStore } from '../database/dataSource';
 import { createError } from '../middleware/errorHandler';
+import { recordAudit } from '../auth';
 
 const router = Router();
 const MOCK_MODE = () => process.env.MOCK_MODE === 'true';
@@ -79,7 +80,7 @@ router.get('/:id', (req, res, next) => {
 });
 
 // PATCH /api/machines/:machineId/findings/:findingId
-router.patch('/:machineId/findings/:findingId', (req, res, next) => {
+router.patch('/:machineId/findings/:findingId', async (req, res, next) => {
   const { status, comments, findingDetails } = req.body;
 
   if (MOCK_MODE()) {
@@ -87,6 +88,12 @@ router.patch('/:machineId/findings/:findingId', (req, res, next) => {
       (f: any) => f.id === req.params.findingId && f.machineId === req.params.machineId,
     );
     if (!finding) return next(createError('Finding not found', 404, 'NOT_FOUND'));
+
+    const before = {
+      status: finding.status,
+      comments: finding.comments,
+      findingDetails: finding.findingDetails,
+    };
 
     if (status) finding.status = status;
     if (comments !== undefined) finding.comments = comments;
@@ -103,6 +110,19 @@ router.patch('/:machineId/findings/:findingId', (req, res, next) => {
         ? Math.round((passing.length / applicable.length) * 100)
         : 0;
     }
+
+    await recordAudit(req, {
+      action: 'finding.updated',
+      entityType: 'finding',
+      entityId: finding.id,
+      before,
+      after: {
+        status: finding.status,
+        comments: finding.comments,
+        findingDetails: finding.findingDetails,
+      },
+      result: 'Success',
+    });
 
     return res.json(finding);
   }

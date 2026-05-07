@@ -12,6 +12,7 @@ import { Router, Request, Response } from 'express';
 import { AppDataSource, mockStore } from '../database/dataSource';
 import { UserEntity } from '../models/User';
 import { requireRole } from '../middleware/auth';
+import { recordAudit } from '../auth';
 import { logger } from '../utils/logger';
 
 const router = Router();
@@ -83,19 +84,37 @@ router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) =
     if (isMock()) {
       const user = MOCK_USERS.find((u) => u.id === id);
       if (!user) return res.status(404).json({ error: 'User not found' });
+      const before = { displayName: user.displayName, role: user.role, enabled: user.enabled };
       if (displayName !== undefined) user.displayName = displayName;
       if (role !== undefined)        user.role = role;
       if (enabled !== undefined)     user.enabled = enabled;
+      await recordAudit(req, {
+        action: 'user.updated',
+        entityType: 'user',
+        entityId: id,
+        before,
+        after: { displayName: user.displayName, role: user.role, enabled: user.enabled },
+        result: 'Success',
+      });
       return res.json(user);
     }
 
     const repo = AppDataSource.getRepository(UserEntity);
     const user = await repo.findOne({ where: { id } });
     if (!user) return res.status(404).json({ error: 'User not found' });
+    const before = { displayName: (user as any).displayName, role: (user as any).role, enabled: (user as any).enabled };
     if (displayName !== undefined) (user as any).displayName = displayName;
     if (role !== undefined)        (user as any).role = role;
     if (enabled !== undefined)     (user as any).enabled = enabled;
     const saved = await repo.save(user);
+    await recordAudit(req, {
+      action: 'user.updated',
+      entityType: 'user',
+      entityId: id,
+      before,
+      after: { displayName: (saved as any).displayName, role: (saved as any).role, enabled: (saved as any).enabled },
+      result: 'Success',
+    });
     return res.json(saved);
   } catch (err: any) {
     logger.error('[PATCH /users/:id]', err);
@@ -112,15 +131,33 @@ router.post('/:id/roles', requireRole('admin'), async (req: Request, res: Respon
     if (isMock()) {
       const user = MOCK_USERS.find((u) => u.id === id);
       if (!user) return res.status(404).json({ error: 'User not found' });
+      const before = { role: user.role };
       user.role = Array.isArray(roles) ? roles[0] : roles;
+      await recordAudit(req, {
+        action: 'user.role_assigned',
+        entityType: 'user',
+        entityId: id,
+        before,
+        after: { role: user.role },
+        result: 'Success',
+      });
       return res.json(user);
     }
 
     const repo = AppDataSource.getRepository(UserEntity);
     const user = await repo.findOne({ where: { id } });
     if (!user) return res.status(404).json({ error: 'User not found' });
+    const before = { role: (user as any).role };
     (user as any).role = Array.isArray(roles) ? roles[0] : roles;
     const saved = await repo.save(user);
+    await recordAudit(req, {
+      action: 'user.role_assigned',
+      entityType: 'user',
+      entityId: id,
+      before,
+      after: { role: (saved as any).role },
+      result: 'Success',
+    });
     return res.json(saved);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -134,13 +171,28 @@ router.delete('/:id', requireRole('admin'), async (req: Request, res: Response) 
     if (isMock()) {
       const idx = MOCK_USERS.findIndex((u) => u.id === id);
       if (idx === -1) return res.status(404).json({ error: 'User not found' });
+      const before = { ...MOCK_USERS[idx] };
       MOCK_USERS.splice(idx, 1);
+      await recordAudit(req, {
+        action: 'user.deleted',
+        entityType: 'user',
+        entityId: id,
+        before,
+        result: 'Success',
+      });
       return res.status(204).send();
     }
     const repo = AppDataSource.getRepository(UserEntity);
     const user = await repo.findOne({ where: { id } });
     if (!user) return res.status(404).json({ error: 'User not found' });
     await repo.remove(user);
+    await recordAudit(req, {
+      action: 'user.deleted',
+      entityType: 'user',
+      entityId: id,
+      before: { id: (user as any).id, email: (user as any).email },
+      result: 'Success',
+    });
     return res.status(204).send();
   } catch (err: any) {
     return res.status(500).json({ error: err.message });

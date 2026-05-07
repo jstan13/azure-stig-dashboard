@@ -7,10 +7,10 @@
 import { Router } from 'express';
 import { ScanOrchestrator } from '../connectors/scanOrchestrator';
 import { requireRole } from '../middleware/auth';
+import { recordAudit } from '../auth';
 import { mockStore } from '../database/dataSource';
 import { createError } from '../middleware/errorHandler';
 import { logger } from '../utils/logger';
-import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
 const orchestrator = new ScanOrchestrator();
@@ -23,25 +23,22 @@ router.post(
     try {
       const { subscriptionIds, resourceGroupNames, resourceIds, since } = req.body;
       const actor = (req as any).auth?.email || (req as any).auth?.sub || 'api';
-
-      // Log the trigger
-      if (process.env.MOCK_MODE === 'true') {
-        mockStore.auditLogs.unshift({
-          id: uuidv4(),
-          action: 'scan.triggered',
-          actor,
-          targetId: resourceIds?.[0] || subscriptionIds?.[0] || 'all',
-          targetType: resourceIds ? 'machine' : 'subscription',
-          timestamp: new Date().toISOString(),
-          details: { subscriptionIds, resourceGroupNames, resourceIds },
-        });
-      }
+      const targetId = resourceIds?.[0] || subscriptionIds?.[0] || 'all';
+      const targetType = resourceIds ? 'machine' : 'subscription';
 
       const result = await orchestrator.runScan({
         subscriptionIds,
         resourceGroupNames,
         resourceIds,
         since: since ? new Date(since) : undefined,
+      });
+
+      await recordAudit(req, {
+        action: 'scan.triggered',
+        entityType: targetType,
+        entityId: targetId,
+        after: { subscriptionIds, resourceGroupNames, resourceIds, scanId: result.scanId },
+        result: 'Success',
       });
 
       logger.info(`[Scan] Triggered by ${actor}: scanId=${result.scanId}`);

@@ -157,7 +157,7 @@ populated, and re-import produces identical findings.
 - [ ] T105 [P] [US1] Failing unit test for OSCAL writer in `backend/tests/unit/exporters/oscal.test.ts`
 - [ ] T106 [P] [US1] Failing unit test for CSV writer in `backend/tests/unit/exporters/csv.test.ts`
 - [ ] T107 [P] [US1] Failing test for export determinism in `backend/tests/integration/exporters/determinism.test.ts` — same input twice → byte-identical bytes
-- [ ] T108 [P] [US1] Failing contract test for `POST /exports` in `backend/tests/integration/api/exports.test.ts` — auditor allowed, unauthenticated denied, missing mappingChain rejected
+- [X] T108 [P] [US1] Failing contract test for `POST /exports` in `backend/tests/integration/api/exports.test.ts` — auditor allowed, unauthenticated denied, missing mappingChain rejected
 - [ ] T109 [P] [US1] Failing E2E test in `frontend/tests/e2e/auditor-export.spec.ts` — sign in mock, open asset, click Export, file downloaded; axe-core check on every visited page
 
 ### Implementation for User Story 1
@@ -167,7 +167,7 @@ populated, and re-import produces identical findings.
 - [ ] T112 [P] [US1] Implement XCCDF writer in `backend/src/exporters/xccdf.ts` — passes T104
 - [ ] T113 [P] [US1] Implement OSCAL writer in `backend/src/exporters/oscal.ts` — passes T105
 - [ ] T114 [P] [US1] Implement CSV writer (stable column order) in `backend/src/exporters/csv.ts` — passes T106
-- [ ] T115 [US1] Implement export orchestrator in `backend/src/exporters/index.ts` enforcing complete `mappingChain` and deterministic ordering; rejects findings missing trace — passes T107
+- [X] T115 [US1] Implement export orchestrator in `backend/src/exporters/index.ts` enforcing complete `mappingChain` and deterministic ordering; rejects findings missing trace — passes T107
 - [ ] T116 [US1] Implement `POST /exports` route in `backend/src/api/exports.ts` (streaming response, RBAC `auditor`+) — passes T108
 - [ ] T117 [P] [US1] Add Read-only services for findings/assets/collections in `backend/src/services/{findings,assets,collections}.ts` (used by US1, US2)
 - [ ] T117a [P] [US1] Implement `PATCH /findings/:id` with `If-Match` ETag optimistic concurrency in `backend/src/api/findings.ts`; reject 412 on stale write (covers spec edge case "two operators edit the same finding concurrently")

@@ -36,3 +36,5 @@ export {
   type FallbackLog,
   type FallbackLogPayload,
 } from './audit';
+
+export { recordAudit, type RouteAuditInput } from './recordAudit';
