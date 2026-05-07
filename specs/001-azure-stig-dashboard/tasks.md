@@ -102,11 +102,11 @@ Web-app monorepo per [plan.md](./plan.md):
 
 ### Auth (TDD — constitution VII)
 
-- [ ] T015 [P] Write failing unit tests for JWT validation in `backend/tests/unit/auth/jwt.test.ts`: valid token, expired, wrong audience, wrong issuer, missing kid, JWKS unreachable
-- [ ] T016 [P] Write failing unit tests for RBAC middleware in `backend/tests/unit/auth/rbac.test.ts`: role required vs held, Collection-scoped vs unscoped, denied request emits AuditLog `Denied`
-- [~] T017 Implement JWT validator in `backend/src/auth/jwt.ts` using `jose` + JWKS cache (1h TTL) — make T015 pass — *partial: existing `backend/src/middleware/auth.ts` uses `express-jwt` + `jwks-rsa`; per spec we want a standalone `jose`-based validator with explicit caching for testability*
-- [ ] T018 Implement RBAC middleware in `backend/src/auth/rbac.ts` resolving Collection-scoped role from token + `RoleBinding` table — make T016 pass
-- [ ] T019 [P] Implement audit middleware in `backend/src/auth/audit.ts` capturing actor, action, before/after, correlation ID, source IP for every state-changing route — *AuditLog entity exists but route-level capture middleware does not*
+- [X] T015 [P] Write failing unit tests for JWT validation in `backend/tests/unit/auth/jwt.test.ts`: valid token, expired, wrong audience, wrong issuer, missing kid, JWKS unreachable
+- [X] T016 [P] Write failing unit tests for RBAC middleware in `backend/tests/unit/auth/rbac.test.ts`: role required vs held, Collection-scoped vs unscoped, denied request emits AuditLog `Denied`
+- [X] T017 Implement JWT validator in `backend/src/auth/jwt.ts` using `jose` + JWKS cache (1h TTL) — make T015 pass — *legacy `backend/src/middleware/auth.ts` (express-jwt) left in place for routes still using it; new modules are additive*
+- [X] T018 Implement RBAC middleware in `backend/src/auth/rbac.ts` resolving Collection-scoped role from token + `RoleBinding` table — make T016 pass
+- [X] T019 [P] Implement audit middleware in `backend/src/auth/audit.ts` capturing actor, action, before/after, correlation ID, source IP for every state-changing route — `AuditLog` entity exists; this commit adds the auditor + Express middleware on top
 
 ### App skeleton
 
