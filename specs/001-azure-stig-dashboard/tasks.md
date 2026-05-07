@@ -110,8 +110,8 @@ Web-app monorepo per [plan.md](./plan.md):
 
 ### App skeleton
 
-- [ ] T020 Wire `backend/src/server.ts` Express app: pino logging, App Insights init, CORS, helmet, request-correlation middleware, JWT validator, RBAC, audit middleware, `/healthz`, `/readyz`
-- [ ] T021 [P] Add OpenAPI doc serving at `/api/docs` from `backend/openapi.yaml` (mirror of [contracts/openapi.yaml](./contracts/openapi.yaml))
+- [~] T020 Wire `backend/src/server.ts` Express app: pino logging, App Insights init, CORS, helmet, request-correlation middleware, JWT validator, RBAC, audit middleware, `/healthz`, `/readyz` — *partial: scaffold uses `backend/src/index.ts` rather than `server.ts`; correlation + audit middleware (`auditMiddleware` + `Auditor` with TypeORM/mock writers) wired; helmet, CORS, App Insights, `/health` already in scaffold; JWT validator + RBAC swap from legacy `middleware/auth.ts` still pending; `/healthz` + `/readyz` rename TBD*
+- [X] T021 [P] Add OpenAPI doc serving at `/api/docs` from `backend/openapi.yaml` (mirror of [contracts/openapi.yaml](./contracts/openapi.yaml)) — *covered: `swaggerUi` mounts `backend/openapi.yaml` at `/api/docs`*
 - [ ] T022 [P] Add error handler in `backend/src/server.ts` converting domain errors to RFC 7807 problem+json
 - [ ] T023 [P] Implement structured telemetry helpers in `backend/src/telemetry/index.ts` (correlation-aware logger, App Insights exception/event helpers)
 

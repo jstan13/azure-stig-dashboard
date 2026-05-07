@@ -16,6 +16,8 @@ import { initializeDatabase, AppDataSource } from './database/dataSource';
 import { logger } from './utils/logger';
 import { errorHandler } from './middleware/errorHandler';
 import { authenticateToken } from './middleware/auth';
+import { Auditor, auditMiddleware } from './auth';
+import { TypeOrmAuditWriter, mockAuditWriter } from './auth/writers';
 
 // Route imports
 import scanRouter from './routes/scan';
@@ -73,6 +75,25 @@ app.use('/health', healthRouter);
 
 // ─── Protected routes (JWT required for all /api/* below) ───────────────────
 app.use('/api', authenticateToken);
+
+// ─── Audit + correlation ID (Principle II / FR-003) ────────────────────────
+// Wire the canonical Auditor onto every authenticated request so route
+// handlers can call `req.audit.record(...)`. In MOCK_MODE we use the in-memory
+// writer; in real mode we use the TypeORM-backed writer.
+const auditor = new Auditor(
+  process.env.MOCK_MODE === 'true'
+    ? mockAuditWriter
+    : new TypeOrmAuditWriter(AppDataSource),
+  {
+    fallbackLog: (p) =>
+      logger.error('audit_write_failed', {
+        action: p.action,
+        correlationId: p.correlationId,
+        err: p.error instanceof Error ? p.error.message : p.error,
+      }),
+  },
+);
+app.use('/api', auditMiddleware({ auditor }));
 
 // Swagger / OpenAPI — mounted after auth so it requires a valid token
 try {
