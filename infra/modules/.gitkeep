@@ -1,0 +1,14 @@
+# Reserved for modular Bicep.
+#
+# Per `specs/001-azure-stig-dashboard/plan.md` and `tasks.md` (T031-T033,
+# T223, T410), the monolithic `infra/main.bicep` will be refactored into:
+#   - network.bicep         (VNet, subnets, Private DNS, Private Endpoints)
+#   - identity.bicep        (managed identities + least-privilege RBAC)
+#   - data.bicep            (Postgres Flexible Server, Key Vault)
+#   - app.bicep             (App Service / Container Apps)
+#   - observability.bicep   (App Insights, Log Analytics, workbooks)
+#   - messaging.bicep       (Service Bus, Event Grid)
+#   - policy.bicep          (Guest Configuration policy assignments)
+#   - storage.bicep         (immutable Blob container for STIG content cache)
+#
+# `main.bicep` becomes a thin composition root.

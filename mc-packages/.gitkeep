@@ -1,0 +1,11 @@
+# Reserved for Azure Machine Configuration custom audit packages.
+#
+# Per `specs/001-azure-stig-dashboard/plan.md` and `tasks.md` (T225), this
+# folder will host:
+#   - windows-stig/   (PowerSTIG/Evaluate-STIG audit-only DSC composite)
+#   - linux-stig/     (Evaluate-STIG Linux wrapper)
+#   - build/          (signed-package build pipeline targeting ACR)
+#
+# Packages are produced via Guest Configuration tooling and published to a
+# storage account or container registry referenced by Azure Policy
+# assignments in `infra/modules/policy.bicep`.

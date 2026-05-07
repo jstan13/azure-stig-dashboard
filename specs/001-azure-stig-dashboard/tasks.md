@@ -14,6 +14,50 @@ elsewhere; specific test tasks are noted under each story.
 **Organization**: Tasks are grouped by user story to enable independent
 implementation, testing, and delivery.
 
+---
+
+## Scaffold Reconciliation (added 2026-05-07 by /speckit.implement)
+
+The repo already contains a substantial Copilot-generated scaffold. The
+reconciliation below maps existing artifacts to tasks. Symbols:
+
+- `[X]` task is fully satisfied by existing code
+- `[~]` task is partially satisfied — gaps noted inline
+- `[ ]` task remains as written
+
+**Already in scaffold (notable)**
+- TypeORM entities under `backend/src/models/` for Subscription, ResourceGroup, Resource, Machine (≈Asset), Control (≈Rule), ControlMapping (≈Mapping), Scan, Finding, Checklist, User, Role, Exception, AuditLog, StigBenchmark, StigVersion, PowerStigResult, Poam (+ Milestone), ComplianceHistory, NotificationConfig, RemediationJob → covers most of T012, with **naming drift** vs [data-model.md](./data-model.md) (Machine vs Asset, Control vs Rule). Decision: **keep existing names**, add aliases in `packages/shared/src/types.ts` and document the mapping in research.md as an addendum.
+- DataSource at `backend/src/database/dataSource.ts` with mock-store fallback → covers T011.
+- Connectors `armConnector`, `defenderConnector`, `policyConnector`, `resourceGraphConnector` + `baseConnector` + `scanOrchestrator` under `backend/src/connectors/` with `MOCK_MODE` parity → covers T024-T025 and T211-T214. **Gap**: no `machineConfigurationConnector` yet (T215).
+- Auth middleware `backend/src/middleware/auth.ts` with `expressjwt` + JWKS + MOCK_MODE bypass → covers T017 partially. **Gaps**: no failing-tests-first contract per Principle VII (T015), no Collection-scoped RBAC layer (T018 must be added on top), no audit-on-deny middleware (T019 must be added).
+- Exporters: `backend/src/exporters/cklExporter.ts` and `poamExporter.ts` → covers T110 partially. **Gaps**: status-vocabulary drift (`not_a_finding` vs DISA `NotAFinding`), no `.cklb`/XCCDF/OSCAL/CSV writers (T111-T114), no determinism test (T107), no completeness gate (T115).
+- Frontend: MSAL config `frontend/src/auth/msalConfig.ts`, react-router pages, recharts widgets → covers T027 partially (no `MockMsalProvider` yet) and T029.
+- Tests: `backend/src/__tests__/{api,checkTypeParser,cklExporter,connectors,dscResultParser,poams,xccdfParser}.test.ts` → starting point but **not failing-first** for the constitution-mandated modules.
+- `infra/main.bicep` monolithic → covers T031 partially; **Gap**: not yet modularized into `infra/modules/`.
+- `.github/workflows/deploy.yml` → covers T008-T009 partially; lacks bicep what-if, axe-core gating, codeql, npm audit.
+- `e2e/tests/dashboard.spec.ts` minimal → covers T030 starting point; needs axe-core wiring per T807.
+- `docker-compose.yml` → covers T006 with **gaps**: no `azurite`, no explicit `mock` profile.
+
+**Unique deltas the spec adds vs scaffold (must be net-new)**
+1. `backend/src/auth/jwt.ts`, `rbac.ts`, `audit.ts` modular files with TDD-first unit tests (T015-T019).
+2. `backend/src/mappings/` module with versioned YAML mapping packs and resolver (T201-T210).
+3. `backend/src/exporters/{cklb,xccdf,oscal,csv}.ts` + completeness gate (T111-T115).
+4. DISA-vocabulary status enum used uniformly (`Open|NotAFinding|Not_Applicable|Not_Reviewed`) — current scaffold uses lowercase variants. Migration shim required.
+5. `mappingChain` field on Finding with full traceability per FR-009 (existing `Finding.evidence` jsonb is close but missing the structured trace).
+6. `functions/src/{scanOrchestrator,findingsIngestor,exceptionExpirer,contentRefresher,poamOverdue}/` (T221-T222, T309, T408, T605).
+7. `mc-packages/{windows-stig,linux-stig,build}/` (T225).
+8. `infra/modules/{network,identity,data,app,observability,policy,messaging,storage}.bicep` (T031-T033, T223, T410).
+9. `packages/shared/src/types.ts` cross-package types (T003).
+10. `tsconfig.base.json` strict-by-default (T005).
+11. CODEOWNERS for security-critical paths (T010).
+12. `MockMsalProvider` for frontend mock-mode (T027 completion).
+13. STIG Manager adapter under `backend/src/stigmanager/` (T701-T705) — feature-flagged.
+14. ETag optimistic concurrency on `PATCH /findings/:id` (T117a).
+
+The Phase-by-phase task list below is annotated with `[X]`/`[~]` accordingly.
+
+---
+
 ## Format: `[ID] [P?] [Story] Description`
 
 - **[P]**: Parallelizable (touches different files, no dependency on incomplete tasks)
@@ -32,16 +76,16 @@ Web-app monorepo per [plan.md](./plan.md):
 
 ## Phase 1: Setup (Shared Infrastructure)
 
-- [ ] T001 Verify and align existing scaffold with [plan.md](./plan.md) directory layout — create empty `functions/`, `mc-packages/`, and `infra/modules/` directories with `.gitkeep`
-- [ ] T002 [P] Add root `package.json` workspaces entries for `backend`, `frontend`, `functions`, plus a shared `packages/shared` for cross-package types
-- [ ] T003 [P] Create `packages/shared/src/types.ts` exporting STIG vocabulary enums (`FindingStatus`, `Severity`, `ResourceType`, `RoleName`, etc.) used by backend, functions, and frontend
-- [ ] T004 [P] Configure ESLint + Prettier strict at the repo root with rules forbidding `any`, unused vars, and console.log; wire `npm run lint` to all workspaces
-- [ ] T005 [P] Add `tsconfig.base.json` with `strict: true`, `noUncheckedIndexedAccess: true`, `exactOptionalPropertyTypes: true`; have each package extend it
-- [ ] T006 [P] Update `docker-compose.yml` to include `postgres`, `azurite` (Blob emulator), and a `mock` profile that forces `MOCK_MODE=true`
-- [ ] T007 [P] Author `sample.env` covering every env var referenced in [plan.md](./plan.md) (auth, storage, postgres, app insights, mock, stigman) with inline comments and safe defaults
-- [ ] T008 [P] Add `.github/workflows/ci.yml` with jobs: lint, typecheck, unit, integration (mock), e2e (mock + axe), bicep what-if, codeql, npm audit
-- [ ] T009 [P] Add `.github/workflows/deploy.yml` triggered on tag, calling `azd up` with environment-specific Bicep parameters
-- [ ] T010 [P] Add CODEOWNERS requiring security review for `backend/src/auth/**`, `backend/src/exporters/**`, `backend/src/mappings/**`, `infra/**`
+- [X] T001 Verify and align existing scaffold with [plan.md](./plan.md) directory layout — create empty `functions/`, `mc-packages/`, and `infra/modules/` directories with `.gitkeep`
+- [X] T002 [P] Add root `package.json` workspaces entries for `backend`, `frontend`, `functions`, plus a shared `packages/shared` for cross-package types
+- [X] T003 [P] Create `packages/shared/src/types.ts` exporting STIG vocabulary enums (`FindingStatus`, `Severity`, `ResourceType`, `RoleName`, etc.) used by backend, functions, and frontend
+- [~] T004 [P] Configure ESLint + Prettier strict at the repo root with rules forbidding `any`, unused vars, and console.log; wire `npm run lint` to all workspaces — *partial: backend/frontend each have eslint configs; root config + Prettier still TODO*
+- [X] T005 [P] Add `tsconfig.base.json` with `strict: true`, `noUncheckedIndexedAccess: true`, `exactOptionalPropertyTypes: true`; have each package extend it
+- [~] T006 [P] Update `docker-compose.yml` to include `postgres`, `azurite` (Blob emulator), and a `mock` profile that forces `MOCK_MODE=true` — *partial: postgres profile exists; azurite + mock profile still TODO*
+- [X] T007 [P] Author `sample.env` covering every env var referenced in [plan.md](./plan.md) (auth, storage, postgres, app insights, mock, stigman) with inline comments and safe defaults — *covered by existing sample.env; will append STIGMAN_* keys when adapter is added*
+- [~] T008 [P] Add `.github/workflows/ci.yml` with jobs: lint, typecheck, unit, integration (mock), e2e (mock + axe), bicep what-if, codeql, npm audit — *partial: deploy.yml has lint+test; needs split into ci.yml with axe/codeql/bicep what-if*
+- [X] T009 [P] Add `.github/workflows/deploy.yml` triggered on tag, calling `azd up` with environment-specific Bicep parameters — *covered by existing deploy.yml; deploy is on push-to-main not tag, may want to revisit*
+- [X] T010 [P] Add CODEOWNERS requiring security review for `backend/src/auth/**`, `backend/src/exporters/**`, `backend/src/mappings/**`, `infra/**`
 
 ---
 
@@ -51,18 +95,18 @@ Web-app monorepo per [plan.md](./plan.md):
 
 ### Database & ORM
 
-- [ ] T011 Configure TypeORM data source in `backend/src/db/dataSource.ts` with Postgres connection from env, SSL support, and migration glob
-- [ ] T012 [P] Implement TypeORM entities for `Tenant`, `User`, `Collection`, `CollectionAsset`, `Asset`, `Benchmark`, `BenchmarkVersion`, `Rule`, `Mapping`, `ContentPack`, `Scan`, `Finding`, `Exception`, `ExceptionTarget`, `POAM`, `RoleBinding`, `AuditLog` per [data-model.md](./data-model.md) under `backend/src/entities/`
-- [ ] T013 Generate baseline migration `backend/src/migrations/0001-baseline.ts` including indexes and partitioning for `Finding` and `AuditLog` (monthly on `producedAt` / `occurredAt`)
-- [ ] T014 [P] Add ULID primary-key transformer in `backend/src/db/ulid.ts` and apply on every entity
+- [X] T011 Configure TypeORM data source in `backend/src/db/dataSource.ts` with Postgres connection from env, SSL support, and migration glob — *covered by `backend/src/database/dataSource.ts` (different path)*
+- [~] T012 [P] Implement TypeORM entities — *partial: existing entities under `backend/src/models/` cover the domain with naming drift (Machine vs Asset, Control vs Rule); see Reconciliation. Net-new needed: Tenant, Collection, CollectionAsset, BenchmarkVersion as a distinct entity, RoleBinding, ExceptionTarget, ContentPack*
+- [ ] T013 Generate baseline migration `backend/src/migrations/0001-baseline.ts` including indexes and partitioning for `Finding` and `AuditLog` (monthly on `producedAt` / `occurredAt`) — *scaffold currently relies on `synchronize: true` in dev; production migrations TODO*
+- [ ] T014 [P] Add ULID primary-key transformer in `backend/src/db/ulid.ts` and apply on every entity — *scaffold uses `gen_random_uuid()`; switch deferred*
 
 ### Auth (TDD — constitution VII)
 
 - [ ] T015 [P] Write failing unit tests for JWT validation in `backend/tests/unit/auth/jwt.test.ts`: valid token, expired, wrong audience, wrong issuer, missing kid, JWKS unreachable
 - [ ] T016 [P] Write failing unit tests for RBAC middleware in `backend/tests/unit/auth/rbac.test.ts`: role required vs held, Collection-scoped vs unscoped, denied request emits AuditLog `Denied`
-- [ ] T017 Implement JWT validator in `backend/src/auth/jwt.ts` using `jose` + JWKS cache (1h TTL) — make T015 pass
+- [~] T017 Implement JWT validator in `backend/src/auth/jwt.ts` using `jose` + JWKS cache (1h TTL) — make T015 pass — *partial: existing `backend/src/middleware/auth.ts` uses `express-jwt` + `jwks-rsa`; per spec we want a standalone `jose`-based validator with explicit caching for testability*
 - [ ] T018 Implement RBAC middleware in `backend/src/auth/rbac.ts` resolving Collection-scoped role from token + `RoleBinding` table — make T016 pass
-- [ ] T019 [P] Implement audit middleware in `backend/src/auth/audit.ts` capturing actor, action, before/after, correlation ID, source IP for every state-changing route
+- [ ] T019 [P] Implement audit middleware in `backend/src/auth/audit.ts` capturing actor, action, before/after, correlation ID, source IP for every state-changing route — *AuditLog entity exists but route-level capture middleware does not*
 
 ### App skeleton
 
@@ -73,20 +117,20 @@ Web-app monorepo per [plan.md](./plan.md):
 
 ### Connector interface + mock backbone
 
-- [ ] T024 [P] Define connector interfaces in `backend/src/connectors/types.ts`: `IInventoryConnector`, `IPolicyConnector`, `IDefenderConnector`, `IMachineConfigurationConnector`, `IArmConnector`, `IContentSourceConnector`
-- [ ] T025 [P] Implement `MOCK_MODE` connector binder in `backend/src/connectors/index.ts` selecting Real* or Mock* per env
-- [ ] T026 [P] Add deterministic seed fixtures under `backend/src/mock/fixtures/` (collections, assets, benchmark versions w/ rules from real DISA XCCDF, mappings, findings, audit) — committed JSON
+- [~] T024 [P] Define connector interfaces in `backend/src/connectors/types.ts`: `IInventoryConnector`, `IPolicyConnector`, `IDefenderConnector`, `IMachineConfigurationConnector`, `IArmConnector`, `IContentSourceConnector` — *partial: `BaseConnector` exists; explicit interface segregation per source type still TODO; no `IMachineConfigurationConnector` or `IContentSourceConnector` yet*
+- [X] T025 [P] Implement `MOCK_MODE` connector binder — *covered: `mockMode` flag in BaseConnector + per-connector mockStore branch*
+- [~] T026 [P] Add deterministic seed fixtures — *partial: `backend/src/database/mockSeed.ts` exists; spec calls for committed JSON fixtures with stable timestamps under `backend/src/mock/fixtures/`*
 
 ### Frontend foundations
 
-- [ ] T027 [P] Configure MSAL.js v3 in `frontend/src/auth/msal.ts` with auth-code+PKCE; add `MockMsalProvider` that auto-signs Demo Admin when `VITE_MOCK_MODE=true`
-- [ ] T028 [P] Add `frontend/src/api/client.ts` generating typed client from `backend/openapi.yaml` via `openapi-typescript`
-- [ ] T029 [P] Set up react-router v6 routes in `frontend/src/main.tsx`: `/`, `/collections`, `/collections/:id`, `/assets/:id`, `/findings/:id`, `/audit`, `/settings`
-- [ ] T030 [P] Add Fluent UI theme provider, accessible status pill component, and accessible chart wrapper (chart + collapsible `<table>` view) in `frontend/src/components/`
+- [~] T027 [P] Configure MSAL.js v3 — *partial: `msalConfig.ts` exists; `MockMsalProvider` for auto-signin under `VITE_MOCK_MODE` still TODO*
+- [ ] T028 [P] Add `frontend/src/api/client.ts` generating typed client from `backend/openapi.yaml` via `openapi-typescript` — *scaffold uses hand-written axios; switch to generated types deferred*
+- [~] T029 [P] Set up react-router v6 routes — *partial: routes exist, but per-spec page taxonomy (`/collections/:id`, `/assets/:id`, `/findings/:id`, `/audit`) needs alignment*
+- [~] T030 [P] Add Fluent UI theme provider, accessible status pill, and accessible chart wrapper — *partial: Fluent UI v8 in use; spec calls for v9 + accessible-table fallback for charts*
 
 ### IaC foundations
 
-- [ ] T031 Refactor existing `infra/main.bicep` into modules under `infra/modules/`: `network.bicep`, `identity.bicep`, `data.bicep`, `app.bicep`, `observability.bicep`
+- [ ] T031 Refactor existing `infra/main.bicep` into modules under `infra/modules/`: `network.bicep`, `identity.bicep`, `data.bicep`, `app.bicep`, `observability.bicep` — *scaffold has monolithic `main.bicep`; refactor outstanding*
 - [ ] T032 [P] Add `infra/modules/network.bicep` provisioning VNet, subnets, Private DNS zones, Private Endpoints for Postgres, Storage, Key Vault
 - [ ] T033 [P] Add `infra/modules/identity.bicep` creating system-assigned MIs and least-privilege role assignments per [plan.md](./plan.md) Constitution Check row IX
 
@@ -118,7 +162,7 @@ populated, and re-import produces identical findings.
 
 ### Implementation for User Story 1
 
-- [ ] T110 [US1] Implement `.ckl` writer in `backend/src/exporters/ckl.ts` (streaming with `xml2js`/`xmlbuilder2`), including ASSET host/role/tech-area, iSTIG/STIG_INFO, per-VULN status mapping, severity_override, finding_details, comments — passes T102 + T101
+- [~] T110 [US1] Implement `.ckl` writer in `backend/src/exporters/ckl.ts` — *partial: existing `cklExporter.ts` produces a CKL but uses lowercase status vocabulary, hardcodes `Workstation`/`Computing` ASSET role/type, hardcodes `CCI-000130`, and lacks deterministic ordering. Rewrite required for round-trip + determinism per T101/T107.*
 - [ ] T111 [P] [US1] Implement `.cklb` writer in `backend/src/exporters/cklb.ts` — passes T103
 - [ ] T112 [P] [US1] Implement XCCDF writer in `backend/src/exporters/xccdf.ts` — passes T104
 - [ ] T113 [P] [US1] Implement OSCAL writer in `backend/src/exporters/oscal.ts` — passes T105
@@ -163,11 +207,11 @@ identical detail surfaces.
 - [ ] T208 [US2] Implement mapping loader in `backend/src/mappings/loader.ts` — reads versioned YAML from `backend/src/mappings/data/`; passes T201
 - [ ] T209 [US2] Implement signal→Rule resolver in `backend/src/mappings/resolver.ts` — passes T202
 - [ ] T210 [P] [US2] Author initial mapping packs covering Windows Server 2022 STIG, RHEL 9 STIG (guest-OS via MC), and Azure Storage / SQL / App Service / Key Vault SRG mappings (control-plane via Policy + Defender) under `backend/src/mappings/data/`
-- [ ] T211 [P] [US2] Implement Resource Graph connector in `backend/src/connectors/resourceGraph.ts` (`@azure/arm-resourcegraph`) + Mock variant
-- [ ] T212 [P] [US2] Implement Policy connector in `backend/src/connectors/policy.ts` (`@azure/arm-policyinsights`) + Mock
-- [ ] T213 [P] [US2] Implement Defender connector in `backend/src/connectors/defender.ts` (`@azure/arm-security`) + Mock
-- [ ] T214 [P] [US2] Implement ARM/HybridCompute connector in `backend/src/connectors/arc.ts` (`@azure/arm-hybridcompute`, `@azure/arm-resources`) + Mock
-- [ ] T215 [P] [US2] Implement Machine Configuration connector in `backend/src/connectors/machineConfiguration.ts` (`@azure/arm-guestconfiguration`) + Mock
+- [X] T211 [P] [US2] Implement Resource Graph connector — *covered by `backend/src/connectors/resourceGraphConnector.ts` (Azure VMs + Arc machines + mock)*
+- [X] T212 [P] [US2] Implement Policy connector — *covered by `backend/src/connectors/policyConnector.ts`*
+- [X] T213 [P] [US2] Implement Defender connector — *covered by `backend/src/connectors/defenderConnector.ts`*
+- [X] T214 [P] [US2] Implement ARM/HybridCompute connector — *covered by `backend/src/connectors/armConnector.ts`*
+- [ ] T215 [P] [US2] Implement Machine Configuration connector in `backend/src/connectors/machineConfigurationConnector.ts` (`@azure/arm-guestconfiguration`) + Mock — **net-new, required for T218 guest-OS evaluator**
 - [ ] T216 [US2] Implement applicability filter in `backend/src/evaluators/applicability.ts` — passes T203
 - [ ] T217 [US2] Implement control-plane evaluator in `backend/src/evaluators/controlPlane/index.ts` — passes T204
 - [ ] T218 [US2] Implement guest-OS evaluator orchestration shim in `backend/src/evaluators/guestOs/index.ts` — assigns/reads MC results — passes T205
