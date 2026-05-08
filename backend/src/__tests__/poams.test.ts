@@ -8,7 +8,7 @@ process.env.MOCK_MODE = 'true';
 process.env.JWT_SECRET = 'test-secret';
 
 import request from 'supertest';
-import app from '../../index';
+import app from '../index';
 
 // The mock store is populated lazily on first request in mock mode.
 // We call health check first to ensure the app has initialized.

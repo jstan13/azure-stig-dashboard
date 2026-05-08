@@ -7,6 +7,7 @@ import { Router } from 'express';
 import { mockStore } from '../database/dataSource';
 import { createError } from '../middleware/errorHandler';
 import { recordAudit } from '../auth';
+import { requireRole } from '../middleware/auth';
 
 const router = Router();
 const MOCK_MODE = () => process.env.MOCK_MODE === 'true';
@@ -80,7 +81,7 @@ router.get('/:id', (req, res, next) => {
 });
 
 // PATCH /api/machines/:machineId/findings/:findingId
-router.patch('/:machineId/findings/:findingId', async (req, res, next) => {
+router.patch('/:machineId/findings/:findingId', requireRole('admin', 'operator'), async (req, res, next) => {
   const { status, comments, findingDetails } = req.body;
 
   if (MOCK_MODE()) {

@@ -17,6 +17,7 @@
  */
 import type { Request } from 'express';
 import type { AuditRequest, AuditInput, AuditResult } from './audit';
+import { logger } from '../utils/logger';
 
 export interface RouteAuditInput {
   action: string;
@@ -32,7 +33,16 @@ export async function recordAudit(
   input: RouteAuditInput,
 ): Promise<void> {
   const audit = (req as unknown as AuditRequest).audit;
-  if (!audit) return;
+  if (!audit) {
+    // Audit #19: surface misconfigured routes (auditMiddleware not mounted).
+    logger.warn('recordAudit: req.audit is undefined \u2014 auditMiddleware not mounted on this route', {
+      action: input.action,
+      entityType: input.entityType,
+      entityId: input.entityId,
+      url: req.originalUrl,
+    });
+    return;
+  }
   const auth = (req as any).auth ?? {};
   const actorUserId =
     typeof auth.email === 'string' && auth.email.length > 0

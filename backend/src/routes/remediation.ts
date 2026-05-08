@@ -128,8 +128,8 @@ router.post('/jobs', requireRole('admin', 'operator'), async (req: Request, res:
   }
 });
 
-// POST /api/remediation/jobs/:id/cancel
-router.post('/jobs/:id/cancel', async (req: Request, res: Response) => {
+// POST /api/remediation/jobs/:id/cancel \u2014 admin/operator only (Audit #2)
+router.post('/jobs/:id/cancel', requireRole('admin', 'operator'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     if (isMock()) {

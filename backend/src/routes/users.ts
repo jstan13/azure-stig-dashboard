@@ -59,10 +59,18 @@ router.get('/', requireRole('admin'), async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/users/:id
+// GET /api/users/:id \u2014 admin OR self (Audit #15)
 router.get('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const auth = (req as any).auth || {};
+    const callerRoles: string[] = auth.roles || (auth.role ? [auth.role] : []);
+    const callerId: string | undefined = auth.sub || auth.oid || auth.id;
+    const isAdmin = callerRoles.includes('admin');
+    const isSelf  = callerId !== undefined && (callerId === id);
+    if (!isAdmin && !isSelf) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
     if (isMock()) {
       const user = MOCK_USERS.find((u) => u.id === id || u.oid === id);
       return user ? res.json(user) : res.status(404).json({ error: 'User not found' });

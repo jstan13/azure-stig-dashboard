@@ -20,12 +20,12 @@ router.post(
   '/trigger',
   requireRole('admin', 'operator'),
   async (req, res, next) => {
-    try {
-      const { subscriptionIds, resourceGroupNames, resourceIds, since } = req.body;
-      const actor = (req as any).auth?.email || (req as any).auth?.sub || 'api';
-      const targetId = resourceIds?.[0] || subscriptionIds?.[0] || 'all';
-      const targetType = resourceIds ? 'machine' : 'subscription';
+    const { subscriptionIds, resourceGroupNames, resourceIds, since } = req.body;
+    const actor = (req as any).auth?.email || (req as any).auth?.sub || 'api';
+    const targetId = resourceIds?.[0] || subscriptionIds?.[0] || 'all';
+    const targetType = resourceIds ? 'machine' : 'subscription';
 
+    try {
       const result = await orchestrator.runScan({
         subscriptionIds,
         resourceGroupNames,
@@ -43,7 +43,19 @@ router.post(
 
       logger.info(`[Scan] Triggered by ${actor}: scanId=${result.scanId}`);
       res.status(202).json({ message: 'Scan initiated', ...result });
-    } catch (err) {
+    } catch (err: any) {
+      // Audit #11 / Constitution Principle II \u2014 record failure rows.
+      try {
+        await recordAudit(req, {
+          action: 'scan.triggered',
+          entityType: targetType,
+          entityId: targetId,
+          after: { subscriptionIds, resourceGroupNames, resourceIds, error: err?.message },
+          result: 'Failure',
+        });
+      } catch (auditErr) {
+        logger.error('[Scan] failure-audit write failed', auditErr);
+      }
       next(err);
     }
   },
