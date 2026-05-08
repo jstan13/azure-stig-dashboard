@@ -23,16 +23,18 @@ The deployment wizard prompts for your **Organization name**, **Azure cloud envi
 2. [Features](#features)
 3. [Quick start — mock mode (no Azure required)](#quick-start--mock-mode)
 4. [One-click Deploy to Azure](#one-click-deploy-to-azure)
-5. [Azure AD app registration](#azure-ad-app-registration)
-6. [GitHub Secrets configuration](#github-secrets-configuration)
-7. [Local development — real Azure data](#local-development--real-azure-data)
-8. [Database migrations](#database-migrations)
-9. [Running tests](#running-tests)
-10. [Project structure](#project-structure)
-11. [API reference](#api-reference)
-12. [Export formats](#export-formats)
-13. [Contributing](#contributing)
-14. [License](#license)
+5. [Deploy with `azd up` (recommended for prod)](#deploy-with-azd-up-recommended-for-prod)
+6. [Sizing & monthly cost estimates](#sizing--monthly-cost-estimates)
+7. [Azure AD app registration](#azure-ad-app-registration)
+8. [GitHub Secrets configuration](#github-secrets-configuration)
+9. [Local development — real Azure data](#local-development--real-azure-data)
+10. [Database migrations](#database-migrations)
+11. [Running tests](#running-tests)
+12. [Project structure](#project-structure)
+13. [API reference](#api-reference)
+14. [Export formats](#export-formats)
+15. [Contributing](#contributing)
+16. [License](#license)
 
 ---
 
@@ -162,6 +164,121 @@ The backend reads `AZURE_AUTHORITY_HOST`, `AZURE_ARM_ENDPOINT`, and `AZURE_GRAPH
    - `Security Reader`
 4. For Azure Arc-connected machines: the Arc agent on each on-premises server connects outbound to Azure — no additional Azure RBAC role is needed to read those resources, but the machine must be enrolled in Azure Arc first (`Microsoft.HybridCompute/machines` resource type). Assign the `Azure Connected Machine Resource Reader` built-in role to the managed identity if you need to query Arc-only resource groups.
 5. For Policy data: `Reader` is sufficient for read-only compliance state queries.
+
+---
+
+## Deploy with `azd up` (recommended for prod)
+
+If you've cloned the repo and have the [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd) installed, this is the fastest path to a real production deployment. It runs the same Bicep template as the portal button but also builds and deploys both apps in one shot.
+
+```pwsh
+git clone https://github.com/<your-org>/azure-stig-dashboard.git
+cd azure-stig-dashboard
+
+azd auth login                      # add --use-device-code in restricted shells
+azd env new prod                    # creates .azure/prod/ env
+azd env set AZURE_TENANT_ID     <tenant-guid>
+azd env set AZURE_CLIENT_ID     <backend-app-registration-client-id>
+azd env set AZURE_CLIENT_SECRET <backend-app-registration-secret>
+azd env set DB_ADMIN_PASSWORD   '<strong-password>'
+azd env set MOCK_MODE           false                # IMPORTANT for prod
+azd env set APP_SERVICE_SKU     S1                   # see sizing table below
+
+# Optional sovereign cloud (Azure US Gov / DoD)
+# azd env set AZURE_CLOUD AzureUSGovernment
+# azd config set defaults.location usgovvirginia
+
+azd up                              # provisions infra + builds + deploys
+```
+
+`azd up` will:
+
+1. Provision the resource group + every resource defined in [infra/main.bicep](infra/main.bicep) (~10–15 min).
+2. Store `AZURE_CLIENT_SECRET` and `DATABASE_URL` in **Key Vault**, wired into App Service via Key Vault references — secrets are never logged.
+3. Grant the backend's system-assigned managed identity the **Key Vault Secrets User** role.
+4. Build the backend (`tsc`) and frontend (`vite build`) and zip-deploy them to App Service.
+5. Print the frontend URL, backend URL, and the **redirect URI you must register** on your SPA app registration.
+
+**One-time post-deploy steps:**
+
+```pwsh
+# 1. Run TypeORM migrations against the new Postgres server
+$dbUrl = az keyvault secret show --vault-name <kv-name> --name DATABASE-URL --query value -o tsv
+cd backend; $env:DATABASE_URL=$dbUrl; npm run migration:run
+
+# 2. Add the printed redirect URI to the SPA app registration:
+#    Entra ID > App registrations > <your-spa> > Authentication > Single-page application
+```
+
+To redeploy code-only changes later: `azd deploy`. To tear everything down: `azd down --purge`.
+
+---
+
+## Sizing & monthly cost estimates
+
+All numbers below are **public Azure Commercial, East US, pay-as-you-go, USD/month** — Azure US Gov is typically **+20–30%** on the same SKUs. Use these to pick the `appServiceSku` value during the wizard or in `azd env set APP_SERVICE_SKU`.
+
+### What's always provisioned
+
+| Resource | Default SKU | Notes |
+|---|---|---|
+| App Service Plan (Linux) | configurable | Hosts both `*-api` and `*-web` |
+| App Service — backend (`*-api`) | Node 20 LTS | Express API |
+| App Service — frontend (`*-web`) | Node 20 LTS | Vite static bundle |
+| PostgreSQL Flexible Server | **Standard_B1ms** Burstable, 32 GB, 7-day backup, no HA | Database |
+| Key Vault | **Standard** | `AZURE-CLIENT-SECRET`, `DATABASE-URL` |
+| Application Insights | Workspace-based, pay-per-GB | Telemetry |
+| Managed identity + role assignment | — | Key Vault Secrets User |
+
+No VNet, no private endpoints, no Cosmos DB, no Container Registry (Oryx build, not containers). All provisioned inside a single resource group in a single region.
+
+### Choose your App Service tier
+
+| Tier | vCPU / RAM | Plan/mo | **Total stack/mo** | Use it for |
+|---|---|---:|---:|---|
+| **F1** Free | shared / 1 GB | $0 | **~$20** | Demo/POC only — no Always-On, 60 CPU-min/day cap, **not** suitable for prod |
+| **B1** Basic *(default)* | 1 / 1.75 GB | ~$13 | **~$35–45** | Dev/staging, internal tools, <100 daily users |
+| **B2** Basic | 2 / 3.5 GB | ~$26 | **~$50–60** | Small prod, single region |
+| **S1** Standard | 1 / 1.75 GB | ~$73 | **~$95–110** | **Recommended for production** — adds staging slots, custom domains, autoscale, daily backups |
+| **S2** Standard | 2 / 3.5 GB | ~$146 | **~$170–185** | Heavier prod load |
+| **P1v3** Premium v3 | 2 / 8 GB | ~$124 | **~$145–165** | True prod-grade — VNet integration, zone redundancy, modern hardware |
+
+### What goes into the "total" column
+
+Below is the line-item breakdown for the **B1 default** ($35–45/mo). Replace the App Service Plan row with the SKU you choose to project other tiers.
+
+| Resource | Monthly est. |
+|---|---:|
+| App Service Plan B1 Linux (730 hrs × $0.018) | $13 |
+| PostgreSQL Flexible B1ms (730 hrs × $0.017) | $12 |
+| PostgreSQL storage 32 GB | $4 |
+| PostgreSQL backup (7-day, ≤storage size) | $0–2 |
+| Key Vault Standard (operations-billed) | <$1 |
+| Application Insights (first 5 GB/mo free, then $2.30/GB) | $0–5 |
+| Egress bandwidth (first 100 GB/mo free) | $0–3 |
+| **Total** | **~$35–45** |
+
+### Optional add-ons that change the bill
+
+| Add-on | Cost impact |
+|---|---|
+| **Postgres HA** (zone-redundant) | Doubles compute charge — adds ~$12/mo on B1ms, more on larger SKUs |
+| **Geo-redundant backup** | +~$8–15/mo depending on storage |
+| **Postgres burstable → general-purpose** (D2ds_v4) | +~$120/mo over B1ms |
+| **Azure US Government** cloud | +20–30% across the board |
+| **Custom domain + TLS** | Free with managed certificates on S1+, $69/yr per cert below S1 |
+| **App Insights heavy use** (>5 GB/mo) | $2.30/GB ingestion |
+
+### TL;DR sizing recommendations
+
+| Scenario | Pick |
+|---|---|
+| Trying it out, demo, or POC | **F1** (free) — but expect cold starts and CPU caps |
+| Internal tool, dev/staging | **B1** (default) — ~$40/mo |
+| Real production, single region | **S1** — ~$100/mo |
+| Prod with HA / VNet / zone redundancy | **P1v3** + Postgres HA — ~$200/mo |
+
+> Always validate with the official [Azure Pricing Calculator](https://azure.microsoft.com/pricing/calculator/) before committing — Microsoft list prices change and EA/MCA discounts may apply to your tenant.
 
 ---
 
