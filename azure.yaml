@@ -47,3 +47,14 @@ hooks:
       shell: pwsh
       run: |
         Write-Host "[azd] Provisioning Azure STIG Dashboard infra (Bicep) — see infra/main.bicep"
+  postdeploy:
+    windows:
+      shell: pwsh
+      run: |
+        $env:FUNCTION_PRINCIPAL_ID = (azd env get-value functionPrincipalId 2>$null)
+        ./scripts/post-deploy.ps1
+    posix:
+      shell: sh
+      run: |
+        echo "[azd] Post-deploy role grant requires PowerShell + az CLI."
+        echo "      On Linux/macOS run: pwsh ./scripts/post-deploy.ps1"
