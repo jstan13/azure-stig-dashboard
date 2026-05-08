@@ -25,16 +25,17 @@ The deployment wizard prompts for your **Organization name**, **Azure cloud envi
 4. [One-click Deploy to Azure](#one-click-deploy-to-azure)
 5. [Deploy with `azd up` (recommended for prod)](#deploy-with-azd-up-recommended-for-prod)
 6. [Sizing & monthly cost estimates](#sizing--monthly-cost-estimates)
-7. [Azure AD app registration](#azure-ad-app-registration)
-8. [GitHub Secrets configuration](#github-secrets-configuration)
-9. [Local development — real Azure data](#local-development--real-azure-data)
-10. [Database migrations](#database-migrations)
-11. [Running tests](#running-tests)
-12. [Project structure](#project-structure)
-13. [API reference](#api-reference)
-14. [Export formats](#export-formats)
-15. [Contributing](#contributing)
-16. [License](#license)
+7. [Where this fits in your STIG toolchain](#where-this-fits-in-your-stig-toolchain)
+8. [Azure AD app registration](#azure-ad-app-registration)
+9. [GitHub Secrets configuration](#github-secrets-configuration)
+10. [Local development — real Azure data](#local-development--real-azure-data)
+11. [Database migrations](#database-migrations)
+12. [Running tests](#running-tests)
+13. [Project structure](#project-structure)
+14. [API reference](#api-reference)
+15. [Export formats](#export-formats)
+16. [Contributing](#contributing)
+17. [License](#license)
 
 ---
 
@@ -279,6 +280,115 @@ Below is the line-item breakdown for the **B1 default** ($35–45/mo). Replace t
 | Prod with HA / VNet / zone redundancy | **P1v3** + Postgres HA — ~$200/mo |
 
 > Always validate with the official [Azure Pricing Calculator](https://azure.microsoft.com/pricing/calculator/) before committing — Microsoft list prices change and EA/MCA discounts may apply to your tenant.
+
+---
+
+## Where this fits in your STIG toolchain
+
+This dashboard is the **central system of record and reporting layer** for STIG compliance across your Azure (and Azure Arc-connected) estate. It is *not* a SCAP scanner, a vulnerability scanner, or a remediation engine on its own — it **orchestrates, ingests, normalises, and reports** on data those other tools produce.
+
+### TL;DR — what to keep, what to retire
+
+| Tool | Role | After deploying this dashboard |
+|---|---|---|
+| **DISA STIG Viewer 3** | Open/edit `.ckl` checklists | **Keep** — auditors still use it to review the `.ckl` files this dashboard exports |
+| **eMASS** | DoD compliance system of record | **Keep** — upload our `.ckl` and POA&M exports; this dashboard is your day-to-day driver |
+| **DISA SCAP Compliance Checker (SCC)** | Run SCAP scans on Windows hosts | **Optional** — invoke from this dashboard via Azure Run Command/Arc; results parsed by [`scapResultParser.ts`](backend/src/scanning/scapResultParser.ts) |
+| **OpenSCAP / `oscap`** | Run SCAP scans on Linux hosts | **Built in** — [`openScapRunner.ts`](backend/src/scanning/openScapRunner.ts) drives oscap remotely; results auto-ingested |
+| **PowerSTIG (DSC)** | Audit + remediate Windows hosts | **Built in** — [`powerStigRunner.ts`](backend/src/scanning/powerStigRunner.ts) + [`dscResultParser.ts`](backend/src/scanning/dscResultParser.ts) ingest DSC audit JSON; remediation triggered via [`remediationRunner.ts`](backend/src/scanning/remediationRunner.ts) |
+| **Evaluate-STIG** (NSWC) | PowerShell-based STIG scanner | **Replaced** — same data class as PowerSTIG/SCAP runners above |
+| **Azure Policy** | Resource configuration compliance | **Ingested** — [`policyConnector.ts`](backend/src/connectors/policyConnector.ts) maps Policy IDs → STIG controls |
+| **Microsoft Defender for Cloud** | CSPM + workload protection | **Ingested** — [`defenderConnector.ts`](backend/src/connectors/defenderConnector.ts) maps assessment IDs → STIG controls |
+| **Azure Resource Graph / ARM** | Resource inventory | **Ingested** — [`resourceGraphConnector.ts`](backend/src/connectors/resourceGraphConnector.ts), [`armConnector.ts`](backend/src/connectors/armConnector.ts) |
+| **Azure Arc** | On-prem/multi-cloud machine onboarding | **Required** for non-Azure hosts you want to scan |
+| **Azure Guest Configuration** | Push DSC/PowerSTIG to VMs and Arc machines | **Used** — [`guestConfigDeployer.ts`](backend/src/scanning/guestConfigDeployer.ts) |
+| **ACAS / Tenable Nessus** | Vulnerability (CVE) scanning | **Keep separate** — different data class (CVEs ≠ STIG rules); roadmap item below |
+| **Splunk / Microsoft Sentinel** | SIEM / log correlation | **Keep** — point at this app's App Insights workspace; roadmap for native push |
+| **Wazuh / OSSEC** | HIDS + SCAP | **Keep** if already deployed; we don't replace HIDS |
+| **STIG Manager** (NSWC OSS) | Web app for managing `.ckl` files | **Replaced** — superset of features, plus Azure-native ingestion |
+
+### What this dashboard is the source of truth for
+
+- **Asset → control → finding → POA&M** lifecycle across all tenants/subscriptions
+- **`.ckl` / JSON / CSV exports** for STIG Viewer and eMASS
+- **RMF/NIST 800-53 control rollups** ([RmfPage](frontend/src/pages/RmfPage.tsx))
+- **Compliance trend history** ([ComplianceTrendPage](frontend/src/pages/ComplianceTrendPage.tsx))
+- **Audit log** of every scan, finding edit, exception, and export ([AuditPage](frontend/src/pages/AuditPage.tsx))
+
+### Data-flow summary
+
+```
+                 ┌──────────────────────────────────────────────┐
+                 │           Azure STIG Dashboard               │
+                 │  (this app — Postgres + React + Express)     │
+                 └──────────────────────────────────────────────┘
+                          ▲                ▲              │
+   ┌──────────────────────┘                │              │
+   │  Resource Graph / ARM / Policy /      │              ▼
+   │  Defender for Cloud (REST APIs)       │   .ckl / JSON / CSV
+   │                                       │   ──► STIG Viewer 3
+   │  PowerSTIG DSC results                │   ──► eMASS upload
+   │  OpenSCAP XCCDF results               │
+   │  SCC ARF / XCCDF results              │
+   │  (pulled via Guest Config /            │
+   │   Run Command on Azure + Arc VMs)     │
+   │                                        │
+   ▼                                        │
+Azure VMs · Azure Arc machines ─────────────┘
+(Windows + Linux, on-prem / multi-cloud)
+```
+
+---
+
+## Is this an "all-in-one" yet?
+
+**Almost — about 80%.** Here is an honest gap analysis.
+
+### ✅ Already integrated (no other tool needed for these)
+
+- Azure-native CSPM ingestion (Policy + Defender + Resource Graph + ARM)
+- Azure Arc for non-Azure hosts (Windows, Linux, on-prem, AWS, GCP)
+- Host-level STIG scanning (PowerSTIG for Windows, OpenSCAP for Linux) via Guest Configuration
+- DISA SCAP Compliance Checker (SCC) result parsing
+- POA&M lifecycle, exceptions, audit trail, RMF mapping
+- `.ckl` / JSON / CSV exports compatible with STIG Viewer 3 and eMASS
+- Multi-tenant + multi-subscription rollup with executive dashboard
+- Sovereign cloud support (Commercial / US Gov / DoD)
+
+### ⚠️ Partially integrated (works but needs glue)
+
+| Gap | Status | What's needed |
+|---|---|---|
+| **Scheduled host scans** | Manual `/api/scan/trigger` only | Azure Functions timer or Logic App to call the trigger nightly |
+| **Auto-remediation** | [`remediationRunner.ts`](backend/src/scanning/remediationRunner.ts) exists for individual rules | UI workflow + approval gate for bulk remediation pushes |
+| **eMASS direct upload** | Manual `.ckl` download → upload | Add eMASS REST connector (`/v3/systems/{id}/poams`, `/cklb`) |
+| **SIEM forwarding** | App Insights captures everything | Diagnostic setting → Sentinel/Splunk (3-line ARM change) |
+| **Email/Teams alerts** | `notificationsRouter` stub exists | Wire to Logic App or Communication Services |
+
+### ❌ Not in scope today (would be additive work)
+
+| Gap | Why it's separate | Effort to add |
+|---|---|---|
+| **Vulnerability (CVE) scanning** — ACAS/Tenable equivalent | Different data class than STIG; different scanner | Large — would need MDC for Servers Plan 2 ingestion + a `Vulnerability` entity + UI tab |
+| **Hardware/firmware compliance** | Out of cloud-native scope | N/A — keep ACAS for this |
+| **Network device STIGs** (Cisco IOS, F5, etc.) | Requires SSH-based scanners | Medium — could run via Azure Automation hybrid worker |
+| **Container image STIG scanning** | Different scanner stack | Medium — integrate with ACR + Defender for Containers |
+| **cATO body-of-evidence generator** | Document automation | Medium — templated DOCX/PDF generation from existing data |
+| **Multi-tenant SSO across customer tenants** (MSP scenario) | Single-tenant Entra design today | Large — requires multi-tenant app reg + per-tenant data isolation |
+
+### Roadmap to true all-in-one
+
+If you want this to fully replace your STIG ecosystem, here are the recommended next milestones in priority order:
+
+1. **eMASS REST connector** (~1 week) — closes the biggest manual gap; enables push of `.ckl` and POA&Ms.
+2. **Scheduled scanning + alerting** (~3 days) — Azure Function timer → `/api/scan/trigger`; Logic App for Teams/email on CAT I drift.
+3. **SIEM diagnostic setting** (~1 day) — already supported by Azure; just needs Bicep additions and docs.
+4. **Vulnerability ingestion from MDC Servers Plan 2** (~1–2 weeks) — gives you ACAS-equivalent CVE data alongside STIG findings.
+5. **Bulk remediation UI** (~1 week) — approval workflow + progress tracking on top of existing `remediationRunner`.
+6. **Container & ACR image STIG scanning** (~2 weeks) — add Defender for Containers ingestion.
+7. **cATO evidence pack generator** (~1 week) — DOCX/PDF templates for SSP/SAR/POA&M.
+
+Completing items 1–3 above would put this at **~95% all-in-one** for a typical Azure-only DoD/Federal estate. Items 4–7 would bring it to true single-pane-of-glass parity with commercial CSPM+VM+STIG suites.
 
 ---
 
