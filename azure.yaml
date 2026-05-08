@@ -32,6 +32,11 @@ services:
     language: ts
     host: appservice
     dist: dist
+  scheduler:
+    project: ./functions
+    language: ts
+    host: function
+    dist: dist
 hooks:
   preprovision:
     posix:

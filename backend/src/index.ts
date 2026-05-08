@@ -35,6 +35,8 @@ import complianceHistoryRouter from './routes/compliance-history';
 import usersRouter from './routes/users';
 import rmfRouter from './routes/rmf';
 import hierarchyRouter from './routes/hierarchy';
+import emassRouter from './routes/emass';
+import vulnerabilitiesRouter from './routes/vulnerabilities';
 
 import { startStigUpdateScheduler } from './stigs/stigUpdateScheduler';
 
@@ -135,6 +137,8 @@ app.use('/api/compliance-history', complianceHistoryRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/rmf', rmfRouter);
 app.use('/api/hierarchy', hierarchyRouter);
+app.use('/api/emass', emassRouter);
+app.use('/api/vulnerabilities', vulnerabilitiesRouter);
 
 // ─── Error handling ──────────────────────────────────────────────────────────
 app.use(errorHandler);

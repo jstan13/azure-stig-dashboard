@@ -15,6 +15,9 @@ import PoamPage from './pages/PoamPage';
 import ComplianceTrendPage from './pages/ComplianceTrendPage';
 import UserManagementPage from './pages/UserManagementPage';
 import RmfPage from './pages/RmfPage';
+import VulnerabilitiesPage from './pages/VulnerabilitiesPage';
+import BulkRemediationPage from './pages/BulkRemediationPage';
+import EmassPage from './pages/EmassPage';
 
 // Initialize Fluent UI icons
 initializeIcons();
@@ -44,6 +47,9 @@ export default function App() {
             <Route path="/trends" element={<ComplianceTrendPage />} />
             <Route path="/users" element={<UserManagementPage />} />
             <Route path="/rmf" element={<RmfPage />} />
+            <Route path="/vulnerabilities" element={<VulnerabilitiesPage />} />
+            <Route path="/remediation" element={<BulkRemediationPage />} />
+            <Route path="/emass" element={<EmassPage />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </AppShell>

@@ -38,6 +38,7 @@ const NAV: NavGroup[] = [
     items: [
       { key: 'trends',    label: 'Compliance Trends',icon: 'LineChart',        path: '/trends' },
       { key: 'poams',     label: 'POA&M',            icon: 'TaskSolid',        path: '/poams' },
+      { key: 'vulns',     label: 'Vulnerabilities',  icon: 'Bug',              path: '/vulnerabilities' },
       { key: 'rmf',       label: 'RMF / NIST',       icon: 'Compliance',       path: '/rmf' },
       { key: 'stigs',     label: 'STIG Library',     icon: 'Shield',           path: '/stigs' },
     ],
@@ -45,6 +46,8 @@ const NAV: NavGroup[] = [
   {
     label: 'Administration',
     items: [
+      { key: 'remed',     label: 'Bulk Remediation', icon: 'Repair',           path: '/remediation' },
+      { key: 'emass',     label: 'eMASS Sync',       icon: 'CloudUpload',      path: '/emass' },
       { key: 'audit',     label: 'Audit Log',        icon: 'History',          path: '/audit' },
       { key: 'users',     label: 'Users',            icon: 'People',           path: '/users' },
     ],

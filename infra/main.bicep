@@ -30,6 +30,18 @@ param dbAdminPassword string
 @description('Enable mock mode — no real Azure subscription required')
 param mockMode bool = false
 
+@description('Provision the scheduled-scan Azure Function App + Storage on a Consumption plan')
+param enableScheduler bool = true
+
+@description('Forward backend + Function App diagnostics to Log Analytics so Sentinel/Splunk can pull from there')
+param enableDiagnostics bool = true
+
+@description('Optional incoming-webhook URL for Microsoft Teams compliance drift alerts')
+param teamsWebhookUrl string = ''
+
+@description('CAT I open finding threshold for drift alerts (0 = alert on any open CAT I)')
+param driftCat1Threshold int = 0
+
 // ── Variables ─────────────────────────────────────────────────────────────────
 var planName     = '${baseName}-plan'
 var backendName  = '${baseName}-api'
@@ -38,6 +50,9 @@ var dbServerName = '${baseName}-pg'
 var dbName       = 'stigdashboard'
 var aiName       = '${baseName}-ai'
 var registryName = replace('${baseName}acr', '-', '')
+var lawName      = '${baseName}-law'
+var funcName     = '${baseName}-func'
+var funcStorageName = take(replace('${baseName}funcsa', '-', ''), 24)
 var keyVaultName = take(replace('${baseName}-stig-kv', '-', ''), 24)
 // Built-in role: Key Vault Secrets User
 var kvSecretsUserRoleId = '4633458b-17de-457c-a5dd-322bbab69ee3'
@@ -217,6 +232,123 @@ resource frontendApp 'Microsoft.Web/sites@2023-01-01' = {
   }
 }
 
+// ── Log Analytics + Diagnostics (SIEM-ready) ───────────────────────────────
+resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = if (enableDiagnostics) {
+  name: lawName
+  location: location
+  properties: {
+    sku: { name: 'PerGB2018' }
+    retentionInDays: 30
+    features: { enableLogAccessUsingOnlyResourcePermissions: true }
+  }
+}
+
+// Stream backend App Service logs + metrics to Log Analytics so Sentinel /
+// Splunk / 3rd-party SIEMs can pull from a single workspace.
+resource backendDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (enableDiagnostics) {
+  scope: backendApp
+  name: 'siem-stream'
+  properties: {
+    workspaceId: logAnalytics.id
+    logs: [
+      { category: 'AppServiceHTTPLogs',         enabled: true }
+      { category: 'AppServiceConsoleLogs',      enabled: true }
+      { category: 'AppServiceAppLogs',          enabled: true }
+      { category: 'AppServiceAuditLogs',        enabled: true }
+      { category: 'AppServiceIPSecAuditLogs',   enabled: true }
+      { category: 'AppServicePlatformLogs',     enabled: true }
+    ]
+    metrics: [ { category: 'AllMetrics', enabled: true } ]
+  }
+}
+
+resource frontendDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (enableDiagnostics) {
+  scope: frontendApp
+  name: 'siem-stream'
+  properties: {
+    workspaceId: logAnalytics.id
+    logs: [
+      { category: 'AppServiceHTTPLogs',         enabled: true }
+      { category: 'AppServiceConsoleLogs',      enabled: true }
+      { category: 'AppServiceAppLogs',          enabled: true }
+    ]
+    metrics: [ { category: 'AllMetrics', enabled: true } ]
+  }
+}
+
+resource kvDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (enableDiagnostics) {
+  scope: keyVault
+  name: 'siem-stream'
+  properties: {
+    workspaceId: logAnalytics.id
+    logs: [
+      { category: 'AuditEvent',           enabled: true }
+      { category: 'AzurePolicyEvaluationDetails', enabled: true }
+    ]
+    metrics: [ { category: 'AllMetrics', enabled: true } ]
+  }
+}
+
+// ── Scheduled Scan Function App (Consumption plan) ─────────────────────────
+resource funcStorage 'Microsoft.Storage/storageAccounts@2023-01-01' = if (enableScheduler) {
+  name: funcStorageName
+  location: location
+  sku: { name: 'Standard_LRS' }
+  kind: 'StorageV2'
+  properties: {
+    minimumTlsVersion: 'TLS1_2'
+    allowBlobPublicAccess: false
+    supportsHttpsTrafficOnly: true
+  }
+}
+
+resource funcPlan 'Microsoft.Web/serverfarms@2023-01-01' = if (enableScheduler) {
+  name: '${funcName}-plan'
+  location: location
+  sku: { name: 'Y1', tier: 'Dynamic' }
+  properties: { reserved: true }
+  kind: 'functionapp'
+}
+
+resource funcApp 'Microsoft.Web/sites@2023-01-01' = if (enableScheduler) {
+  name: funcName
+  location: location
+  kind: 'functionapp,linux'
+  identity: { type: 'SystemAssigned' }
+  properties: {
+    serverFarmId: funcPlan.id
+    httpsOnly: true
+    siteConfig: {
+      linuxFxVersion: 'NODE|20'
+      minTlsVersion: '1.2'
+      ftpsState: 'Disabled'
+      appSettings: [
+        { name: 'AzureWebJobsStorage',                 value: 'DefaultEndpointsProtocol=https;AccountName=${funcStorage.name};AccountKey=${funcStorage.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}' }
+        { name: 'FUNCTIONS_EXTENSION_VERSION',         value: '~4' }
+        { name: 'FUNCTIONS_WORKER_RUNTIME',            value: 'node' }
+        { name: 'WEBSITE_NODE_DEFAULT_VERSION',        value: '~20' }
+        { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
+        { name: 'BACKEND_BASE_URL',                    value: 'https://${backendApp.properties.defaultHostName}' }
+        { name: 'BACKEND_API_AUDIENCE',                value: 'api://${azureClientId}' }
+        { name: 'TEAMS_WEBHOOK_URL',                   value: teamsWebhookUrl }
+        { name: 'DRIFT_CAT1_THRESHOLD',                value: string(driftCat1Threshold) }
+      ]
+    }
+  }
+}
+
+resource funcDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (enableScheduler && enableDiagnostics) {
+  scope: funcApp
+  name: 'siem-stream'
+  properties: {
+    workspaceId: logAnalytics.id
+    logs: [
+      { category: 'FunctionAppLogs', enabled: true }
+    ]
+    metrics: [ { category: 'AllMetrics', enabled: true } ]
+  }
+}
+
 // ── Outputs ────────────────────────────────────────────────────────────────────
 // ── Outputs ─────────────────────────────────────────────────────────────────
 output cloudEnvironment string = cloudEnvironment
@@ -226,3 +358,7 @@ output redirectUriToConfigure string = 'https://${frontendApp.properties.default
 output dbServerFqdn string = pgServer.properties.fullyQualifiedDomainName
 output aiKey        string = appInsights.properties.InstrumentationKey
 output backendPrincipalId string = backendApp.identity.principalId
+output functionAppName string = enableScheduler ? funcApp.name : ''
+output functionPrincipalId string = enableScheduler ? funcApp.identity.principalId : ''
+output logAnalyticsWorkspaceId string = enableDiagnostics ? logAnalytics.id : ''
+
