@@ -37,6 +37,13 @@ import rmfRouter from './routes/rmf';
 
 import { startStigUpdateScheduler } from './stigs/stigUpdateScheduler';
 
+// ─── Production safety: forbid MOCK_MODE in prod (Audit #1) ───────────────
+if (process.env.NODE_ENV === 'production' && process.env.MOCK_MODE === 'true') {
+  // eslint-disable-next-line no-console
+  console.error('FATAL: MOCK_MODE=true is forbidden when NODE_ENV=production');
+  process.exit(1);
+}
+
 // Application Insights (optional, only if instrumentation key is set)
 if (process.env.APPINSIGHTS_INSTRUMENTATIONKEY) {
   const appInsights = require('applicationinsights');
@@ -57,10 +64,20 @@ app.use(cors({
   credentials: true,
 }));
 app.use(compression());
-app.use(json({ limit: '10mb' }));
+app.use(json({ limit: '1mb' }));
 app.use(morgan('combined', { stream: { write: (msg) => logger.http(msg.trim()) } }));
 
-// Rate limiting
+// Rate limiting — global low-rate limiter applied to ALL routes (Audit #17),
+// with a higher per-API-route limiter on /api/* for authenticated traffic.
+const globalLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
+app.use(globalLimiter);
+
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 500,
@@ -141,6 +158,10 @@ async function bootstrap() {
   }
 }
 
-bootstrap();
+// Only auto-bootstrap when invoked directly (Audit #4) — prevents tests that
+// import the app from spinning up a real listener / DB connection.
+if (require.main === module) {
+  bootstrap();
+}
 
 export default app;

@@ -2,7 +2,7 @@ name: CI / Deploy to Azure
 
 on:
   push:
-    branches: [main]
+    branches: [main, '001-azure-stig-dashboard']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -131,6 +131,28 @@ jobs:
       - name: Package frontend
         run: |
           cd frontend/dist
+          # Add a tiny Node static server so App Service NODE|20-lts can boot it (Audit #7)
+          cat > package.json <<'EOF'
+          {
+            "name": "stig-frontend-static",
+            "version": "1.0.0",
+            "private": true,
+            "scripts": { "start": "node server.js" },
+            "dependencies": { "express": "^4.19.2" }
+          }
+          EOF
+          cat > server.js <<'EOF'
+          const path = require('path');
+          const express = require('express');
+          const app = express();
+          const root = __dirname;
+          app.use(express.static(root, { extensions: ['html'] }));
+          // SPA history fallback
+          app.get('*', (_req, res) => res.sendFile(path.join(root, 'index.html')));
+          const port = process.env.PORT || 8080;
+          app.listen(port, () => console.log('frontend static server listening on ' + port));
+          EOF
+          npm install --omit=dev
           zip -r ../../frontend-deploy.zip .
 
       - name: Upload backend artifact

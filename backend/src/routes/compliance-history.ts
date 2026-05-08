@@ -11,6 +11,7 @@ import { AppDataSource, mockStore } from '../database/dataSource';
 import { ComplianceHistoryEntity } from '../models/ComplianceHistory';
 import { Between } from 'typeorm';
 import { logger } from '../utils/logger';
+import { requireRole } from '../middleware/auth';
 
 const router = Router();
 const isMock = () => process.env.MOCK_MODE === 'true';
@@ -81,8 +82,8 @@ router.get('/:machineId', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/compliance-history/snapshot — internal endpoint (no auth check differs from others)
-router.post('/snapshot', async (req: Request, res: Response) => {
+// POST /api/compliance-history/snapshot — admin/operator only (Audit #2)
+router.post('/snapshot', requireRole('admin', 'operator'), async (req: Request, res: Response) => {
   try {
     const { machineId, score, totalControls, openFindings,
             catIOpen, catIIOpen, catIIIOpen, resolved,
