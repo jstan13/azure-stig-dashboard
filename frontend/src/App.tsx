@@ -1,9 +1,10 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthenticatedTemplate, UnauthenticatedTemplate } from '@azure/msal-react';
 import { initializeIcons } from '@fluentui/react';
-import NavBar from './components/NavBar';
+import AppShell from './components/AppShell';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
+import CloudExplorerPage from './pages/CloudExplorerPage';
 import InventoryPage from './pages/InventoryPage';
 import MachinePage from './pages/MachinePage';
 import GroupPage from './pages/GroupPage';
@@ -28,26 +29,24 @@ export default function App() {
       </UnauthenticatedTemplate>
 
       <AuthenticatedTemplate>
-        <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-          <NavBar />
-          <main style={{ flex: 1, padding: '24px', maxWidth: '1400px', margin: '0 auto', width: '100%' }}>
-            <Routes>
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
-              <Route path="/dashboard" element={<DashboardPage />} />
-              <Route path="/inventory" element={<InventoryPage />} />
-              <Route path="/machines/:id" element={<MachinePage />} />
-              <Route path="/groups/:id" element={<GroupPage />} />
-              <Route path="/audit" element={<AuditPage />} />
-              <Route path="/stigs" element={<StigLibraryPage />} />
-              <Route path="/stigs/:benchmarkId" element={<StigDetailPage />} />
-              <Route path="/poams" element={<PoamPage />} />
-              <Route path="/trends" element={<ComplianceTrendPage />} />
-              <Route path="/users" element={<UserManagementPage />} />
-              <Route path="/rmf" element={<RmfPage />} />
-              <Route path="*" element={<Navigate to="/dashboard" replace />} />
-            </Routes>
-          </main>
-        </div>
+        <AppShell>
+          <Routes>
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/explorer" element={<CloudExplorerPage />} />
+            <Route path="/inventory" element={<InventoryPage />} />
+            <Route path="/machines/:id" element={<MachinePage />} />
+            <Route path="/groups/:id" element={<GroupPage />} />
+            <Route path="/audit" element={<AuditPage />} />
+            <Route path="/stigs" element={<StigLibraryPage />} />
+            <Route path="/stigs/:benchmarkId" element={<StigDetailPage />} />
+            <Route path="/poams" element={<PoamPage />} />
+            <Route path="/trends" element={<ComplianceTrendPage />} />
+            <Route path="/users" element={<UserManagementPage />} />
+            <Route path="/rmf" element={<RmfPage />} />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        </AppShell>
       </AuthenticatedTemplate>
     </BrowserRouter>
   );

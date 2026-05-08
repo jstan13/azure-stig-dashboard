@@ -10,6 +10,8 @@ export class MachineEntity {
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Column({ unique: true }) resourceId!: string; // full Azure VM resource ID
   @Column() name!: string;
+  @Column({ nullable: true }) tenantId!: string;
+  @Column({ nullable: true }) tenantName!: string;
   @Column() subscriptionId!: string;
   @Column({ nullable: true }) subscriptionName!: string;
   @Column() resourceGroupName!: string;
