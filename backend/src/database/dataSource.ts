@@ -19,6 +19,7 @@ import { PoamEntity, PoamMilestoneEntity } from '../models/Poam';
 import { ComplianceHistoryEntity } from '../models/ComplianceHistory';
 import { NotificationConfigEntity } from '../models/NotificationConfig';
 import { RemediationJobEntity } from '../models/RemediationJob';
+import { VulnerabilityEntity } from '../models/Vulnerability';
 
 const isMockMode = process.env.MOCK_MODE === 'true';
 
@@ -54,6 +55,7 @@ export const AppDataSource = new DataSource({
     ComplianceHistoryEntity,
     NotificationConfigEntity,
     RemediationJobEntity,
+    VulnerabilityEntity,
   ],
   migrations: ['dist/database/migrations/*.js'],
   migrationsTableName: 'migrations',
@@ -75,6 +77,7 @@ export const mockStore: {
   complianceHistory: any[];
   remediationJobs: any[];
   notificationConfigs: any[];
+  vulnerabilities: any[];
 } = {
   machines: [],
   findings: [],
@@ -87,6 +90,7 @@ export const mockStore: {
   complianceHistory: [],
   remediationJobs: [],
   notificationConfigs: [],
+  vulnerabilities: [],
 };
 
 export async function initializeDatabase(): Promise<void> {
