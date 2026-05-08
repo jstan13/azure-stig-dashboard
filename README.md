@@ -26,16 +26,17 @@ The deployment wizard prompts for your **Organization name**, **Azure cloud envi
 5. [Deploy with `azd up` (recommended for prod)](#deploy-with-azd-up-recommended-for-prod)
 6. [Sizing & monthly cost estimates](#sizing--monthly-cost-estimates)
 7. [Where this fits in your STIG toolchain](#where-this-fits-in-your-stig-toolchain)
-8. [Azure AD app registration](#azure-ad-app-registration)
-9. [GitHub Secrets configuration](#github-secrets-configuration)
-10. [Local development — real Azure data](#local-development--real-azure-data)
-11. [Database migrations](#database-migrations)
-12. [Running tests](#running-tests)
-13. [Project structure](#project-structure)
-14. [API reference](#api-reference)
-15. [Export formats](#export-formats)
-16. [Contributing](#contributing)
-17. [License](#license)
+8. [Using the dashboard](#using-the-dashboard)
+9. [Azure AD app registration](#azure-ad-app-registration)
+10. [GitHub Secrets configuration](#github-secrets-configuration)
+11. [Local development — real Azure data](#local-development--real-azure-data)
+12. [Database migrations](#database-migrations)
+13. [Running tests](#running-tests)
+14. [Project structure](#project-structure)
+15. [API reference](#api-reference)
+16. [Export formats](#export-formats)
+17. [Contributing](#contributing)
+18. [License](#license)
 
 ---
 
@@ -48,15 +49,18 @@ React (Fluent UI + MSAL.js)
 Express API (Node 20 / TypeScript)
   ├── Azure Resource Graph connector
   ├── Azure Policy connector
-  ├── Defender for Cloud connector
+  ├── Defender for Cloud connector (assessments + sub-assessments)
   ├── ARM connector
-  └── CKL Exporter (xml2js)
+  ├── eMASS v3 REST connector (mTLS)
+  └── CKL / CKLB / JSON / CSV exporters
         │
         ▼
 PostgreSQL 16 (TypeORM)
         │
-Azure AD  ─────────── Auth tokens (frontend + backend JWT validation)
-App Insights ────────── Optional telemetry
+Azure Functions (timer)  ── nightly scan + 6 h drift check → Teams
+Log Analytics workspace  ── SIEM forwarding (Sentinel / Splunk)
+Azure AD                 ── Auth tokens + Function MI -> backend
+App Insights             ── Telemetry
 ```
 
 Full details: [docs/architecture.md](docs/architecture.md) · [docs/data-flow.md](docs/data-flow.md)
@@ -185,6 +189,14 @@ azd env set DB_ADMIN_PASSWORD   '<strong-password>'
 azd env set MOCK_MODE           false                # IMPORTANT for prod
 azd env set APP_SERVICE_SKU     S1                   # see sizing table below
 
+# Optional — scheduled-scan Function App alert channel
+# azd env set TEAMS_WEBHOOK_URL    https://outlook.office.com/webhook/...
+# azd env set DRIFT_CAT1_THRESHOLD 0
+
+# Optional — disable the Function App or SIEM diagnostics
+# azd env set ENABLE_SCHEDULER     false
+# azd env set ENABLE_DIAGNOSTICS   false
+
 # Optional sovereign cloud (Azure US Gov / DoD)
 # azd env set AZURE_CLOUD AzureUSGovernment
 # azd config set defaults.location usgovvirginia
@@ -194,24 +206,22 @@ azd up                              # provisions infra + builds + deploys
 
 `azd up` will:
 
-1. Provision the resource group + every resource defined in [infra/main.bicep](infra/main.bicep) (~10–15 min).
+1. Provision the resource group + every resource defined in [infra/main.bicep](infra/main.bicep) (~10–15 min) including the **scheduled-scan Function App**, **Storage account**, and **Log Analytics workspace** for SIEM forwarding.
 2. Store `AZURE_CLIENT_SECRET` and `DATABASE_URL` in **Key Vault**, wired into App Service via Key Vault references — secrets are never logged.
 3. Grant the backend's system-assigned managed identity the **Key Vault Secrets User** role.
-4. Build the backend (`tsc`) and frontend (`vite build`) and zip-deploy them to App Service.
-5. Print the frontend URL, backend URL, and the **redirect URI you must register** on your SPA app registration.
+4. Build the backend (`tsc`), frontend (`vite build`), and Function App (`tsc`) and deploy all three.
+5. Run the post-deploy hook ([scripts/post-deploy.ps1](scripts/post-deploy.ps1)) which grants the Function App MI the **operator** app role on the backend Entra registration via Microsoft Graph and verifies the `api://` Application ID URI is set.
+6. Apply pending TypeORM migrations on backend startup automatically — no manual `migration:run` step needed (override with `SKIP_AUTO_MIGRATIONS=true`).
+7. Print the frontend URL, backend URL, and the **redirect URI you must register** on your SPA app registration.
 
-**One-time post-deploy steps:**
+**One-time post-deploy step (manual):**
 
 ```pwsh
-# 1. Run TypeORM migrations against the new Postgres server
-$dbUrl = az keyvault secret show --vault-name <kv-name> --name DATABASE-URL --query value -o tsv
-cd backend; $env:DATABASE_URL=$dbUrl; npm run migration:run
-
-# 2. Add the printed redirect URI to the SPA app registration:
+# Add the printed redirect URI to the SPA app registration:
 #    Entra ID > App registrations > <your-spa> > Authentication > Single-page application
 ```
 
-To redeploy code-only changes later: `azd deploy`. To tear everything down: `azd down --purge`.
+To redeploy code-only changes later: `azd deploy` (or `azd deploy backend` / `frontend` / `scheduler` for a single service). To tear everything down: `azd down --purge`.
 
 ---
 
@@ -340,9 +350,63 @@ Azure VMs · Azure Arc machines ─────────────┘
 
 ---
 
+## Using the dashboard
+
+After signing in, the left rail groups every page into three sections.
+
+### Compliance
+
+| Page | Path | What you do here |
+|---|---|---|
+| **Overview**          | `/dashboard`     | Tenant rollup, compliance score donut, CAT I/II/III heatmap, scan freshness KPIs. Drill in by clicking a tenant or severity tile. |
+| **Cloud Explorer**    | `/explorer`      | Azure-portal-style tree of management group → subscription → resource group → machine. Click any node for its filtered findings. |
+| **Machine Inventory** | `/inventory`     | Sortable / filterable table of every Azure + Arc machine. Click a row for the machine detail view (per-control status, comments, scan history, remediation actions). |
+| **Resource Groups**   | `/groups/all`    | Group-level rollup with per-group compliance score and open CAT I count. |
+
+### Reporting
+
+| Page | Path | What you do here |
+|---|---|---|
+| **Compliance Trends** | `/trends`           | Time-series of compliance score, CAT I drift, remediation throughput. Snapshots are taken nightly by the scheduler. |
+| **POA&M**             | `/poams`            | Create / edit / close Plans of Action & Milestones. Bulk-create from open findings; export as CSV. |
+| **Vulnerabilities**   | `/vulnerabilities`  | CVE-class findings from Microsoft Defender Vulnerability Management. Filter by severity/exploit availability, change status (Open / Mitigated / Risk Accepted / False Positive), or click **Sync from Defender** to pull a fresh batch. |
+| **RMF / NIST**        | `/rmf`              | NIST 800-53 control coverage view, mapping STIG findings → RMF families. |
+| **STIG Library**      | `/stigs`            | Browse benchmarks pulled from DISA, with version history and per-rule details. |
+
+### Administration
+
+| Page | Path | What you do here |
+|---|---|---|
+| **Bulk Remediation** | `/remediation` | Multi-select open findings across machines, choose severity filter, review the approval prompt, then push DSC/PowerSTIG remediation jobs in one batch. Recent jobs and their status are listed below. |
+| **eMASS Sync**       | `/emass`       | Push all open POA&Ms or upload a CKLB checklist for a specific machine to eMASS. The page reports connector configuration status; if PEMs / API key are missing it explains exactly which App Settings to add. |
+| **Audit Log**        | `/audit`       | Immutable log of every privileged action (scan triggered, status changed, POA&M edited, eMASS pushed, remediation job submitted). Filter by user, action, or date range. |
+| **Users**            | `/users`       | View Entra-assigned roles (admin / operator / auditor). Role assignment itself is done in the Entra portal. |
+
+### Common workflows
+
+**1. Run a scan right now.**
+Open *Machine Inventory* → select machines → **Trigger scan**. The orchestrator chooses PowerSTIG (Windows) or OpenSCAP (Linux) automatically. Or hit `POST /api/scan/trigger` from a CI pipeline.
+
+**2. Get a Teams alert when CAT I drift happens.**
+Set `TEAMS_WEBHOOK_URL` in azd (`azd env set TEAMS_WEBHOOK_URL https://outlook.office.com/...`) before `azd up`, or set it on the Function App after the fact. The `complianceDriftCheck` function runs every 6 hours and posts to the channel when CAT I open or critical/exploitable CVE counts cross your `DRIFT_CAT1_THRESHOLD`.
+
+**3. Push everything you have to eMASS.**
+On the **eMASS Sync** page, pick the target eMASS system and click **Push all open POA&Ms**. To upload a CKLB for a single host, paste the machine ID and click **Upload CKLB**. Both actions are written to the audit log.
+
+**4. Forward logs to Sentinel / Splunk.**
+The deployment provisions a Log Analytics workspace and pipes all four resources (backend, frontend, Function App, Key Vault) into it. Connect Sentinel to that workspace, or use a Splunk add-on with the same workspace ID — no app changes needed.
+
+**5. Bulk-fix a CAT I across the estate.**
+*Bulk Remediation* → severity = **high** → select the affected findings → tick the authorisation checkbox → **Push remediation**. Each machine's job appears in the *Recent jobs* table with status updates.
+
+**6. Roll back a scan/remediation.**
+The audit log preserves before/after state; the *Machine* detail page exposes a **Revert** button on remediation jobs that have a captured DSC compiled MOF.
+
+---
+
 ## Is this an "all-in-one" yet?
 
-**Almost — about 80%.** Here is an honest gap analysis.
+**~95%.** Items 1–5 of the original roadmap shipped in the v0.2 release. Honest gap analysis below.
 
 ### ✅ Already integrated (no other tool needed for these)
 
@@ -351,44 +415,36 @@ Azure VMs · Azure Arc machines ─────────────┘
 - Host-level STIG scanning (PowerSTIG for Windows, OpenSCAP for Linux) via Guest Configuration
 - DISA SCAP Compliance Checker (SCC) result parsing
 - POA&M lifecycle, exceptions, audit trail, RMF mapping
-- `.ckl` / JSON / CSV exports compatible with STIG Viewer 3 and eMASS
+- `.ckl` / `.cklb` / JSON / CSV exports compatible with STIG Viewer 3 and eMASS
 - Multi-tenant + multi-subscription rollup with executive dashboard
 - Sovereign cloud support (Commercial / US Gov / DoD)
+- **eMASS direct push** — v3 REST + DoD PKI mTLS, push POA&Ms and CKLB checklists from the **eMASS Sync** page
+- **Scheduled scanning + drift alerts** — Azure Functions timer (`scheduledScan` 06:00 UTC; `complianceDriftCheck` every 6 h → Teams webhook)
+- **SIEM forwarding** — Log Analytics workspace + diagnostic settings on backend / frontend / Function App / Key Vault, ready for Sentinel/Splunk pull
+- **Vulnerability (CVE) ingestion** — Microsoft Defender Vulnerability Management sub-assessments rendered on the **Vulnerabilities** page with severity, CVSS, exploit availability, inline status
+- **Bulk remediation** — multi-select open findings across machines, approval gate, batched DSC/PowerSTIG job submission
 
-### ⚠️ Partially integrated (works but needs glue)
+### ⚠️ Still gaps
 
 | Gap | Status | What's needed |
 |---|---|---|
-| **Scheduled host scans** | Manual `/api/scan/trigger` only | Azure Functions timer or Logic App to call the trigger nightly |
-| **Auto-remediation** | [`remediationRunner.ts`](backend/src/scanning/remediationRunner.ts) exists for individual rules | UI workflow + approval gate for bulk remediation pushes |
-| **eMASS direct upload** | Manual `.ckl` download → upload | Add eMASS REST connector (`/v3/systems/{id}/poams`, `/cklb`) |
-| **SIEM forwarding** | App Insights captures everything | Diagnostic setting → Sentinel/Splunk (3-line ARM change) |
-| **Email/Teams alerts** | `notificationsRouter` stub exists | Wire to Logic App or Communication Services |
+| **Network device STIGs** (Cisco IOS, F5, etc.) | Not in scope | SSH-based scanners via Azure Automation hybrid worker |
+| **Container image STIG scanning** | Not started | Defender for Containers ingestion + ACR webhook |
+| **cATO body-of-evidence pack** | Not started | DOCX/PDF templated SSP/SAR/POA&M generator |
+| **Hardware/firmware compliance** | Out of cloud-native scope | Keep ACAS/Tenable for this |
+| **Multi-tenant SSO across customer tenants** (MSP) | Single-tenant Entra design today | Multi-tenant app reg + per-tenant data isolation |
 
-### ❌ Not in scope today (would be additive work)
+### Remaining roadmap (in priority order)
 
-| Gap | Why it's separate | Effort to add |
-|---|---|---|
-| **Vulnerability (CVE) scanning** — ACAS/Tenable equivalent | Different data class than STIG; different scanner | Large — would need MDC for Servers Plan 2 ingestion + a `Vulnerability` entity + UI tab |
-| **Hardware/firmware compliance** | Out of cloud-native scope | N/A — keep ACAS for this |
-| **Network device STIGs** (Cisco IOS, F5, etc.) | Requires SSH-based scanners | Medium — could run via Azure Automation hybrid worker |
-| **Container image STIG scanning** | Different scanner stack | Medium — integrate with ACR + Defender for Containers |
-| **cATO body-of-evidence generator** | Document automation | Medium — templated DOCX/PDF generation from existing data |
-| **Multi-tenant SSO across customer tenants** (MSP scenario) | Single-tenant Entra design today | Large — requires multi-tenant app reg + per-tenant data isolation |
-
-### Roadmap to true all-in-one
-
-If you want this to fully replace your STIG ecosystem, here are the recommended next milestones in priority order:
-
-1. **eMASS REST connector** (~1 week) — closes the biggest manual gap; enables push of `.ckl` and POA&Ms.
-2. **Scheduled scanning + alerting** (~3 days) — Azure Function timer → `/api/scan/trigger`; Logic App for Teams/email on CAT I drift.
-3. **SIEM diagnostic setting** (~1 day) — already supported by Azure; just needs Bicep additions and docs.
-4. **Vulnerability ingestion from MDC Servers Plan 2** (~1–2 weeks) — gives you ACAS-equivalent CVE data alongside STIG findings.
-5. **Bulk remediation UI** (~1 week) — approval workflow + progress tracking on top of existing `remediationRunner`.
+1. ~~eMASS REST connector~~ — **shipped**
+2. ~~Scheduled scanning + alerting~~ — **shipped**
+3. ~~SIEM diagnostic setting~~ — **shipped**
+4. ~~Vulnerability ingestion from MDC Servers Plan 2~~ — **shipped**
+5. ~~Bulk remediation UI~~ — **shipped**
 6. **Container & ACR image STIG scanning** (~2 weeks) — add Defender for Containers ingestion.
 7. **cATO evidence pack generator** (~1 week) — DOCX/PDF templates for SSP/SAR/POA&M.
 
-Completing items 1–3 above would put this at **~95% all-in-one** for a typical Azure-only DoD/Federal estate. Items 4–7 would bring it to true single-pane-of-glass parity with commercial CSPM+VM+STIG suites.
+Completing items 6–7 brings this to **true single-pane-of-glass parity** with commercial CSPM+VM+STIG suites.
 
 ---
 
@@ -510,6 +566,8 @@ cd frontend && npm run dev
 ---
 
 ## Database migrations
+
+> Migrations now run **automatically** on backend startup in production. Set `SKIP_AUTO_MIGRATIONS=true` to disable. The commands below are still useful for local dev.
 
 ```bash
 cd backend
