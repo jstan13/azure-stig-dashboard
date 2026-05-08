@@ -31,7 +31,7 @@ services:
     project: ./frontend
     language: ts
     host: appservice
-    dist: build
+    dist: dist
 hooks:
   preprovision:
     posix:
