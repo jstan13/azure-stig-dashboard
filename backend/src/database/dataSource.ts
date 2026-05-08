@@ -99,6 +99,17 @@ export async function initializeDatabase(): Promise<void> {
     return;
   }
   await AppDataSource.initialize();
+  // Apply any pending migrations on startup so deployments don't require a
+  // manual `npm run migration:run` step. Safe to call repeatedly — TypeORM
+  // tracks applied migrations in the `migrations` table.
+  if (process.env.SKIP_AUTO_MIGRATIONS !== 'true') {
+    const pending = await AppDataSource.runMigrations({ transaction: 'each' });
+    if (pending.length) {
+      // eslint-disable-next-line no-console
+      console.log(`[db] applied ${pending.length} migration(s):`,
+        pending.map((m) => m.name).join(', '));
+    }
+  }
 }
 
 async function seedMockData(): Promise<void> {
