@@ -62,7 +62,8 @@ export default function LoginPage() {
 
         <Text variant="small" style={{ color: '#a19f9d', textAlign: 'center' }}>
           By signing in you agree to your organization's security policies.
-          {import.meta.env.VITE_MOCK_MODE === 'true' && (
+          {/* MOCK_MODE comes from runtime config, with build-time fallback. */}
+          {(window.__APP_CONFIG__?.MOCK_MODE === 'true' || import.meta.env.VITE_MOCK_MODE === 'true') && (
             <span style={{ display: 'block', color: '#c7a200', marginTop: 8 }}>
               ⚠ MOCK_MODE is enabled — no real Azure AD required.
             </span>

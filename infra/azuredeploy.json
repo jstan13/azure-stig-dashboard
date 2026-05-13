@@ -63,6 +63,16 @@
       "type": "bool",
       "defaultValue": true,
       "metadata": { "description": "Enforce constitution Principle IV / FR-009: every exported finding must carry a complete mappingChain." }
+    },
+    "backendImage": {
+      "type": "string",
+      "defaultValue": "ghcr.io/jstan13/stig-backend:latest",
+      "metadata": { "description": "Backend container image reference. Release builds pin this to an immutable @sha256:<digest> — do not loosen unless you know what you are doing." }
+    },
+    "frontendImage": {
+      "type": "string",
+      "defaultValue": "ghcr.io/jstan13/stig-frontend:latest",
+      "metadata": { "description": "Frontend container image reference. Release builds pin this to an immutable @sha256:<digest>." }
     }
   },
   "variables": {
@@ -191,11 +201,14 @@
         "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]",
         "httpsOnly": true,
         "siteConfig": {
-          "linuxFxVersion": "NODE|20-lts",
+          "linuxFxVersion": "[concat('DOCKER|', parameters('backendImage'))]",
           "alwaysOn": "[not(equals(parameters('appServiceSku'),'F1'))]",
           "http20Enabled": true,
           "minTlsVersion": "1.2",
           "appSettings": [
+            { "name": "DOCKER_REGISTRY_SERVER_URL",    "value": "https://ghcr.io" },
+            { "name": "WEBSITES_PORT",                 "value": "3001" },
+            { "name": "WEBSITES_ENABLE_APP_SERVICE_STORAGE", "value": "false" },
             { "name": "NODE_ENV",                       "value": "production" },
             { "name": "MOCK_MODE",                      "value": "[if(parameters('mockMode'), 'true', 'false')]" },
             { "name": "STRICT_TRACEABILITY",            "value": "[if(parameters('strictTraceability'), 'true', 'false')]" },
@@ -209,9 +222,7 @@
             { "name": "DATABASE_URL",                   "value": "[concat('@Microsoft.KeyVault(SecretUri=', reference(resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'DATABASE-URL'), '2023-07-01').secretUri, ')')]" },
             { "name": "DB_SSL",                         "value": "true" },
             { "name": "APPINSIGHTS_INSTRUMENTATIONKEY", "value": "[reference(resourceId('Microsoft.Insights/components', variables('aiName')), '2020-02-02').InstrumentationKey]" },
-            { "name": "FRONTEND_URL",                   "value": "[concat('https://', variables('frontendName'), '.', variables('appHostSuffix'))]" },
-            { "name": "WEBSITE_NODE_DEFAULT_VERSION",   "value": "~20" },
-            { "name": "SCM_DO_BUILD_DURING_DEPLOYMENT", "value": "true" }
+            { "name": "FRONTEND_URL",                   "value": "[concat('https://', variables('frontendName'), '.', variables('appHostSuffix'))]" }
           ]
         }
       }
@@ -242,19 +253,20 @@
         "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]",
         "httpsOnly": true,
         "siteConfig": {
-          "linuxFxVersion": "NODE|20-lts",
-          "appCommandLine": "npm start",
+          "linuxFxVersion": "[concat('DOCKER|', parameters('frontendImage'))]",
           "http20Enabled": true,
           "minTlsVersion": "1.2",
           "appSettings": [
-            { "name": "VITE_AZURE_CLIENT_ID",      "value": "[parameters('azureClientId')]" },
-            { "name": "VITE_AZURE_TENANT_ID",      "value": "[parameters('azureTenantId')]" },
-            { "name": "VITE_AZURE_CLOUD",          "value": "[parameters('cloudEnvironment')]" },
-            { "name": "VITE_AZURE_AUTHORITY_HOST", "value": "[variables('authorityHost')]" },
-            { "name": "VITE_API_URL",              "value": "[concat('https://', variables('backendName'), '.', variables('appHostSuffix'), '/api')]" },
-            { "name": "VITE_MOCK_MODE",            "value": "[if(parameters('mockMode'), 'true', 'false')]" },
-            { "name": "WEBSITES_PORT",             "value": "8080" },
-            { "name": "SCM_DO_BUILD_DURING_DEPLOYMENT", "value": "false" }
+            { "name": "DOCKER_REGISTRY_SERVER_URL",    "value": "https://ghcr.io" },
+            { "name": "WEBSITES_PORT",                 "value": "80" },
+            { "name": "WEBSITES_ENABLE_APP_SERVICE_STORAGE", "value": "false" },
+            { "name": "AZURE_CLIENT_ID",      "value": "[parameters('azureClientId')]" },
+            { "name": "AZURE_TENANT_ID",      "value": "[parameters('azureTenantId')]" },
+            { "name": "AZURE_CLOUD",          "value": "[parameters('cloudEnvironment')]" },
+            { "name": "AZURE_AUTHORITY_HOST", "value": "[variables('authorityHost')]" },
+            { "name": "API_URL",              "value": "[concat('https://', variables('backendName'), '.', variables('appHostSuffix'), '/api')]" },
+            { "name": "API_SCOPE",            "value": "[concat('api://', parameters('azureClientId'), '/access_as_user')]" },
+            { "name": "MOCK_MODE",            "value": "[if(parameters('mockMode'), 'true', 'false')]" }
           ]
         }
       }

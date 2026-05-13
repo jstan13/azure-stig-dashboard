@@ -1,0 +1,202 @@
+name: Release — publish signed images + ARM template
+
+# Tag a release with `git tag vX.Y.Z && git push origin vX.Y.Z`.
+# Produces:
+#   - ghcr.io/jstan13/stig-backend@sha256:...     (signed, with SBOM + provenance)
+#   - ghcr.io/jstan13/stig-frontend@sha256:...    (signed, with SBOM + provenance)
+#   - A GitHub Release with an azuredeploy.json whose default image params
+#     pin those exact digests.
+# Anyone clicking the Deploy-to-Azure button on the README will deploy this
+# release using nothing but their own Azure portal session.
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.0.0) — only used for manual runs'
+        required: true
+
+permissions:
+  contents:    write    # create GitHub Release + upload assets
+  packages:    write    # push to ghcr.io
+  id-token:    write    # OIDC for cosign keyless signing
+  attestations: write   # provenance attestation
+
+env:
+  REGISTRY: ghcr.io
+  BACKEND_IMAGE:  ghcr.io/jstan13/stig-backend
+  FRONTEND_IMAGE: ghcr.io/jstan13/stig-frontend
+
+jobs:
+  release:
+    name: Build, sign, publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "value=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate tag format
+        run: |
+          TAG='${{ steps.tag.outputs.value }}'
+          echo "Releasing $TAG"
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Bad tag: $TAG"; exit 1; }
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Backend image ───────────────────────────────────────────────────
+      - name: Build & push backend image
+        id: build_backend
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: backend/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.BACKEND_IMAGE }}:${{ steps.tag.outputs.value }}
+            ${{ env.BACKEND_IMAGE }}:latest
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+
+      # ── Frontend image ──────────────────────────────────────────────────
+      - name: Build & push frontend image
+        id: build_frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: frontend/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.FRONTEND_IMAGE }}:${{ steps.tag.outputs.value }}
+            ${{ env.FRONTEND_IMAGE }}:latest
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+
+      # ── Cosign keyless signing (Sigstore / Fulcio) ──────────────────────
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign backend image
+        env:
+          DIGEST: ${{ steps.build_backend.outputs.digest }}
+          COSIGN_EXPERIMENTAL: '1'
+        run: cosign sign --yes "${BACKEND_IMAGE}@${DIGEST}"
+
+      - name: Sign frontend image
+        env:
+          DIGEST: ${{ steps.build_frontend.outputs.digest }}
+          COSIGN_EXPERIMENTAL: '1'
+        run: cosign sign --yes "${FRONTEND_IMAGE}@${DIGEST}"
+
+      # ── Bake digests into a release-specific azuredeploy.json ───────────
+      - name: Generate release ARM template
+        id: gen_arm
+        env:
+          BACKEND_DIGEST:  ${{ steps.build_backend.outputs.digest }}
+          FRONTEND_DIGEST: ${{ steps.build_frontend.outputs.digest }}
+          TAG:             ${{ steps.tag.outputs.value }}
+        run: |
+          mkdir -p release-assets
+          BACKEND_REF="${BACKEND_IMAGE}@${BACKEND_DIGEST}"
+          FRONTEND_REF="${FRONTEND_IMAGE}@${FRONTEND_DIGEST}"
+          echo "Backend  ref: $BACKEND_REF"
+          echo "Frontend ref: $FRONTEND_REF"
+
+          jq \
+            --arg backend  "$BACKEND_REF" \
+            --arg frontend "$FRONTEND_REF" \
+            --arg tag      "$TAG" \
+            '
+              .parameters.backendImage.defaultValue  = $backend |
+              .parameters.frontendImage.defaultValue = $frontend |
+              .metadata.releaseTag                   = $tag
+            ' infra/azuredeploy.json > release-assets/azuredeploy.json
+
+          cp infra/createUiDefinition.json release-assets/createUiDefinition.json
+          cp docs/verifying-releases.md     release-assets/VERIFYING.md
+
+          # Emit values for the release notes
+          {
+            echo "backend_ref=$BACKEND_REF"
+            echo "frontend_ref=$FRONTEND_REF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Write release notes
+        id: notes
+        env:
+          BACKEND_REF:  ${{ steps.gen_arm.outputs.backend_ref }}
+          FRONTEND_REF: ${{ steps.gen_arm.outputs.frontend_ref }}
+          TAG:          ${{ steps.tag.outputs.value }}
+        run: |
+          cat > release-notes.md <<EOF
+          # Azure STIG Dashboard $TAG
+
+          Signed, digest-pinned container images.
+
+          ## Image digests
+
+          | Component | Reference |
+          |-----------|-----------|
+          | Backend   | \`$BACKEND_REF\` |
+          | Frontend  | \`$FRONTEND_REF\` |
+
+          ## Deploy
+
+          [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fgithub.com%2Fjstan13%2Fazure-stig-dashboard%2Freleases%2Fdownload%2F$TAG%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fgithub.com%2Fjstan13%2Fazure-stig-dashboard%2Freleases%2Fdownload%2F$TAG%2FcreateUiDefinition.json)
+          [![Deploy to Azure US Gov](https://aka.ms/deploytoazuregovbutton)](https://portal.azure.us/#create/Microsoft.Template/uri/https%3A%2F%2Fgithub.com%2Fjstan13%2Fazure-stig-dashboard%2Freleases%2Fdownload%2F$TAG%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fgithub.com%2Fjstan13%2Fazure-stig-dashboard%2Freleases%2Fdownload%2F$TAG%2FcreateUiDefinition.json)
+
+          ## Verify before deploying
+
+          See [VERIFYING.md](./VERIFYING.md) attached to this release for the full
+          procedure. Quick check (run in Azure Cloud Shell):
+
+          \`\`\`bash
+          cosign verify \\
+            --certificate-identity-regexp 'https://github\\.com/jstan13/azure-stig-dashboard/.+' \\
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \\
+            $BACKEND_REF
+
+          cosign verify \\
+            --certificate-identity-regexp 'https://github\\.com/jstan13/azure-stig-dashboard/.+' \\
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \\
+            $FRONTEND_REF
+          \`\`\`
+          EOF
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.value }}
+          name: ${{ steps.tag.outputs.value }}
+          body_path: release-notes.md
+          files: |
+            release-assets/azuredeploy.json
+            release-assets/createUiDefinition.json
+            release-assets/VERIFYING.md
