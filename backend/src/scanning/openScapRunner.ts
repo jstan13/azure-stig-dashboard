@@ -134,7 +134,7 @@ if [ -f "${arfPath}" ]; then
   base64 -w 0 "${arfPath}"
   echo ""
   echo "===ARF_END==="
-  echo "OSCAP_EXIT=${EXIT:-0}"
+  echo "OSCAP_EXIT=\${EXIT:-0}"
 else
   echo "ERROR: ${arfPath} not found"
   exit 1
