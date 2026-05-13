@@ -4,16 +4,18 @@ A production-ready full-stack TypeScript dashboard for tracking STIG compliance 
 
 ### Deploy to Azure
 
-The deployment wizard prompts for your **Organization name**, **Azure cloud environment** (Commercial / US Gov / DoD), region, app registration, and database password — no script edits required.
+The deployment wizard prompts for your **Organization name**, **Azure cloud environment** (Commercial / US Gov / DoD), region, app registration, and database password — no script edits required. Container images are **digest-pinned and cosign-signed** — see [docs/verifying-releases.md](docs/verifying-releases.md) for the verification procedure.
 
 | Cloud | Button |
 |---|---|
-| **Azure Commercial** (`portal.azure.com`) | [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fjstan13%2Fazure-stig-dashboard%2Fmain%2Finfra%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fraw.githubusercontent.com%2Fjstan13%2Fazure-stig-dashboard%2Fmain%2Finfra%2FcreateUiDefinition.json) |
-| **Azure US Government** (`portal.azure.us`) | [![Deploy to Azure US Gov](https://aka.ms/deploytoazuregovbutton)](https://portal.azure.us/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fjstan13%2Fazure-stig-dashboard%2Fmain%2Finfra%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fraw.githubusercontent.com%2Fjstan13%2Fazure-stig-dashboard%2Fmain%2Finfra%2FcreateUiDefinition.json) |
+| **Azure Commercial** (`portal.azure.com`) | [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fgithub.com%2Fjstan13%2Fazure-stig-dashboard%2Freleases%2Flatest%2Fdownload%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fgithub.com%2Fjstan13%2Fazure-stig-dashboard%2Freleases%2Flatest%2Fdownload%2FcreateUiDefinition.json) |
+| **Azure US Government** (`portal.azure.us`) | [![Deploy to Azure US Gov](https://aka.ms/deploytoazuregovbutton)](https://portal.azure.us/#create/Microsoft.Template/uri/https%3A%2F%2Fgithub.com%2Fjstan13%2Fazure-stig-dashboard%2Freleases%2Flatest%2Fdownload%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fgithub.com%2Fjstan13%2Fazure-stig-dashboard%2Freleases%2Flatest%2Fdownload%2FcreateUiDefinition.json) |
+
+> The buttons resolve to the **latest GitHub Release** of this repo. Each release ships a fresh `azuredeploy.json` whose container image parameters are pinned to immutable `@sha256:<digest>` references built by GitHub Actions and signed via Sigstore cosign (keyless OIDC). Deployers can independently verify the signatures before deploying — see [docs/verifying-releases.md](docs/verifying-releases.md).
 
 > The two buttons load the **same** template + UI definition; the difference is which sovereign portal hosts the deployment blade. Choose the one matching the cloud your tenant lives in. Inside the wizard you can still pick `AzureCloud`, `AzureUSGovernment`, or `AzureUSGovernmentDoD` — the template will adjust App Service hostnames (`.azurewebsites.net` vs `.azurewebsites.us`), the PostgreSQL DNS zone, and the Microsoft Entra authority (`login.microsoftonline.com` vs `login.microsoftonline.us`) accordingly.
 
-> If you forked this repo, replace `jstan13/azure-stig-dashboard` in the URLs with `<your-org>/<your-repo>` (the URL must be reachable as a raw `main`-branch file).
+> If you forked this repo, replace `jstan13/azure-stig-dashboard` in the URLs above with `<your-org>/<your-repo>` and cut your own tagged release (`git tag v1.0.0 && git push origin v1.0.0`). The release workflow does the rest.
 
 ---
 

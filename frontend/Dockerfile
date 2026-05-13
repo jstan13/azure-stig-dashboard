@@ -1,11 +1,8 @@
 # ── Stage 1: Build ────────────────────────────────────────────────────────────
+# The published image is identical for every deployer. Per-tenant config
+# (client id, tenant id, API URL, etc.) is injected at container START via
+# /runtime-config.js + envsubst, NOT baked into the bundle.
 FROM node:20-alpine AS builder
-
-ARG VITE_AZURE_CLIENT_ID
-ARG VITE_AZURE_TENANT_ID
-ARG VITE_API_URL=/api
-ARG VITE_API_SCOPE
-ARG VITE_MOCK_MODE=false
 
 WORKDIR /app
 
@@ -16,20 +13,21 @@ RUN npm install --workspace=frontend
 
 COPY frontend/ ./frontend/
 
-# Vite uses ARG env vars at build time
-RUN VITE_AZURE_CLIENT_ID=$VITE_AZURE_CLIENT_ID \
-    VITE_AZURE_TENANT_ID=$VITE_AZURE_TENANT_ID \
-    VITE_API_URL=$VITE_API_URL \
-    VITE_API_SCOPE=$VITE_API_SCOPE \
-    VITE_MOCK_MODE=$VITE_MOCK_MODE \
-    npm run build --workspace=frontend
+# Build with empty Vite env vars — the bundle reads window.__APP_CONFIG__ at runtime.
+RUN VITE_MOCK_MODE=false npm run build --workspace=frontend
 
 # ── Stage 2: Production nginx ─────────────────────────────────────────────────
 FROM nginx:alpine AS runtime
 
+# envsubst (from gettext) is used by the entrypoint to render runtime-config.js
+RUN apk add --no-cache gettext
+
 COPY --from=builder /app/frontend/dist /usr/share/nginx/html
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
+COPY frontend/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 80
 
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["nginx", "-g", "daemon off;"]

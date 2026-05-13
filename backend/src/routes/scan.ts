@@ -8,7 +8,8 @@ import { Router } from 'express';
 import { ScanOrchestrator } from '../connectors/scanOrchestrator';
 import { requireRole } from '../middleware/auth';
 import { recordAudit } from '../auth';
-import { mockStore } from '../database/dataSource';
+import { AppDataSource, mockStore } from '../database/dataSource';
+import { ScanEntity } from '../models/Scan';
 import { createError } from '../middleware/errorHandler';
 import { logger } from '../utils/logger';
 
@@ -62,18 +63,31 @@ router.post(
 );
 
 // GET /api/scan
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res, next) => {
   const MOCK_MODE = process.env.MOCK_MODE === 'true';
+  const { page = '1', pageSize = '20', machineId } = req.query as Record<string, string>;
+  const p = Math.max(1, parseInt(page));
+  const ps = Math.min(200, parseInt(pageSize));
+
   if (MOCK_MODE) {
+    let scans = [...mockStore.scans];
+    if (machineId) scans = scans.filter((s: any) => s.machineId === machineId);
     return res.json({
-      data: mockStore.scans,
-      total: mockStore.scans.length,
-      page: 1,
-      pageSize: 20,
+      data: scans.slice((p - 1) * ps, p * ps),
+      total: scans.length,
+      page: p,
+      pageSize: ps,
     });
   }
-  // TODO: query DB
-  res.json({ data: [], total: 0, page: 1, pageSize: 20 });
+  try {
+    const repo = AppDataSource.getRepository(ScanEntity);
+    const qb = repo.createQueryBuilder('s').orderBy('s.startedAt', 'DESC');
+    if (machineId) qb.andWhere('s.machineId = :mid', { mid: machineId });
+    const [data, total] = await qb.skip((p - 1) * ps).take(ps).getManyAndCount();
+    res.json({ data, total, page: p, pageSize: ps });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // GET /api/scan/:id
@@ -84,8 +98,14 @@ router.get('/:id', async (req, res, next) => {
     if (!scan) return next(createError('Scan not found', 404, 'NOT_FOUND'));
     return res.json(scan);
   }
-  // TODO: query DB
-  next(createError('Scan not found', 404, 'NOT_FOUND'));
+  try {
+    const repo = AppDataSource.getRepository(ScanEntity);
+    const scan = await repo.findOne({ where: { id: req.params.id } });
+    if (!scan) return next(createError('Scan not found', 404, 'NOT_FOUND'));
+    res.json(scan);
+  } catch (err) {
+    next(err);
+  }
 });
 
 export default router;

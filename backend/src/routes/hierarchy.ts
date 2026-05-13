@@ -7,10 +7,22 @@
  */
 
 import { Router } from 'express';
-import { mockStore } from '../database/dataSource';
+import { AppDataSource, mockStore } from '../database/dataSource';
+import { MachineEntity } from '../models/Machine';
+import { FindingEntity } from '../models/Finding';
 
 const router = Router();
 const isMock = () => process.env.MOCK_MODE === 'true';
+
+/** Load machines + findings in a normalised shape from either store. */
+async function loadData(): Promise<{ machines: any[]; findings: any[] }> {
+  if (isMock()) {
+    return { machines: mockStore.machines, findings: mockStore.findings };
+  }
+  const machines = await AppDataSource.getRepository(MachineEntity).find();
+  const findings = await AppDataSource.getRepository(FindingEntity).find();
+  return { machines, findings };
+}
 
 // ── shared helpers ────────────────────────────────────────────────────────────
 
@@ -82,17 +94,13 @@ function avgScore(machines: any[]): number {
 //       }]
 //     }]
 //   }
-router.get('/', (_req, res) => {
-  if (!isMock()) {
-    // TODO: Postgres aggregation query. For now, return empty shell.
-    return res.json({ tenants: [] });
-  }
-
-  const machines = mockStore.machines;
-  const findingsByMachine: Record<string, any[]> = {};
-  for (const f of mockStore.findings) {
-    (findingsByMachine[f.machineId] ||= []).push(f);
-  }
+router.get('/', async (_req, res, next) => {
+  try {
+    const { machines, findings } = await loadData();
+    const findingsByMachine: Record<string, any[]> = {};
+    for (const f of findings) {
+      (findingsByMachine[f.machineId] ||= []).push(f);
+    }
 
   // Group by tenant -> subscription -> resourceGroup -> machine
   const tenantMap = new Map<string, any>();
@@ -181,79 +189,76 @@ router.get('/', (_req, res) => {
     };
   });
 
-  res.json({ tenants });
+    res.json({ tenants });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ── GET /api/hierarchy/kpis ───────────────────────────────────────────────────
-router.get('/kpis', (_req, res) => {
-  if (!isMock()) {
-    return res.json({
-      tenantCount: 0,
-      subscriptionCount: 0,
-      resourceGroupCount: 0,
-      machineCount: 0,
-      avgComplianceScore: 0,
-      machinesBelow80: 0,
-      rollup: emptyRollup(),
-      lastScanAt: null,
+router.get('/kpis', async (_req, res, next) => {
+  try {
+    const { machines, findings } = await loadData();
+    const tenants  = new Set(machines.map((m: any) => m.tenantId).filter(Boolean));
+    const subs     = new Set(machines.map((m: any) => m.subscriptionId));
+    const rgs      = new Set(machines.map((m: any) => `${m.subscriptionId}/${m.resourceGroupName}`));
+    const lastScan = machines
+      .map((m: any) => m.lastScanDate)
+      .filter(Boolean)
+      .map((d: any) => (d instanceof Date ? d.toISOString() : d))
+      .sort()
+      .reverse()[0];
+
+    res.json({
+      tenantCount: tenants.size,
+      subscriptionCount: subs.size,
+      resourceGroupCount: rgs.size,
+      machineCount: machines.length,
+      avgComplianceScore: avgScore(machines),
+      machinesBelow80: machines.filter((m: any) => (m.complianceScore || 0) < 80).length,
+      rollup: tallyFindings(findings),
+      lastScanAt: lastScan || null,
     });
+  } catch (err) {
+    next(err);
   }
-
-  const machines = mockStore.machines;
-  const findings = mockStore.findings;
-  const tenants  = new Set(machines.map((m: any) => m.tenantId).filter(Boolean));
-  const subs     = new Set(machines.map((m: any) => m.subscriptionId));
-  const rgs      = new Set(machines.map((m: any) => `${m.subscriptionId}/${m.resourceGroupName}`));
-  const lastScan = machines
-    .map((m: any) => m.lastScanDate)
-    .filter(Boolean)
-    .sort()
-    .reverse()[0];
-
-  res.json({
-    tenantCount: tenants.size,
-    subscriptionCount: subs.size,
-    resourceGroupCount: rgs.size,
-    machineCount: machines.length,
-    avgComplianceScore: avgScore(machines),
-    machinesBelow80: machines.filter((m: any) => (m.complianceScore || 0) < 80).length,
-    rollup: tallyFindings(findings),
-    lastScanAt: lastScan || null,
-  });
 });
 
 // ── GET /api/hierarchy/heatmap ────────────────────────────────────────────────
 // Returns a grid of [{ scope: "<sub>/<rg>", subscriptionName, resourceGroup, catI, catII, catIII, machines }]
-router.get('/heatmap', (_req, res) => {
-  if (!isMock()) return res.json({ cells: [] });
-
-  const findingsByMachine: Record<string, any[]> = {};
-  for (const f of mockStore.findings) {
-    (findingsByMachine[f.machineId] ||= []).push(f);
-  }
-  const cellMap = new Map<string, any>();
-  for (const m of mockStore.machines) {
-    const key = `${m.subscriptionId}/${m.resourceGroupName}`;
-    let cell = cellMap.get(key);
-    if (!cell) {
-      cell = {
-        scope: key,
-        tenantName: m.tenantName,
-        subscriptionId: m.subscriptionId,
-        subscriptionName: m.subscriptionName,
-        resourceGroup: m.resourceGroupName,
-        machines: 0,
-        catI: 0, catII: 0, catIII: 0,
-      };
-      cellMap.set(key, cell);
+router.get('/heatmap', async (_req, res, next) => {
+  try {
+    const { machines, findings } = await loadData();
+    const findingsByMachine: Record<string, any[]> = {};
+    for (const f of findings) {
+      (findingsByMachine[f.machineId] ||= []).push(f);
     }
-    cell.machines++;
-    const r = tallyFindings(findingsByMachine[m.id] || []);
-    cell.catI  += r.catIOpen;
-    cell.catII += r.catIIOpen;
-    cell.catIII += r.catIIIOpen;
+    const cellMap = new Map<string, any>();
+    for (const m of machines) {
+      const key = `${m.subscriptionId}/${m.resourceGroupName}`;
+      let cell = cellMap.get(key);
+      if (!cell) {
+        cell = {
+          scope: key,
+          tenantName: m.tenantName,
+          subscriptionId: m.subscriptionId,
+          subscriptionName: m.subscriptionName,
+          resourceGroup: m.resourceGroupName,
+          machines: 0,
+          catI: 0, catII: 0, catIII: 0,
+        };
+        cellMap.set(key, cell);
+      }
+      cell.machines++;
+      const r = tallyFindings(findingsByMachine[m.id] || []);
+      cell.catI  += r.catIOpen;
+      cell.catII += r.catIIOpen;
+      cell.catIII += r.catIIIOpen;
+    }
+    res.json({ cells: Array.from(cellMap.values()) });
+  } catch (err) {
+    next(err);
   }
-  res.json({ cells: Array.from(cellMap.values()) });
 });
 
 export default router;
