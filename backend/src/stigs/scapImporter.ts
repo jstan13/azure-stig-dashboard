@@ -131,26 +131,26 @@ async function upsertBenchmark(
 
   let bm = await bmRepo.findOne({ where: { benchmarkId: params.benchmarkId } });
   if (!bm) {
-    bm = bmRepo.create({ benchmarkId: params.benchmarkId, title: params.benchmarkTitle, publisher: 'DISA', classification: 'UNCLASSIFIED' } as any);
+    bm = bmRepo.create({ benchmarkId: params.benchmarkId, title: params.benchmarkTitle, publisher: 'DISA', classification: 'UNCLASSIFIED' } as any) as StigBenchmarkEntity;
     await bmRepo.save(bm);
   }
 
-  let sv = await vRepo.findOne({ where: { benchmarkId: bm.id, version: params.version } });
+  let sv = await vRepo.findOne({ where: { benchmarkId: bm!.id, version: params.version } });
   if (!sv) {
     sv = vRepo.create({
-      benchmarkId:   bm.id,
+      benchmarkId:   bm!.id,
       version:       params.version,
       releaseDate:   new Date(),
       contentHash:   params.hash,
       xccdfPath:     params.filePath,
       isLatest:      true,
-    } as any);
+    } as any) as StigVersionEntity;
     // Mark older versions as not latest
-    await vRepo.update({ benchmarkId: bm.id }, { isLatest: false } as any);
+    await vRepo.update({ benchmarkId: bm!.id }, { isLatest: false } as any);
     await vRepo.save(sv);
   }
 
-  return { benchmark: bm, stigVersion: sv };
+  return { benchmark: bm!, stigVersion: sv! };
 }
 
 async function upsertControl(
@@ -178,15 +178,15 @@ async function upsertControl(
   const checkEl    = (rule['check'] ?? rule['cdf:check'])?.[0];
   const checkContent = textOf(checkEl?.['check-content'] ?? checkEl?.['cdf:check-content']);
 
-  const classified = parseCheckContent(checkContent + '\n' + descRaw, title);
+  const classified = parseCheckContent(checkContent + '\n' + descRaw, title, '');
 
   const controlId = `${bm.benchmarkId}|${vulnId}`;
 
   const existing = await repo.findOne({ where: { id: controlId } });
   if (existing) {
     Object.assign(existing, {
-      title, severity, checkType: classified.type,
-      checkParameters: classified.parameters,
+      title, severity, checkType: classified.checkType,
+      checkParameters: classified.checkParameters,
       ccis, stigVersionId: sv.id,
     });
     await repo.save(existing);
@@ -200,8 +200,8 @@ async function upsertControl(
       groupId:          textOf(group['$']?.id ?? ''),
       title,
       severity,
-      checkType:        classified.type,
-      checkParameters:  classified.parameters,
+      checkType:        classified.checkType,
+      checkParameters:  classified.checkParameters,
       ccis,
       stigVersionId:    sv.id,
       azurePolicyIds:   [],
