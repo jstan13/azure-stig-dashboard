@@ -131,7 +131,7 @@ async function upsertBenchmark(
 
   let bm = await bmRepo.findOne({ where: { benchmarkId: params.benchmarkId } });
   if (!bm) {
-    bm = bmRepo.create({ benchmarkId: params.benchmarkId, title: params.benchmarkTitle, publisher: 'DISA', classification: 'UNCLASSIFIED' } as any) as StigBenchmarkEntity;
+    bm = bmRepo.create({ benchmarkId: params.benchmarkId, title: params.benchmarkTitle, publisher: 'DISA', classification: 'UNCLASSIFIED' } as any) as unknown as StigBenchmarkEntity;
     await bmRepo.save(bm);
   }
 
@@ -144,7 +144,7 @@ async function upsertBenchmark(
       contentHash:   params.hash,
       xccdfPath:     params.filePath,
       isLatest:      true,
-    } as any) as StigVersionEntity;
+    } as any) as unknown as StigVersionEntity;
     // Mark older versions as not latest
     await vRepo.update({ benchmarkId: bm!.id }, { isLatest: false } as any);
     await vRepo.save(sv);

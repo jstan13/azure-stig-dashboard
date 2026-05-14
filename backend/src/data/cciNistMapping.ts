@@ -85,7 +85,6 @@ const CCI_MAP: Record<string, Omit<CciEntry, 'cci'>> = {
   'CCI-000770': { nistControl: 'IA-2(5)',family: 'IA', familyName: NIST_FAMILIES.IA, title: 'Individual Authentication with Group Authentication', definition: 'The organization requires individuals to be authenticated with an individual authenticator when a group authenticator is employed.' },
 
   // System and Communications Protection ────────────────────────────────────
-  'CCI-001084': { nistControl: 'SC-28',  family: 'SC', familyName: NIST_FAMILIES.SC, title: 'Protection of Information at Rest',  definition: 'The information system protects the confidentiality of information at rest.' },
   'CCI-001199': { nistControl: 'SC-28',  family: 'SC', familyName: NIST_FAMILIES.SC, title: 'Protection of Information at Rest',  definition: 'The information system implements cryptographic mechanisms to prevent unauthorized disclosure of information at rest.' },
   'CCI-002418': { nistControl: 'SC-8',   family: 'SC', familyName: NIST_FAMILIES.SC, title: 'Transmission Confidentiality and Integrity', definition: 'The information system implements cryptographic mechanisms to protect the confidentiality of information during transmission.' },
   'CCI-002421': { nistControl: 'SC-8(1)',family: 'SC', familyName: NIST_FAMILIES.SC, title: 'Cryptographic Protection',           definition: 'The information system implements cryptographic mechanisms to prevent unauthorized disclosure during transmission.' },

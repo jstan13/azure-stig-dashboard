@@ -84,8 +84,12 @@ router.post('/systems/:id/push-poams', requireRole('operator'), async (req: Requ
     const payload: emass.EmassPoamPayload[] = poams.map(poamToEmass);
     const result = await emass.pushPoams(systemId, payload);
 
-    await recordAudit(req as any, 'emass.push_poams', {
-      systemId, count: result.submitted, emassIds: result.emassIds,
+    await recordAudit(req as any, {
+      action: 'emass.push_poams',
+      entityType: 'emass_system',
+      entityId: String(systemId),
+      after: { systemId, count: result.submitted, emassIds: result.emassIds },
+      result: 'Success',
     });
 
     return res.json({ ok: true, ...result });
@@ -123,8 +127,12 @@ router.post('/systems/:id/upload-cklb', requireRole('operator'), async (req: Req
     const buf  = Buffer.from(JSON.stringify(cklb), 'utf-8');
     const result = await emass.uploadCklb(systemId, buf, `${machine.name}.cklb`);
 
-    await recordAudit(req as any, 'emass.upload_cklb', {
-      systemId, machineId, cklbId: result.cklbId,
+    await recordAudit(req as any, {
+      action: 'emass.upload_cklb',
+      entityType: 'emass_system',
+      entityId: String(systemId),
+      after: { systemId, machineId, cklbId: result.cklbId },
+      result: 'Success',
     });
 
     return res.json({ ok: true, ...result });

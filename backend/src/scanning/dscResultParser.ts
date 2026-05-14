@@ -130,7 +130,7 @@ export async function parseStigResults(
     psResult.dscResource     = raw.CheckType;
     psResult.checkType       = raw.CheckType;
     psResult.result          = raw.Result;
-    psResult.reason          = raw.Reason || null;
+    psResult.reason          = (raw.Reason || null) as any;
     psResult.rawProperties   = raw.Properties ?? {};
     psResult.runCommandJobId = runCommandJobId;
     psResult.checkedAt       = checkedAt;

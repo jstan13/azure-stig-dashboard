@@ -110,7 +110,13 @@ router.post('/sync', requireRole('operator'), async (req: Request, res: Response
         }, ['sourceId']);
       }
     }
-    await recordAudit(req as any, 'vulnerability.sync', { count: rows.length });
+    await recordAudit(req as any, {
+      action: 'vulnerability.sync',
+      entityType: 'vulnerability',
+      entityId: 'bulk',
+      after: { count: rows.length },
+      result: 'Success',
+    });
     return res.json({ ok: true, ingested: rows.length });
   } catch (err: any) {
     logger.error('[POST /vulnerabilities/sync]', err);
@@ -133,14 +139,26 @@ router.patch('/:id', requireRole('operator'), async (req: Request, res: Response
       if (status) row.status = status;
       if (remediation !== undefined) row.remediation = remediation;
       row.updatedAt = new Date();
-      await recordAudit(req as any, 'vulnerability.update', { id, status });
+      await recordAudit(req as any, {
+        action: 'vulnerability.update',
+        entityType: 'vulnerability',
+        entityId: id,
+        after: { id, status },
+        result: 'Success',
+      });
       return res.json({ ok: true, vulnerability: row });
     }
     const repo = AppDataSource.getRepository(VulnerabilityEntity);
     await repo.update(id, { ...(status ? { status } : {}), ...(remediation !== undefined ? { remediation } : {}) });
     const updated = await repo.findOne({ where: { id } });
     if (!updated) return res.status(404).json({ error: 'vulnerability not found' });
-    await recordAudit(req as any, 'vulnerability.update', { id, status });
+    await recordAudit(req as any, {
+      action: 'vulnerability.update',
+      entityType: 'vulnerability',
+      entityId: id,
+      after: { id, status },
+      result: 'Success',
+    });
     return res.json({ ok: true, vulnerability: updated });
   } catch (err: any) {
     logger.error('[PATCH /vulnerabilities/:id]', err);
@@ -155,7 +173,7 @@ function machineIdFromResource(rid: string): string {
   return (rid || '').split('/').pop() || 'unknown';
 }
 function severityRank(s: string): number {
-  return { critical: 4, high: 3, medium: 2, low: 1, informational: 0 }[s as any] || 0;
+  return ({ critical: 4, high: 3, medium: 2, low: 1, informational: 0 } as Record<string, number>)[s] || 0;
 }
 
 export default router;

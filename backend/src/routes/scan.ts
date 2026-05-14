@@ -52,7 +52,7 @@ router.post(
           entityType: targetType,
           entityId: targetId,
           after: { subscriptionIds, resourceGroupNames, resourceIds, error: err?.message },
-          result: 'Failure',
+          result: 'Error',
         });
       } catch (auditErr) {
         logger.error('[Scan] failure-audit write failed', auditErr);
