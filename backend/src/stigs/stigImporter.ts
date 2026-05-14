@@ -23,6 +23,8 @@ export interface ImportOptions {
   benchmarkTitles?: string[];
   /** Force re-import even if the same version is already installed. */
   force?: boolean;
+  /** Parse only; do not write to the database. */
+  dryRun?: boolean;
   /** Data source to write to. If omitted, import is parsed only (dry run). */
   dataSource?: DataSource;
 }

@@ -63,6 +63,7 @@ export class FindingEntity {
   } | null;
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
+  @Column({ type: 'timestamp', nullable: true }) reviewedAt!: Date | null;
   @ManyToOne(() => MachineEntity, (m) => m.findings)
   @JoinColumn({ name: 'machineId' })
   machine!: MachineEntity;

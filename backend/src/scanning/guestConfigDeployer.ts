@@ -81,7 +81,11 @@ export async function listStigGcAssignments(subscriptionId: string): Promise<str
   const assignments: string[] = [];
 
   try {
-    const pages = client.guestConfigurationAssignments.subscriptionList(subscriptionId);
+    const pages = (client.guestConfigurationAssignments as any).subscriptionList
+      ? (client.guestConfigurationAssignments as any).subscriptionList(subscriptionId)
+      : (client.guestConfigurationAssignments as any).listSubscriptionList
+      ? (client.guestConfigurationAssignments as any).listSubscriptionList(subscriptionId)
+      : [];
     for await (const page of pages) {
       if (page.name?.startsWith('stig-')) {
         assignments.push(page.name);
@@ -182,14 +186,15 @@ export async function getVmGcComplianceReport(
   const client = getGcClient(subscriptionId);
 
   try {
-    const reports = client.guestConfigurationAssignmentReports.list(
+    const reportsResult: any = await ((client.guestConfigurationAssignmentReports as any).list(
       resourceGroup,
       assignmentName,
       vmName,
-    );
+    ));
+    const reports: any[] = reportsResult?.value ?? reportsResult ?? [];
 
     let latest: any = null;
-    for await (const report of reports) {
+    for (const report of reports) {
       if (!latest || new Date(report.properties?.startTime ?? 0) > new Date(latest.properties?.startTime ?? 0)) {
         latest = report;
       }

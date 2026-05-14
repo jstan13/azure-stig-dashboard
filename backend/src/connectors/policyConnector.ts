@@ -76,7 +76,7 @@ export class PolicyConnector extends BaseConnector {
           ? `ResourceGroupName eq '${options.resourceGroupNames[0]}'`
           : undefined;
 
-        for await (const state of client.policyStates.listQueryResultsForSubscription(
+        for await (const state of (client as any).policyStates.listQueryResultsForSubscription(
           'latest',
           subId,
           { queryOptions: { filter } },

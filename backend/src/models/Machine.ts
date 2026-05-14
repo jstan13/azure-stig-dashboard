@@ -22,6 +22,7 @@ export class MachineEntity {
   @Column({ type: 'float', default: 0 }) complianceScore!: number;
   @Column({ nullable: true }) lastScanDate!: Date;
   @Column({ default: 'unknown' }) status!: string; // online / offline / unknown
+  @Column({ default: false }) isArcConnected!: boolean;
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
   @OneToMany(() => FindingEntity, (f) => f.machine)   findings!: FindingEntity[];
