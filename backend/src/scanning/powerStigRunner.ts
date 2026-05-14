@@ -143,7 +143,7 @@ async function runArcCommand(
 ): Promise<PowerStigRunResult> {
   const client = getHybridClient(opts.subscriptionId);
 
-  const poller = await client.machines.beginRunCommand(
+  const poller = await (client.machines as any).beginRunCommand(
     opts.resourceGroupName,
     opts.machineName,
     {

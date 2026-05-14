@@ -9,9 +9,10 @@ import { useMsal } from '@azure/msal-react';
 import axios, { AxiosInstance } from 'axios';
 import { useCallback } from 'react';
 import { apiRequest } from '../auth/msalConfig';
+import { RUNTIME_CONFIG } from '../runtime-config';
 
-const MOCK_MODE = import.meta.env.VITE_MOCK_MODE === 'true';
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+const MOCK_MODE = RUNTIME_CONFIG.MOCK_MODE;
+const API_BASE = RUNTIME_CONFIG.API_URL || '/api';
 
 export function useApi(): AxiosInstance {
   const { instance, accounts } = useMsal();

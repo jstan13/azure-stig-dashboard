@@ -54,7 +54,7 @@ export class ARMConnector extends BaseConnector {
     if (!this.clients.has(subscriptionId)) {
       this.clients.set(
         subscriptionId,
-        new ComputeManagementClient(new DefaultAzureCredential(), subscriptionId),
+        new ComputeManagementClient(new DefaultAzureCredential(), subscriptionId, require('./azureClientOptions').azureClientOptions()),
       );
     }
     return this.clients.get(subscriptionId)!;
@@ -64,7 +64,7 @@ export class ARMConnector extends BaseConnector {
     if (!this.hybridClients.has(subscriptionId)) {
       this.hybridClients.set(
         subscriptionId,
-        new HybridComputeManagementClient(new DefaultAzureCredential(), subscriptionId),
+        new HybridComputeManagementClient(new DefaultAzureCredential(), subscriptionId, require('./azureClientOptions').azureClientOptions()),
       );
     }
     return this.hybridClients.get(subscriptionId)!;
@@ -127,12 +127,13 @@ export class ARMConnector extends BaseConnector {
           // Optionally fetch extensions
           let extensions: VMExtension[] = [];
           try {
-            for await (const ext of client.virtualMachineExtensions.list(rgName, vm.name || '')) {
+            const extList: any = await (client.virtualMachineExtensions.list(rgName, vm.name || '') as any);
+            for (const ext of (extList?.value ?? extList ?? [])) {
               extensions.push({
                 name: ext.name || '',
-                publisher: ext.publisher || '',
-                type: ext.typePropertiesType || '',
-                provisioningState: ext.provisioningState || 'Unknown',
+                publisher: (ext as any).publisher || '',
+                type: (ext as any).typePropertiesType || (ext as any).type || '',
+                provisioningState: (ext as any).provisioningState || 'Unknown',
               });
             }
           } catch {
@@ -171,11 +172,12 @@ export class ARMConnector extends BaseConnector {
             let extensions: VMExtension[] = [];
             try {
               for await (const ext of hybridClient.machineExtensions.list(rgName, machine.name || '')) {
+                const e: any = ext;
                 extensions.push({
-                  name: ext.name || '',
-                  publisher: ext.publisher || '',
-                  type: ext.typePropertiesType || '',
-                  provisioningState: ext.provisioningState || 'Unknown',
+                  name: e.name || '',
+                  publisher: e.publisher || e.properties?.publisher || '',
+                  type: e.typePropertiesType || e.type || e.properties?.type || '',
+                  provisioningState: e.provisioningState || e.properties?.provisioningState || 'Unknown',
                 });
               }
             } catch {
@@ -188,12 +190,12 @@ export class ARMConnector extends BaseConnector {
               subscriptionId: subId,
               resourceGroupName: rgName,
               location: machine.location || '',
-              osType: machine.osName || 'Unknown',
-              osVersion: machine.osSku,
-              provisioningState: machine.provisioningState,
+              osType: (machine as any).osName || (machine as any).properties?.osName || 'Unknown',
+              osVersion: (machine as any).osSku || (machine as any).properties?.osSku,
+              provisioningState: (machine as any).provisioningState || (machine as any).properties?.provisioningState,
               isArcConnected: true,
-              arcAgentVersion: machine.agentVersion,
-              arcStatus: machine.status,
+              arcAgentVersion: (machine as any).agentVersion || (machine as any).properties?.agentVersion,
+              arcStatus: (machine as any).status || (machine as any).properties?.status,
               extensions,
               tags: machine.tags as any,
             });

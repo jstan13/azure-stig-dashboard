@@ -125,7 +125,7 @@ export default function NavBar() {
                 key: 'logout',
                 text: 'Sign out',
                 iconProps: { iconName: 'SignOut' },
-                onClick: () => instance.logoutRedirect(),
+                onClick: () => { void instance.logoutRedirect(); },
               },
             ]}
             hidden={!showMenu}

@@ -32,7 +32,7 @@ export class PolicyConnector extends BaseConnector {
     if (!this.clients.has(subscriptionId)) {
       this.clients.set(
         subscriptionId,
-        new PolicyClient(new DefaultAzureCredential(), subscriptionId),
+        new PolicyClient(new DefaultAzureCredential(), subscriptionId, require('./azureClientOptions').azureClientOptions()),
       );
     }
     return this.clients.get(subscriptionId)!;
@@ -76,7 +76,7 @@ export class PolicyConnector extends BaseConnector {
           ? `ResourceGroupName eq '${options.resourceGroupNames[0]}'`
           : undefined;
 
-        for await (const state of client.policyStates.listQueryResultsForSubscription(
+        for await (const state of (client as any).policyStates.listQueryResultsForSubscription(
           'latest',
           subId,
           { queryOptions: { filter } },

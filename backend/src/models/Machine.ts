@@ -10,6 +10,8 @@ export class MachineEntity {
   @PrimaryGeneratedColumn('uuid') id!: string;
   @Column({ unique: true }) resourceId!: string; // full Azure VM resource ID
   @Column() name!: string;
+  @Column({ nullable: true }) tenantId!: string;
+  @Column({ nullable: true }) tenantName!: string;
   @Column() subscriptionId!: string;
   @Column({ nullable: true }) subscriptionName!: string;
   @Column() resourceGroupName!: string;
@@ -20,6 +22,7 @@ export class MachineEntity {
   @Column({ type: 'float', default: 0 }) complianceScore!: number;
   @Column({ nullable: true }) lastScanDate!: Date;
   @Column({ default: 'unknown' }) status!: string; // online / offline / unknown
+  @Column({ default: false }) isArcConnected!: boolean;
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
   @OneToMany(() => FindingEntity, (f) => f.machine)   findings!: FindingEntity[];

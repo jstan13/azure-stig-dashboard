@@ -33,7 +33,7 @@ export class DefenderConnector extends BaseConnector {
     if (!this.clients.has(subscriptionId)) {
       this.clients.set(
         subscriptionId,
-        new SecurityCenter(new DefaultAzureCredential(), subscriptionId),
+        new SecurityCenter(new DefaultAzureCredential(), subscriptionId, require('./azureClientOptions').azureClientOptions()),
       );
     }
     return this.clients.get(subscriptionId)!;
@@ -83,7 +83,7 @@ export class DefenderConnector extends BaseConnector {
           const meta = assessment.metadata;
           results.push({
             id: assessment.id || '',
-            resourceId: assessment.resourceDetails?.id || '',
+            resourceId: (assessment.resourceDetails as any)?.id || '',
             assessmentName: assessment.name || '',
             displayName: meta?.displayName || '',
             status: (status as any) || 'Unknown',

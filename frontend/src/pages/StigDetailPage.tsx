@@ -210,14 +210,15 @@ export default function StigDetailPage() {
       text: 'Run Scan',
       iconProps: { iconName: 'PlaySolid' },
       disabled: scanBusy,
-      onClick: handleScan,
+      onClick: () => { void handleScan(); },
     },
     {
       key: 'import',
       text: 'Re-import',
       iconProps: { iconName: 'Download' },
-      onClick: () =>
-        api.post('/api/stigs/import', { benchmarkTitles: [benchmark?.title], force: true }).catch(console.error),
+      onClick: () => {
+        void api.post('/api/stigs/import', { benchmarkTitles: [benchmark?.title], force: true }).catch(console.error);
+      },
     },
   ];
 

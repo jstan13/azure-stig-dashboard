@@ -1,0 +1,60 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+#
+# Azure Developer CLI (azd) manifest for the Azure STIG Dashboard.
+#
+# Usage:
+#   azd auth login
+#   azd env new <env-name>
+#   azd env set AZURE_TENANT_ID <tenant-guid>
+#   azd env set AZURE_CLIENT_ID <app-registration-client-id>
+#   azd env set AZURE_CLIENT_SECRET <app-registration-secret>
+#   azd env set DB_ADMIN_PASSWORD <strong-password>
+#   azd env set AZURE_BASE_NAME <prefix>            # optional, default: stigdash
+#   azd env set MOCK_MODE false                     # optional, default: false
+#   azd up
+#
+# The Bicep template at infra/main.bicep is resource-group scoped; azd will
+# prompt for / provision the target resource group on first run.
+name: azure-stig-dashboard
+metadata:
+  template: azure-stig-dashboard@0.1.0
+infra:
+  provider: bicep
+  path: infra
+  module: main
+services:
+  backend:
+    project: ./backend
+    language: ts
+    host: appservice
+  frontend:
+    project: ./frontend
+    language: ts
+    host: appservice
+    dist: dist
+  scheduler:
+    project: ./functions
+    language: ts
+    host: function
+    dist: dist
+hooks:
+  preprovision:
+    posix:
+      shell: sh
+      run: |
+        echo "[azd] Provisioning Azure STIG Dashboard infra (Bicep) — see infra/main.bicep"
+    windows:
+      shell: pwsh
+      run: |
+        Write-Host "[azd] Provisioning Azure STIG Dashboard infra (Bicep) — see infra/main.bicep"
+  postdeploy:
+    windows:
+      shell: pwsh
+      run: |
+        $env:FUNCTION_PRINCIPAL_ID = (azd env get-value functionPrincipalId 2>$null)
+        ./scripts/post-deploy.ps1
+    posix:
+      shell: sh
+      run: |
+        echo "[azd] Post-deploy role grant requires PowerShell + az CLI."
+        echo "      On Linux/macOS run: pwsh ./scripts/post-deploy.ps1"

@@ -1,0 +1,10 @@
+# Function App build artifacts that should not be deployed
+node_modules
+test
+tests
+.git*
+.vscode
+local.settings.json
+*.ts
+tsconfig.json
+README.md

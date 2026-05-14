@@ -1,0 +1,19 @@
+{
+  "name": "stig-dashboard-functions",
+  "version": "1.0.0",
+  "description": "Azure Functions for the Azure STIG Dashboard - scheduled scan + alert triggers",
+  "main": "dist/src/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "func start",
+    "watch": "tsc -w"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.4.0",
+    "axios": "^1.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.5",
+    "typescript": "^5.3.3"
+  }
+}

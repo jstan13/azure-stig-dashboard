@@ -115,13 +115,13 @@ export default function MachinePage() {
       iconProps: { iconName: 'Download' },
       subMenuProps: {
         items: [
-          { key: 'ckl',  text: 'Export as .ckl (STIG Viewer)',  onClick: () => handleExport('ckl')  },
-          { key: 'json', text: 'Export as JSON',                onClick: () => handleExport('json') },
-          { key: 'csv',  text: 'Export as CSV',                 onClick: () => handleExport('csv')  },
+          { key: 'ckl',  text: 'Export as .ckl (STIG Viewer)',  onClick: () => { void handleExport('ckl');  } },
+          { key: 'json', text: 'Export as JSON',                onClick: () => { void handleExport('json'); } },
+          { key: 'csv',  text: 'Export as CSV',                 onClick: () => { void handleExport('csv');  } },
         ],
       },
     },
-    { key: 'scan', text: 'Scan Now', iconProps: { iconName: 'Refresh' }, onClick: async () => { await api.post('/api/scan/trigger', { resourceIds: [machine?.resourceId] }); } },
+    { key: 'scan', text: 'Scan Now', iconProps: { iconName: 'Refresh' }, onClick: () => { void api.post('/api/scan/trigger', { resourceIds: [machine?.resourceId] }); } },
   ];
 
   const columns: IColumn[] = [

@@ -3,11 +3,15 @@
  */
 
 import { Router } from 'express';
-import { mockStore } from '../database/dataSource';
+import { AppDataSource, mockStore } from '../database/dataSource';
+import { MachineEntity } from '../models/Machine';
+import { FindingEntity } from '../models/Finding';
+import { ControlEntity } from '../models/Control';
+import { In } from 'typeorm';
 
 const router = Router();
 
-router.get('/:id/compliance', (req, res) => {
+router.get('/:id/compliance', async (req, res, next) => {
   const groupName = req.params.id;
   const MOCK_MODE = process.env.MOCK_MODE === 'true';
 
@@ -68,8 +72,92 @@ router.get('/:id/compliance', (req, res) => {
     });
   }
 
-  // TODO: query DB
-  res.json({ resourceGroupName: groupName, machineCount: 0, avgComplianceScore: 0, controls: [], machines: [] });
+  // ── Real DB-backed path ──────────────────────────────────────────────────
+  try {
+    const machineRepo = AppDataSource.getRepository(MachineEntity);
+    const findingRepo = AppDataSource.getRepository(FindingEntity);
+    const controlRepo = AppDataSource.getRepository(ControlEntity);
+
+    // "all" → list every distinct resource group with rolled-up scores
+    if (groupName === 'all') {
+      const machines = await machineRepo.find();
+      const byRg = new Map<string, MachineEntity[]>();
+      for (const m of machines) {
+        if (!byRg.has(m.resourceGroupName)) byRg.set(m.resourceGroupName, []);
+        byRg.get(m.resourceGroupName)!.push(m);
+      }
+      const groups = Array.from(byRg.entries()).map(([rg, ms]) => ({
+        resourceGroupName: rg,
+        machineCount: ms.length,
+        avgComplianceScore: Math.round(
+          ms.reduce((s, m) => s + (m.complianceScore || 0), 0) / ms.length,
+        ),
+      }));
+      return res.json({ data: groups });
+    }
+
+    const machines = await machineRepo.find({
+      where: { resourceGroupName: groupName },
+    });
+    if (!machines.length) {
+      return res.json({
+        resourceGroupName: groupName,
+        machineCount: 0,
+        avgComplianceScore: 0,
+        controls: [],
+        machines: [],
+      });
+    }
+    const machineIds = machines.map((m) => m.id);
+    const allFindings = await findingRepo.find({
+      where: { machineId: In(machineIds) },
+    });
+    const controlIds = Array.from(new Set(allFindings.map((f) => f.controlId)));
+    const controls = controlIds.length
+      ? await controlRepo.findByIds(controlIds)
+      : [];
+    const controlById = new Map(controls.map((c) => [c.id, c]));
+
+    const controlRollup: Record<string, any> = {};
+    for (const f of allFindings) {
+      const ctrl = controlById.get(f.controlId);
+      if (!controlRollup[f.controlId]) {
+        controlRollup[f.controlId] = {
+          controlId: f.controlId,
+          stigId: ctrl?.stigId,
+          title: ctrl?.title,
+          severity: ctrl?.severity,
+          open: 0,
+          not_a_finding: 0,
+          not_applicable: 0,
+          not_reviewed: 0,
+          total: 0,
+        };
+      }
+      const r = controlRollup[f.controlId];
+      r[f.status] = (r[f.status] || 0) + 1;
+      r.total++;
+    }
+
+    const avgScore = Math.round(
+      machines.reduce((s, m) => s + (m.complianceScore || 0), 0) / machines.length,
+    );
+
+    res.json({
+      resourceGroupName: groupName,
+      machineCount: machines.length,
+      avgComplianceScore: avgScore,
+      machines: machines.map((m) => ({
+        id: m.id,
+        name: m.name,
+        complianceScore: m.complianceScore,
+        lastScanDate: m.lastScanDate,
+      })),
+      controls: Object.values(controlRollup),
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 export default router;

@@ -45,7 +45,7 @@ export async function fetchStigCatalog(): Promise<CatalogResult> {
         releaseDate: item.releaseDate || item.date || '',
         downloadUrl: item.url || item.downloadUrl || '',
         filename: item.filename || (item.url || '').split('/').pop() || '',
-        type: 'STIG',
+        type: 'STIG' as const,
       }))
       .filter((e) => e.downloadUrl);
 

@@ -5,6 +5,9 @@
     <link rel="icon" type="image/svg+xml" href="/shield.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Azure STIG Dashboard</title>
+    <!-- Runtime config injected by the container entrypoint at startup.
+         Must load BEFORE the app bundle so window.__APP_CONFIG__ is populated. -->
+    <script src="/runtime-config.js"></script>
   </head>
   <body>
     <div id="root"></div>
