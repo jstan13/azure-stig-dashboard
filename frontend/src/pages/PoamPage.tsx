@@ -14,7 +14,7 @@ import {
   Stack, Text, DetailsList, DetailsListLayoutMode, IColumn,
   SelectionMode, CommandBar, ICommandBarItemProps,
   MessageBar, MessageBarType, Spinner, SpinnerSize,
-  Panel, PanelType, Badge, Label, DefaultButton, PrimaryButton,
+  Panel, PanelType, Label, DefaultButton, PrimaryButton,
   Dropdown, IDropdownOption, SearchBox, mergeStyleSets, Icon,
 } from '@fluentui/react';
 import { api } from '../hooks/useApi';
@@ -145,12 +145,12 @@ export default function PoamPage() {
   const commandItems: ICommandBarItemProps[] = [
     {
       key: 'refresh', text: 'Refresh', iconProps: { iconName: 'Refresh' },
-      onClick: loadPoams,
+      onClick: () => { void loadPoams(); },
     },
     {
       key: 'bulkCreate', text: 'Bulk Create from Open Findings', iconProps: { iconName: 'BulkUpload' },
       disabled: bulkCreating,
-      onClick: async () => {
+      onClick: () => { void (async () => {
         setBulkCreating(true);
         try {
           const res = await api.post<any>('/api/poams/bulk-create', { status: 'open', severity: 'high' }); const result = res.data;
@@ -161,7 +161,7 @@ export default function PoamPage() {
         } finally {
           setBulkCreating(false);
         }
-      },
+      })(); },
     },
     {
       key: 'export', text: 'Export CSV', iconProps: { iconName: 'Download' },

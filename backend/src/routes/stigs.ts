@@ -18,12 +18,15 @@ import { StigVersionEntity } from '../models/StigVersion';
 import { ControlEntity } from '../models/Control';
 import { MachineEntity } from '../models/Machine';
 import { requireRole } from '../middleware/auth';
+import { recordAudit } from '../auth';
 import { createError } from '../middleware/errorHandler';
 import { logger } from '../utils/logger';
 import { importStigs, DEFAULT_BENCHMARKS } from '../stigs/stigImporter';
 import { checkForUpdates, runQuarterlyImport } from '../stigs/stigUpdateScheduler';
 import { runPowerStigAudit } from '../scanning/powerStigRunner';
 import { parseStigResults } from '../scanning/dscResultParser';
+import { runOpenScapScan } from '../scanning/openScapRunner';
+import { ScanEntity } from '../models/Scan';
 
 const router = Router();
 
@@ -265,6 +268,13 @@ router.post(
 
       const MOCK = process.env.MOCK_MODE === 'true';
       if (MOCK) {
+        await recordAudit(req, {
+          action: 'stig.imported',
+          entityType: 'stig_benchmark',
+          entityId: (benchmarkTitles ?? DEFAULT_BENCHMARKS).join(','),
+          after: { benchmarks: benchmarkTitles ?? DEFAULT_BENCHMARKS, force, dryRun, mock: true },
+          result: 'Success',
+        });
         return res.json({
           message: 'Import triggered (mock mode — no actual download)',
           benchmarks: benchmarkTitles ?? DEFAULT_BENCHMARKS,
@@ -273,6 +283,13 @@ router.post(
 
       // Run import async — respond immediately with 202
       const jobId = `import-${Date.now()}`;
+      await recordAudit(req, {
+        action: 'stig.imported',
+        entityType: 'stig_benchmark',
+        entityId: jobId,
+        after: { benchmarks: benchmarkTitles ?? DEFAULT_BENCHMARKS, force, dryRun, jobId },
+        result: 'Success',
+      });
       res.status(202).json({ message: 'Import started', jobId });
 
       importStigs({
@@ -352,13 +369,24 @@ router.post(
   async (req, res, next) => {
     try {
       const { benchmarkId } = req.params;
-      const { machineIds, version } = req.body as {
+      const { machineIds, version, benchmarkXccdfUrl, profileName } = req.body as {
         machineIds?: string[];
         version?: string;
+        /** For Linux openSCAP: full HTTPS URL of an XCCDF zip on an allow-listed DISA host. */
+        benchmarkXccdfUrl?: string;
+        /** For Linux openSCAP: XCCDF profile id (defaults to CAT_I_II_III). */
+        profileName?: string;
       };
 
       const MOCK = process.env.MOCK_MODE === 'true';
       if (MOCK) {
+        await recordAudit(req, {
+          action: 'stig.scan_triggered',
+          entityType: 'stig_benchmark',
+          entityId: benchmarkId,
+          after: { machineIds: machineIds ?? null, version: version ?? null, mock: true },
+          result: 'Success',
+        });
         return res.json({
           message: `Scan triggered for ${benchmarkId} (mock mode)`,
           machinesQueued: machineIds?.length ?? 3,
@@ -375,11 +403,11 @@ router.post(
         return next(createError(`No active version found for benchmark ${benchmarkId}`, 404, 'NOT_FOUND'));
       }
 
-      // Get machines to scan
+      // Get machines to scan (no OS filter — we dispatch per-OS below)
       const machineRepo = AppDataSource.getRepository(MachineEntity);
       const machines = machineIds
         ? await machineRepo.findBy({ id: In(machineIds) })
-        : await machineRepo.find({ where: { osType: 'Windows' } });
+        : await machineRepo.find();
 
       if (machines.length === 0) {
         return res.json({ message: 'No machines found to scan', machinesQueued: 0 });
@@ -395,8 +423,56 @@ router.post(
 
       // Run scans in background
       (async () => {
+        const scanRepo = AppDataSource.getRepository(ScanEntity);
         for (const machine of machines) {
+          const isLinux = (machine.osType ?? '').toLowerCase().startsWith('linux')
+            || /(rhel|ubuntu|centos|debian|suse|amazon)/i.test(machine.osType ?? '');
+
           try {
+            if (isLinux) {
+              if (!benchmarkXccdfUrl) {
+                logger.warn(
+                  `[StigsRoute] Skipping Linux machine ${machine.name}: benchmarkXccdfUrl not supplied in request body`,
+                );
+                continue;
+              }
+              const scan = await scanRepo.save(
+                scanRepo.create({
+                  machineId: machine.id,
+                  machineName: machine.name,
+                  subscriptionId: machine.subscriptionId,
+                  resourceGroupName: machine.resourceGroupName,
+                  triggeredBy: 'stig.scan',
+                  scanType: 'on-demand',
+                  status: 'running',
+                  startedAt: new Date(),
+                }),
+              );
+              try {
+                await runOpenScapScan(
+                  machine,
+                  scan,
+                  {
+                    benchmarkXccdfUrl,
+                    profileName:
+                      profileName ?? 'xccdf_mil.disa.stig_profile_CAT_I_II_III',
+                    dataStream: benchmarkId,
+                  },
+                  AppDataSource,
+                );
+                scan.status = 'completed';
+                scan.completedAt = new Date();
+                await scanRepo.save(scan);
+              } catch (innerErr: any) {
+                scan.status = 'failed';
+                scan.errorMessage = innerErr?.message ?? String(innerErr);
+                scan.completedAt = new Date();
+                await scanRepo.save(scan);
+                throw innerErr;
+              }
+              continue;
+            }
+
             const result = await runPowerStigAudit({
               machineId:       machine.id,
               machineName:     machine.name,

@@ -7,10 +7,11 @@
 import { Router } from 'express';
 import { ScanOrchestrator } from '../connectors/scanOrchestrator';
 import { requireRole } from '../middleware/auth';
-import { mockStore } from '../database/dataSource';
+import { recordAudit } from '../auth';
+import { AppDataSource, mockStore } from '../database/dataSource';
+import { ScanEntity } from '../models/Scan';
 import { createError } from '../middleware/errorHandler';
 import { logger } from '../utils/logger';
-import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
 const orchestrator = new ScanOrchestrator();
@@ -20,23 +21,12 @@ router.post(
   '/trigger',
   requireRole('admin', 'operator'),
   async (req, res, next) => {
+    const { subscriptionIds, resourceGroupNames, resourceIds, since } = req.body;
+    const actor = (req as any).auth?.email || (req as any).auth?.sub || 'api';
+    const targetId = resourceIds?.[0] || subscriptionIds?.[0] || 'all';
+    const targetType = resourceIds ? 'machine' : 'subscription';
+
     try {
-      const { subscriptionIds, resourceGroupNames, resourceIds, since } = req.body;
-      const actor = (req as any).auth?.email || (req as any).auth?.sub || 'api';
-
-      // Log the trigger
-      if (process.env.MOCK_MODE === 'true') {
-        mockStore.auditLogs.unshift({
-          id: uuidv4(),
-          action: 'scan.triggered',
-          actor,
-          targetId: resourceIds?.[0] || subscriptionIds?.[0] || 'all',
-          targetType: resourceIds ? 'machine' : 'subscription',
-          timestamp: new Date().toISOString(),
-          details: { subscriptionIds, resourceGroupNames, resourceIds },
-        });
-      }
-
       const result = await orchestrator.runScan({
         subscriptionIds,
         resourceGroupNames,
@@ -44,27 +34,60 @@ router.post(
         since: since ? new Date(since) : undefined,
       });
 
+      await recordAudit(req, {
+        action: 'scan.triggered',
+        entityType: targetType,
+        entityId: targetId,
+        after: { subscriptionIds, resourceGroupNames, resourceIds, scanId: result.scanId },
+        result: 'Success',
+      });
+
       logger.info(`[Scan] Triggered by ${actor}: scanId=${result.scanId}`);
       res.status(202).json({ message: 'Scan initiated', ...result });
-    } catch (err) {
+    } catch (err: any) {
+      // Audit #11 / Constitution Principle II \u2014 record failure rows.
+      try {
+        await recordAudit(req, {
+          action: 'scan.triggered',
+          entityType: targetType,
+          entityId: targetId,
+          after: { subscriptionIds, resourceGroupNames, resourceIds, error: err?.message },
+          result: 'Error',
+        });
+      } catch (auditErr) {
+        logger.error('[Scan] failure-audit write failed', auditErr);
+      }
       next(err);
     }
   },
 );
 
 // GET /api/scan
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res, next) => {
   const MOCK_MODE = process.env.MOCK_MODE === 'true';
+  const { page = '1', pageSize = '20', machineId } = req.query as Record<string, string>;
+  const p = Math.max(1, parseInt(page));
+  const ps = Math.min(200, parseInt(pageSize));
+
   if (MOCK_MODE) {
+    let scans = [...mockStore.scans];
+    if (machineId) scans = scans.filter((s: any) => s.machineId === machineId);
     return res.json({
-      data: mockStore.scans,
-      total: mockStore.scans.length,
-      page: 1,
-      pageSize: 20,
+      data: scans.slice((p - 1) * ps, p * ps),
+      total: scans.length,
+      page: p,
+      pageSize: ps,
     });
   }
-  // TODO: query DB
-  res.json({ data: [], total: 0, page: 1, pageSize: 20 });
+  try {
+    const repo = AppDataSource.getRepository(ScanEntity);
+    const qb = repo.createQueryBuilder('s').orderBy('s.startedAt', 'DESC');
+    if (machineId) qb.andWhere('s.machineId = :mid', { mid: machineId });
+    const [data, total] = await qb.skip((p - 1) * ps).take(ps).getManyAndCount();
+    res.json({ data, total, page: p, pageSize: ps });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // GET /api/scan/:id
@@ -75,8 +98,14 @@ router.get('/:id', async (req, res, next) => {
     if (!scan) return next(createError('Scan not found', 404, 'NOT_FOUND'));
     return res.json(scan);
   }
-  // TODO: query DB
-  next(createError('Scan not found', 404, 'NOT_FOUND'));
+  try {
+    const repo = AppDataSource.getRepository(ScanEntity);
+    const scan = await repo.findOne({ where: { id: req.params.id } });
+    if (!scan) return next(createError('Scan not found', 404, 'NOT_FOUND'));
+    res.json(scan);
+  } catch (err) {
+    next(err);
+  }
 });
 
 export default router;

@@ -83,6 +83,21 @@ function buildScapScript(opts: OpenScapScanOptions): string {
   const xccdfPath   = '/tmp/stig_xccdf.xml';
   const arfPath     = '/tmp/stig_arf.xml';
 
+  // ── Audit #10: validate inputs before composing the bash script ───────────
+  // benchmarkXccdfUrl must be HTTPS, on a known DISA / NIST / mil host, and
+  // contain no shell metacharacters.
+  const allowedHostPattern = /^https:\/\/(public\.cyber\.mil|ncp\.nist\.gov|csrc\.nist\.gov|dl\.dod\.cyber\.mil)\//;
+  if (!allowedHostPattern.test(benchmarkXccdfUrl)) {
+    throw new Error(`OpenSCAP: refusing benchmarkXccdfUrl "${benchmarkXccdfUrl}" \u2014 must match ${allowedHostPattern}`);
+  }
+  if (/[\s"'`$\\;|&<>(){}]/.test(benchmarkXccdfUrl)) {
+    throw new Error('OpenSCAP: benchmarkXccdfUrl contains forbidden shell metacharacters');
+  }
+  // profileName: alphanumeric + - _ . : / only (matches XCCDF profile id syntax)
+  if (!/^[A-Za-z0-9_\-:./]+$/.test(profileName)) {
+    throw new Error(`OpenSCAP: refusing profileName "${profileName}" \u2014 must match /^[A-Za-z0-9_\\-:./]+$/`);
+  }
+
   return `#!/bin/bash
 set -euo pipefail
 
@@ -119,7 +134,7 @@ if [ -f "${arfPath}" ]; then
   base64 -w 0 "${arfPath}"
   echo ""
   echo "===ARF_END==="
-  echo "OSCAP_EXIT=${EXIT:-0}"
+  echo "OSCAP_EXIT=\${EXIT:-0}"
 else
   echo "ERROR: ${arfPath} not found"
   exit 1
@@ -132,7 +147,7 @@ async function executeOnArcLinux(machine: MachineEntity, script: string): Promis
   const credential = new DefaultAzureCredential();
   const client     = new HybridComputeManagementClient(credential, machine.subscriptionId);
 
-  const result = await client.machines.beginRunCommandAndWait(
+  const result = await (client.machines as any).beginRunCommandAndWait(
     machine.resourceGroupName,
     machine.name,
     {

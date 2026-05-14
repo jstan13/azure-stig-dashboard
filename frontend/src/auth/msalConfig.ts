@@ -1,22 +1,24 @@
 import { Configuration, LogLevel, BrowserCacheLocation } from '@azure/msal-browser';
+import { RUNTIME_CONFIG } from '../runtime-config';
 
 /**
  * MSAL Configuration
  *
- * Values are injected at build time via Vite environment variables.
- * Set these in your .env file (see sample.env):
- *   VITE_AZURE_CLIENT_ID   — Azure AD app registration client ID
- *   VITE_AZURE_TENANT_ID   — Azure AD tenant ID
- *   VITE_API_SCOPE         — API scope (e.g. api://<client-id>/access_as_user)
+ * Values are resolved from runtime config (window.__APP_CONFIG__) first,
+ * falling back to Vite build-time env vars (import.meta.env.VITE_*).
+ * The container entrypoint substitutes runtime values from App Service env
+ * vars so the same published image works for every Entra tenant.
  */
 
-const CLIENT_ID = import.meta.env.VITE_AZURE_CLIENT_ID || 'YOUR_CLIENT_ID_HERE';
-const TENANT_ID = import.meta.env.VITE_AZURE_TENANT_ID || 'YOUR_TENANT_ID_HERE';
+const CLIENT_ID = RUNTIME_CONFIG.AZURE_CLIENT_ID || 'YOUR_CLIENT_ID_HERE';
+const TENANT_ID = RUNTIME_CONFIG.AZURE_TENANT_ID || 'YOUR_TENANT_ID_HERE';
+const AUTHORITY_HOST =
+  RUNTIME_CONFIG.AZURE_AUTHORITY_HOST || 'https://login.microsoftonline.com';
 
 export const msalConfig: Configuration = {
   auth: {
     clientId: CLIENT_ID,
-    authority: `https://login.microsoftonline.com/${TENANT_ID}`,
+    authority: `${AUTHORITY_HOST}/${TENANT_ID}`,
     redirectUri: window.location.origin,
     postLogoutRedirectUri: window.location.origin,
     navigateToLoginRequestUrl: true,
@@ -50,6 +52,6 @@ export const loginRequest = {
 /** Scopes for calling the backend API */
 export const apiRequest = {
   scopes: [
-    import.meta.env.VITE_API_SCOPE || `api://${CLIENT_ID}/access_as_user`,
+    RUNTIME_CONFIG.API_SCOPE || `api://${CLIENT_ID}/access_as_user`,
   ],
 };

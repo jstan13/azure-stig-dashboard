@@ -4,12 +4,13 @@
  */
 
 import { Router } from 'express';
-import { mockStore } from '../database/dataSource';
+import { AppDataSource, mockStore } from '../database/dataSource';
+import { ControlEntity } from '../models/Control';
 import { createError } from '../middleware/errorHandler';
 
 const router = Router();
 
-router.get('/', (req, res) => {
+router.get('/', async (req, res, next) => {
   const { severity, q, page = 1, pageSize = 50 } = req.query;
   const p = Number(page);
   const ps = Math.min(Number(pageSize), 200);
@@ -31,17 +32,38 @@ router.get('/', (req, res) => {
     return res.json({ data: controls.slice((p - 1) * ps, p * ps), total, page: p, pageSize: ps });
   }
 
-  res.json({ data: [], total: 0, page: p, pageSize: ps });
+  try {
+    const repo = AppDataSource.getRepository(ControlEntity);
+    const qb = repo.createQueryBuilder('c').orderBy('c.stigId', 'ASC');
+    if (severity) qb.andWhere('c.severity = :sev', { sev: severity });
+    if (q) {
+      qb.andWhere(
+        '(c.id ILIKE :q OR c.stigId ILIKE :q OR c.title ILIKE :q OR c.vulnId ILIKE :q)',
+        { q: `%${String(q)}%` },
+      );
+    }
+    const [data, total] = await qb.skip((p - 1) * ps).take(ps).getManyAndCount();
+    res.json({ data, total, page: p, pageSize: ps });
+  } catch (err) {
+    next(err);
+  }
 });
 
-router.get('/:id', (req, res, next) => {
+router.get('/:id', async (req, res, next) => {
   const MOCK_MODE = process.env.MOCK_MODE === 'true';
   if (MOCK_MODE) {
     const control = mockStore.controls.find((c: any) => c.id === req.params.id);
     if (!control) return next(createError('Control not found', 404, 'NOT_FOUND'));
     return res.json(control);
   }
-  next(createError('Control not found', 404, 'NOT_FOUND'));
+  try {
+    const repo = AppDataSource.getRepository(ControlEntity);
+    const control = await repo.findOne({ where: { id: req.params.id } });
+    if (!control) return next(createError('Control not found', 404, 'NOT_FOUND'));
+    res.json(control);
+  } catch (err) {
+    next(err);
+  }
 });
 
 export default router;

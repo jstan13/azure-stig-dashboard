@@ -11,6 +11,7 @@ import { Router, Request, Response } from 'express';
 import { AppDataSource, mockStore } from '../database/dataSource';
 import { RemediationJobEntity } from '../models/RemediationJob';
 import { requireRole } from '../middleware/auth';
+import { recordAudit } from '../auth';
 import { logger } from '../utils/logger';
 
 const router = Router();
@@ -109,6 +110,17 @@ router.post('/jobs', requireRole('admin', 'operator'), async (req: Request, res:
       logger.error(`[Remediation] Job ${savedJob.id} execution error: ${e.message}`),
     ));
 
+    await recordAudit(req, {
+      action: 'remediation.queued',
+      entityType: 'remediation_job',
+      entityId: savedJob.id,
+      after: {
+        machineIds, findingIds, benchmarkId, stigVersion, strategy, severity,
+        totalItems: jobData.totalItems,
+      },
+      result: 'Success',
+    });
+
     return res.status(202).json(savedJob);
   } catch (err: any) {
     logger.error('[POST /remediation/jobs]', err);
@@ -116,23 +128,41 @@ router.post('/jobs', requireRole('admin', 'operator'), async (req: Request, res:
   }
 });
 
-// POST /api/remediation/jobs/:id/cancel
-router.post('/jobs/:id/cancel', async (req: Request, res: Response) => {
+// POST /api/remediation/jobs/:id/cancel \u2014 admin/operator only (Audit #2)
+router.post('/jobs/:id/cancel', requireRole('admin', 'operator'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     if (isMock()) {
       const job = mockStore.remediationJobs.find((j: any) => j.id === id);
       if (!job) return res.status(404).json({ error: 'Not found' });
+      const before = { status: job.status };
       if (job.status === 'running') job.status = 'failed';
+      await recordAudit(req, {
+        action: 'remediation.cancelled',
+        entityType: 'remediation_job',
+        entityId: id,
+        before,
+        after: { status: job.status },
+        result: 'Success',
+      });
       return res.json(job);
     }
     const repo = AppDataSource.getRepository(RemediationJobEntity);
     const job = await repo.findOne({ where: { id } });
     if (!job) return res.status(404).json({ error: 'Not found' });
+    const before = { status: job.status };
     if (job.status === 'running') {
       job.status = 'failed';
       await repo.save(job);
     }
+    await recordAudit(req, {
+      action: 'remediation.cancelled',
+      entityType: 'remediation_job',
+      entityId: id,
+      before,
+      after: { status: job.status },
+      result: 'Success',
+    });
     return res.json(job);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });

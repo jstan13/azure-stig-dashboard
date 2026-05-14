@@ -16,6 +16,8 @@ import { initializeDatabase, AppDataSource } from './database/dataSource';
 import { logger } from './utils/logger';
 import { errorHandler } from './middleware/errorHandler';
 import { authenticateToken } from './middleware/auth';
+import { Auditor, auditMiddleware } from './auth';
+import { TypeOrmAuditWriter, mockAuditWriter } from './auth/writers';
 
 // Route imports
 import scanRouter from './routes/scan';
@@ -32,8 +34,18 @@ import remediationRouter from './routes/remediation';
 import complianceHistoryRouter from './routes/compliance-history';
 import usersRouter from './routes/users';
 import rmfRouter from './routes/rmf';
+import hierarchyRouter from './routes/hierarchy';
+import emassRouter from './routes/emass';
+import vulnerabilitiesRouter from './routes/vulnerabilities';
 
 import { startStigUpdateScheduler } from './stigs/stigUpdateScheduler';
+
+// ─── Production safety: forbid MOCK_MODE in prod (Audit #1) ───────────────
+if (process.env.NODE_ENV === 'production' && process.env.MOCK_MODE === 'true') {
+  // eslint-disable-next-line no-console
+  console.error('FATAL: MOCK_MODE=true is forbidden when NODE_ENV=production');
+  process.exit(1);
+}
 
 // Application Insights (optional, only if instrumentation key is set)
 if (process.env.APPINSIGHTS_INSTRUMENTATIONKEY) {
@@ -55,10 +67,20 @@ app.use(cors({
   credentials: true,
 }));
 app.use(compression());
-app.use(json({ limit: '10mb' }));
+app.use(json({ limit: '1mb' }));
 app.use(morgan('combined', { stream: { write: (msg) => logger.http(msg.trim()) } }));
 
-// Rate limiting
+// Rate limiting — global low-rate limiter applied to ALL routes (Audit #17),
+// with a higher per-API-route limiter on /api/* for authenticated traffic.
+const globalLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
+app.use(globalLimiter);
+
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 500,
@@ -73,6 +95,25 @@ app.use('/health', healthRouter);
 
 // ─── Protected routes (JWT required for all /api/* below) ───────────────────
 app.use('/api', authenticateToken);
+
+// ─── Audit + correlation ID (Principle II / FR-003) ────────────────────────
+// Wire the canonical Auditor onto every authenticated request so route
+// handlers can call `req.audit.record(...)`. In MOCK_MODE we use the in-memory
+// writer; in real mode we use the TypeORM-backed writer.
+const auditor = new Auditor(
+  process.env.MOCK_MODE === 'true'
+    ? mockAuditWriter
+    : new TypeOrmAuditWriter(AppDataSource),
+  {
+    fallbackLog: (p) =>
+      logger.error('audit_write_failed', {
+        action: p.action,
+        correlationId: p.correlationId,
+        err: p.error instanceof Error ? p.error.message : p.error,
+      }),
+  },
+);
+app.use('/api', auditMiddleware({ auditor }));
 
 // Swagger / OpenAPI — mounted after auth so it requires a valid token
 try {
@@ -95,6 +136,9 @@ app.use('/api/remediation', remediationRouter);
 app.use('/api/compliance-history', complianceHistoryRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/rmf', rmfRouter);
+app.use('/api/hierarchy', hierarchyRouter);
+app.use('/api/emass', emassRouter);
+app.use('/api/vulnerabilities', vulnerabilitiesRouter);
 
 // ─── Error handling ──────────────────────────────────────────────────────────
 app.use(errorHandler);
@@ -120,6 +164,10 @@ async function bootstrap() {
   }
 }
 
-bootstrap();
+// Only auto-bootstrap when invoked directly (Audit #4) — prevents tests that
+// import the app from spinning up a real listener / DB connection.
+if (require.main === module) {
+  bootstrap();
+}
 
 export default app;

@@ -11,6 +11,7 @@ import { AppDataSource, mockStore } from '../database/dataSource';
 import { NotificationConfigEntity } from '../models/NotificationConfig';
 import { dispatchNotification } from '../services/notificationService';
 import { requireRole } from '../middleware/auth';
+import { recordAudit } from '../auth';
 import { logger } from '../utils/logger';
 
 const router = Router();
@@ -50,12 +51,26 @@ router.post('/configs', requireRole('admin'), async (req: Request, res: Response
         updatedAt: new Date().toISOString(),
       };
       mockStore.notificationConfigs.push(cfg);
+      await recordAudit(req, {
+        action: 'notification_config.created',
+        entityType: 'notification_config',
+        entityId: cfg.id,
+        after: { trigger, channel, destination, enabled: cfg.enabled },
+        result: 'Success',
+      });
       return res.status(201).json(cfg);
     }
 
     const repo = AppDataSource.getRepository(NotificationConfigEntity);
     const cfg = repo.create({ trigger, channel, destination, filter, ownerOid, enabled: enabled !== false });
     const saved = await repo.save(cfg);
+    await recordAudit(req, {
+      action: 'notification_config.created',
+      entityType: 'notification_config',
+      entityId: saved.id,
+      after: { trigger, channel, destination, enabled: saved.enabled },
+      result: 'Success',
+    });
     return res.status(201).json(saved);
   } catch (err: any) {
     logger.error('[POST /notifications/configs]', err);
@@ -72,15 +87,33 @@ router.patch('/configs/:id', requireRole('admin'), async (req: Request, res: Res
     if (isMock()) {
       const idx = mockStore.notificationConfigs.findIndex((c: any) => c.id === id);
       if (idx === -1) return res.status(404).json({ error: 'Not found' });
+      const before = { ...mockStore.notificationConfigs[idx] };
       mockStore.notificationConfigs[idx] = { ...mockStore.notificationConfigs[idx], ...updates, updatedAt: new Date().toISOString() };
+      await recordAudit(req, {
+        action: 'notification_config.updated',
+        entityType: 'notification_config',
+        entityId: id,
+        before: { enabled: before.enabled, channel: before.channel, destination: before.destination },
+        after: updates,
+        result: 'Success',
+      });
       return res.json(mockStore.notificationConfigs[idx]);
     }
 
     const repo = AppDataSource.getRepository(NotificationConfigEntity);
     const cfg = await repo.findOne({ where: { id } });
     if (!cfg) return res.status(404).json({ error: 'Not found' });
+    const before = { enabled: (cfg as any).enabled, channel: (cfg as any).channel, destination: (cfg as any).destination };
     Object.assign(cfg, updates);
     const saved = await repo.save(cfg);
+    await recordAudit(req, {
+      action: 'notification_config.updated',
+      entityType: 'notification_config',
+      entityId: id,
+      before,
+      after: updates,
+      result: 'Success',
+    });
     return res.json(saved);
   } catch (err: any) {
     logger.error('[PATCH /notifications/configs/:id]', err);
@@ -96,7 +129,15 @@ router.delete('/configs/:id', requireRole('admin'), async (req: Request, res: Re
     if (isMock()) {
       const idx = mockStore.notificationConfigs.findIndex((c: any) => c.id === id);
       if (idx === -1) return res.status(404).json({ error: 'Not found' });
+      const removed = mockStore.notificationConfigs[idx];
       mockStore.notificationConfigs.splice(idx, 1);
+      await recordAudit(req, {
+        action: 'notification_config.deleted',
+        entityType: 'notification_config',
+        entityId: id,
+        before: { trigger: removed.trigger, channel: removed.channel, destination: removed.destination },
+        result: 'Success',
+      });
       return res.status(204).send();
     }
 
@@ -104,6 +145,13 @@ router.delete('/configs/:id', requireRole('admin'), async (req: Request, res: Re
     const cfg = await repo.findOne({ where: { id } });
     if (!cfg) return res.status(404).json({ error: 'Not found' });
     await repo.remove(cfg);
+    await recordAudit(req, {
+      action: 'notification_config.deleted',
+      entityType: 'notification_config',
+      entityId: id,
+      before: { trigger: (cfg as any).trigger, channel: (cfg as any).channel, destination: (cfg as any).destination },
+      result: 'Success',
+    });
     return res.status(204).send();
   } catch (err: any) {
     logger.error('[DELETE /notifications/configs/:id]', err);
@@ -130,6 +178,14 @@ router.post('/test/:id', requireRole('admin'), async (req: Request, res: Respons
       body:         `This is a test notification sent from the Azure STIG Dashboard.\nChannel: ${cfg.channel}\nTrigger configured: ${cfg.trigger}`,
       severity:     'medium',
       metadata:     { test: true, configId: id },
+    });
+
+    await recordAudit(req, {
+      action: 'notification_config.tested',
+      entityType: 'notification_config',
+      entityId: id,
+      after: { channel: cfg.channel, destination: cfg.destination },
+      result: 'Success',
     });
 
     return res.json({ ok: true, message: `Test notification dispatched via ${cfg.channel} to ${cfg.destination}` });

@@ -11,14 +11,15 @@
   },
   "dependencies": {
     "@azure/arm-resources": "^5.2.0",
-    "@azure/arm-resourcegraph": "^8.0.0",
+    "@azure/arm-resourcegraph": "^4.2.1",
     "@azure/arm-policy": "^5.1.0",
-    "@azure/arm-security": "^6.0.0",
+    "@azure/arm-security": "^5.0.0",
     "@azure/arm-compute": "^21.0.0",
-    "@azure/arm-hybridcompute": "^3.1.0",
-    "@azure/arm-guestconfiguration": "^1.2.0",
+    "@azure/arm-hybridcompute": "^3.0.0",
+    "@azure/arm-guestconfiguration": "1.0.0-beta.1",
     "@azure/identity": "^4.0.0",
     "@azure/monitor-query": "^1.3.0",
+    "@azure/storage-blob": "^12.17.0",
     "applicationinsights": "^3.0.0",
     "compression": "^1.7.4",
     "cors": "^2.8.5",
@@ -27,6 +28,7 @@
     "express-jwt": "^8.4.1",
     "express-rate-limit": "^7.1.5",
     "helmet": "^7.1.0",
+    "jose": "^5.9.6",
     "jwks-rsa": "^3.1.0",
     "morgan": "^1.10.0",
     "passport": "^0.7.0",
@@ -40,7 +42,6 @@
     "fast-xml-parser": "^4.3.2",
     "adm-zip": "^0.5.16",
     "axios": "^1.6.5",
-    "crypto": "^1.0.1",
     "date-fns": "^3.0.6",
     "uuid": "^9.0.0",
     "winston": "^3.11.0",
@@ -69,6 +70,7 @@
     "ts-jest": "^29.1.1",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
+    "@types/node-cron": "^3.0.11",
     "typescript": "^5.3.3"
   }
 }

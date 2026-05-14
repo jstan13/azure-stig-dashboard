@@ -3,7 +3,8 @@
  */
 
 import { Router } from 'express';
-import { mockStore } from '../database/dataSource';
+import { AppDataSource, mockStore } from '../database/dataSource';
+import { AuditLogEntity } from '../models/AuditLog';
 import { requireRole } from '../middleware/auth';
 
 const router = Router();
@@ -11,7 +12,7 @@ const router = Router();
 router.get(
   '/',
   requireRole('admin', 'auditor'),
-  (req, res) => {
+  async (req, res, next) => {
     const { page = 1, pageSize = 50, targetId, action } = req.query;
     const p = Number(page);
     const ps = Math.min(Number(pageSize), 200);
@@ -30,7 +31,19 @@ router.get(
       });
     }
 
-    res.json({ data: [], total: 0, page: p, pageSize: ps });
+    try {
+      const repo = AppDataSource.getRepository(AuditLogEntity);
+      const qb = repo.createQueryBuilder('a').orderBy('a.timestamp', 'DESC');
+      if (targetId) qb.andWhere('a.targetId = :tid', { tid: targetId });
+      if (action) qb.andWhere('a.action = :act', { act: action });
+      const [data, total] = await qb
+        .skip((p - 1) * ps)
+        .take(ps)
+        .getManyAndCount();
+      res.json({ data, total, page: p, pageSize: ps });
+    } catch (err) {
+      next(err);
+    }
   },
 );
 

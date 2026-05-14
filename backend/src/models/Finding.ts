@@ -25,8 +25,45 @@ export class FindingEntity {
   @Column({ default: 'azure-policy' }) sourceType!: string;
   /** Raw evidence payload from Azure (policy evaluation result, Defender alert, etc.) */
   @Column({ type: 'jsonb', nullable: true }) evidence!: Record<string, any>;
+  /**
+   * Full traceability chain (constitution Principle IV, FR-009): every
+   * Finding must record how its source signal was mapped onto a STIG rule.
+   * Persisted as JSONB so the schema can evolve without per-source migrations.
+   *
+   * Shape:
+   *   {
+   *     source: 'azure-policy' | 'defender' | 'resource-graph' | 'manual' | 'stig-manager',
+   *     sourceRef: string,            // policy assignment id / alert id / query hash
+   *     vulnNum: string,              // e.g. "V-220706"
+   *     ruleId: string,               // e.g. "SV-220706r569186_rule"
+   *     cciRefs: string[],            // e.g. ["CCI-000196"]
+   *     nistControls: string[],       // e.g. ["IA-5 (1) (c)"]
+   *     stigBenchmarkId: string,      // e.g. "Microsoft_Windows_Server_2022_STIG"
+   *     stigBenchmarkVersion: string, // e.g. "V1R3"
+   *     benchmarkSha256: string,      // sha256 of source XCCDF (Principle III)
+   *     mappedAt: string,             // ISO-8601 UTC
+   *     mappedBy: string,             // mapping engine version, e.g. "mc-windows-2022@1.4.0"
+   *   }
+   *
+   * `null` means the Finding predates the traceability requirement; new
+   * Findings emitted by the ingestion pipeline MUST populate this.
+   */
+  @Column({ type: 'jsonb', nullable: true }) mappingChain!: {
+    source: string;
+    sourceRef: string;
+    vulnNum: string;
+    ruleId: string;
+    cciRefs: string[];
+    nistControls: string[];
+    stigBenchmarkId: string;
+    stigBenchmarkVersion: string;
+    benchmarkSha256: string;
+    mappedAt: string;
+    mappedBy: string;
+  } | null;
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
+  @Column({ type: 'timestamp', nullable: true }) reviewedAt!: Date | null;
   @ManyToOne(() => MachineEntity, (m) => m.findings)
   @JoinColumn({ name: 'machineId' })
   machine!: MachineEntity;

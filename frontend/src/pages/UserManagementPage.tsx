@@ -120,7 +120,7 @@ export default function UserManagementPage() {
   ];
 
   const commandItems: ICommandBarItemProps[] = [
-    { key: 'refresh', text: 'Refresh', iconProps: { iconName: 'Refresh' }, onClick: loadUsers },
+    { key: 'refresh', text: 'Refresh', iconProps: { iconName: 'Refresh' }, onClick: () => { void loadUsers(); } },
   ];
 
   const filterOptions: IDropdownOption[] = [

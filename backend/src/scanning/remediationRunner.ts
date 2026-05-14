@@ -158,7 +158,7 @@ async function executeScript(machine: MachineEntity, script: string, _strategy: 
 
   if (isArc) {
     const client = new HybridComputeManagementClient(credential, machine.subscriptionId);
-    const result = await client.machines.beginRunCommandAndWait(
+    const result = await (client.machines as any).beginRunCommandAndWait(
       machine.resourceGroupName,
       machine.name,
       {
