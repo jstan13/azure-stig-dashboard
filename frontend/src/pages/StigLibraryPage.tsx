@@ -11,7 +11,6 @@ import {
   DetailsListLayoutMode,
   SelectionMode,
   IColumn,
-  Badge,
   DefaultButton,
   PrimaryButton,
   Dialog,
@@ -255,7 +254,7 @@ export default function StigLibraryPage() {
       <Stack horizontal tokens={{ childrenGap: 16 }}>
         <SummaryCard label="Installed STIGs"   value={total}                        color="#0078d4" />
         <SummaryCard label="Updates Available" value={updatesAvailable.length}      color="#d83b01" />
-        <SummaryCard label="Auto-Update"       value={process.env.NODE_ENV === 'production' ? 'Quarterly' : 'Dev'} color="#107c10" />
+        <SummaryCard label="Auto-Update"       value={import.meta.env.MODE === 'production' ? 'Quarterly' : 'Dev'} color="#107c10" />
       </Stack>
 
       {updatesAvailable.length > 0 && (
