@@ -24,10 +24,10 @@ interface Summary {
   uniqueCves: number; affectedHosts: number;
 }
 
-const sevColor = (s: string) => ({
+const sevColor = (s: string) => (({
   critical: '#a4262c', high: '#ca5010', medium: '#835b00',
   low: '#605e5c', informational: '#8a8886',
-}[s as any] || '#605e5c');
+} as Record<string, string>)[s] || '#605e5c');
 
 export default function VulnerabilitiesPage() {
   const [rows, setRows] = useState<Vuln[]>([]);
