@@ -147,7 +147,7 @@ async function executeOnArcLinux(machine: MachineEntity, script: string): Promis
   const credential = new DefaultAzureCredential();
   const client     = new HybridComputeManagementClient(credential, machine.subscriptionId);
 
-  const result = await client.machines.beginRunCommandAndWait(
+  const result = await (client.machines as any).beginRunCommandAndWait(
     machine.resourceGroupName,
     machine.name,
     {
