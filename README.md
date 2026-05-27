@@ -2,9 +2,23 @@
 
 A production-ready full-stack TypeScript dashboard for tracking STIG compliance of Azure workloads. Ingests data from Azure Resource Graph, Azure Policy, Microsoft Defender for Cloud, and ARM, normalises findings against STIG controls, and produces STIG Viewer-compatible `.ckl` exports.
 
-### Deploy to Azure
+### Easiest path — one command
 
-The deployment wizard prompts for your **Organization name**, **Azure cloud environment** (Commercial / US Gov / DoD), region, app registration, and database password — no script edits required. Container images are **digest-pinned and cosign-signed** — see [docs/verifying-releases.md](docs/verifying-releases.md) for the verification procedure.
+If you have the [Azure CLI](https://aka.ms/installazurecli) and [Azure Developer CLI](https://aka.ms/install-azd) installed, this is the whole deployment:
+
+```pwsh
+git clone https://github.com/jstan13/azure-stig-dashboard.git
+cd azure-stig-dashboard
+./scripts/deploy.ps1 -OrgName <your-org> -Location eastus
+```
+
+The script signs you in (device-code), creates the Entra app registration with the correct API scope + admin/operator/auditor roles + redirect URI, generates a database password, runs `azd up`, and grants the backend managed identity `Reader` + `Security Reader` at subscription scope. You'll be granted the `admin` role on your own user automatically so the first login works.
+
+When it finishes, browse to `https://<your-org>-stig-web.azurewebsites.net` and sign in.
+
+### Deploy to Azure (portal wizard)
+
+Prefer clicking a button? Use these. They run the same Bicep template but ask you to paste tenant ID, client ID, and client secret. Run `./scripts/create-app-registration.ps1 -OrgName <your-org>` first — it prints the three values you need.
 
 | Cloud | Button |
 |---|---|

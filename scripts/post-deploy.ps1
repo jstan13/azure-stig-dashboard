@@ -3,12 +3,18 @@
   Post-deploy wiring for the Azure STIG Dashboard.
 
 .DESCRIPTION
-  Runs after `azd up` completes. Reads outputs from the deployment and:
+  Runs after `azd up` (or after the portal "Deploy to Azure" button finishes).
+  Reads outputs from the deployment and:
 
-    1. Grants the Function App's managed identity the `operator` app role on
+    1. Grants the backend App Service's managed identity the Azure RBAC
+       roles it needs at *subscription* scope so it can read inventory,
+       policy state, and Defender assessments:
+           - Reader
+           - Security Reader
+    2. Grants the Function App's managed identity the `operator` app role on
        the backend Entra app registration so scheduledScan / drift alerts can
        call /api/scan/trigger and /api/vulnerabilities/sync.
-    2. Reminds the operator about Application ID URI and (optional) eMASS PEM
+    3. Reminds the operator about Application ID URI and (optional) eMASS PEM
        upload steps that cannot be fully automated.
 
   This script is idempotent — re-running it is safe.
@@ -20,20 +26,63 @@
 .PARAMETER FunctionPrincipalId
   The principal (object) ID of the Function App's system-assigned MI. Defaults
   to the `functionPrincipalId` deployment output.
+
+.PARAMETER BackendPrincipalId
+  The principal (object) ID of the backend App Service's system-assigned MI.
+  Defaults to the `backendPrincipalId` deployment output. Required for the
+  subscription-scope role grants in step 1.
+
+.PARAMETER SubscriptionId
+  Subscription to grant the backend MI Reader + Security Reader on. Defaults
+  to the currently-selected `az account` subscription.
 #>
 param(
-  [string]$BackendClientId    = $env:AZURE_CLIENT_ID,
-  [string]$FunctionPrincipalId = $env:FUNCTION_PRINCIPAL_ID
+  [string]$BackendClientId      = $env:AZURE_CLIENT_ID,
+  [string]$FunctionPrincipalId  = $env:FUNCTION_PRINCIPAL_ID,
+  [string]$BackendPrincipalId   = $env:BACKEND_PRINCIPAL_ID,
+  [string]$SubscriptionId       = $null
 )
 
 $ErrorActionPreference = 'Stop'
 
+# ── 0. Subscription-scope RBAC for the backend MI ────────────────────────────
+if ($BackendPrincipalId) {
+  if (-not $SubscriptionId) {
+    $SubscriptionId = (az account show --only-show-errors -o json | ConvertFrom-Json).id
+  }
+  Write-Host "[post-deploy] Granting backend MI ($BackendPrincipalId) Reader + Security Reader on /subscriptions/$SubscriptionId ..."
+
+  $roles = @(
+    @{ name = 'Reader';          id = 'acdd72a7-3385-48ef-bd42-f606fba81ae7' }
+    @{ name = 'Security Reader'; id = '39bc4728-0917-49c7-9d2c-d95423bc2eb4' }
+  )
+
+  foreach ($role in $roles) {
+    $scope = "/subscriptions/$SubscriptionId"
+    $existing = az role assignment list --assignee-object-id $BackendPrincipalId --assignee-principal-type ServicePrincipal --role $role.id --scope $scope --only-show-errors -o json 2>$null | ConvertFrom-Json
+    if ($existing -and $existing.Count -gt 0) {
+      Write-Host "  - $($role.name) already assigned. Skipping."
+    } else {
+      az role assignment create `
+        --assignee-object-id $BackendPrincipalId `
+        --assignee-principal-type ServicePrincipal `
+        --role $role.id `
+        --scope $scope `
+        --only-show-errors | Out-Null
+      Write-Host "  - $($role.name) granted."
+    }
+  }
+} else {
+  Write-Host '[post-deploy] BACKEND_PRINCIPAL_ID not set; skipping subscription-scope role grants.'
+  Write-Host '             Pass -BackendPrincipalId or set the env var to assign Reader + Security Reader automatically.'
+}
+
 if (-not $BackendClientId) {
-  Write-Warning 'AZURE_CLIENT_ID not set. Run `azd env get-values` and pass -BackendClientId.'
-  exit 1
+  Write-Warning 'AZURE_CLIENT_ID not set. Run `azd env get-values` and pass -BackendClientId to wire the Function App role.'
+  exit 0
 }
 if (-not $FunctionPrincipalId) {
-  Write-Host '[post-deploy] FUNCTION_PRINCIPAL_ID not set; skipping role grant (scheduler likely disabled).'
+  Write-Host '[post-deploy] FUNCTION_PRINCIPAL_ID not set; skipping Function App role grant (scheduler likely disabled).'
   exit 0
 }
 

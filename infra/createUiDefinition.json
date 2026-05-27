@@ -93,7 +93,7 @@
             "visible": true,
             "options": {
               "icon": "Info",
-              "text": "Create an app registration in your tenant **before** running this deployment. The app needs the API scope `api://<client-id>/access_as_user` and the SPA redirect URI `https://<organization>-stig-web.<azurewebsites-suffix>`. The wizard will use the values you enter here for both the backend (JWT validation) and the frontend (MSAL.js)."
+              "text": "**Easiest path:** clone the repo and run `./scripts/create-app-registration.ps1 -OrgName <your-org>`. It creates the app registration, exposes the API scope, defines admin/operator/auditor roles, sets the redirect URI, generates a client secret, and prints the three values you need to paste below. Otherwise create an app registration manually with the SPA redirect URI `https://<organization>-stig-web.<azurewebsites-suffix>` and an API scope `api://<client-id>/access_as_user`."
             }
           },
           {
