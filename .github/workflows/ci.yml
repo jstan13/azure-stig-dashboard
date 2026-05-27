@@ -33,10 +33,10 @@ jobs:
         run: npm install
 
       - name: Lint backend
-        run: npm run lint --workspace=backend || true
+        run: npm run lint --workspace=backend
 
       - name: Lint frontend
-        run: npm run lint --workspace=frontend || true
+        run: npm run lint --workspace=frontend
 
       - name: Run backend tests
         working-directory: backend
@@ -45,11 +45,11 @@ jobs:
           NODE_ENV: test
           AZURE_TENANT_ID: test-tenant
           AZURE_CLIENT_ID: test-client
-        run: npx ts-jest --passWithNoTests || npm test
+        run: npm test
 
       - name: Run frontend tests
         working-directory: frontend
-        run: npm test -- --run || echo "No frontend tests yet"
+        run: npm test -- --passWithNoTests
 
   # ────────────────────────────────────────────────────────────────────────────
   # Image build smoke test — proves the release workflow can produce images,

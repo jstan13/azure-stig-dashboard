@@ -60,6 +60,11 @@ if (process.env.APPINSIGHTS_INSTRUMENTATIONKEY) {
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Trust the first reverse proxy hop (App Service front-end / nginx in the
+// frontend container). Without this, req.ip is the proxy address, which makes
+// express-rate-limit a single global bucket and corrupts audit-log client IPs.
+app.set('trust proxy', 1);
+
 // ─── Security middleware ────────────────────────────────────────────────────
 app.use(helmet());
 app.use(cors({
