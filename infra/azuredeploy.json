@@ -64,6 +64,21 @@
       "defaultValue": true,
       "metadata": { "description": "Enforce constitution Principle IV / FR-009: every exported finding must carry a complete mappingChain." }
     },
+    "lockdownNetworking": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": { "description": "When true, disables public telemetry/query and enables App Service CIDR-based ingress allow-list enforcement." }
+    },
+    "allowedIngressCidrs": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": { "description": "CIDRs allowed to reach frontend/backend when lockdownNetworking=true." }
+    },
+    "remediationTargetResourceGroupName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": { "description": "Optional resource group containing VMs/Arc machines this app is allowed to remediate. Leave empty to skip RunCommand role assignment." }
+    },
     "backendImage": {
       "type": "string",
       "defaultValue": "ghcr.io/jstan13/stig-backend:latest",
@@ -104,7 +119,7 @@
         "enableRbacAuthorization": true,
         "enableSoftDelete": true,
         "softDeleteRetentionInDays": 7,
-        "publicNetworkAccess": "Enabled"
+        "publicNetworkAccess": "[if(parameters('lockdownNetworking'), 'Disabled', 'Enabled')]"
       }
     },
     {
@@ -134,8 +149,8 @@
       "kind": "web",
       "properties": {
         "Application_Type": "web",
-        "publicNetworkAccessForIngestion": "Enabled",
-        "publicNetworkAccessForQuery": "Enabled"
+        "publicNetworkAccessForIngestion": "[if(parameters('lockdownNetworking'), 'Disabled', 'Enabled')]",
+        "publicNetworkAccessForQuery": "[if(parameters('lockdownNetworking'), 'Disabled', 'Enabled')]"
       }
     },
     {
@@ -166,6 +181,7 @@
     {
       "type": "Microsoft.DBforPostgreSQL/flexibleServers/firewallRules",
       "apiVersion": "2023-06-01-preview",
+      "condition": "[not(parameters('lockdownNetworking'))]",
       "name": "[concat(variables('dbServerName'), '/AllowAzureServices')]",
       "dependsOn": [
         "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('dbServerName'))]"
@@ -217,6 +233,9 @@
           "alwaysOn": "[not(equals(parameters('appServiceSku'),'F1'))]",
           "http20Enabled": true,
           "minTlsVersion": "1.2",
+          "ipSecurityRestrictionsDefaultAction": "[if(parameters('lockdownNetworking'), 'Deny', 'Allow')]",
+          "scmIpSecurityRestrictionsDefaultAction": "[if(parameters('lockdownNetworking'), 'Deny', 'Allow')]",
+          "ipSecurityRestrictions": [],
           "appSettings": [
             { "name": "DOCKER_REGISTRY_SERVER_URL",    "value": "https://ghcr.io" },
             { "name": "WEBSITES_PORT",                 "value": "3001" },
@@ -254,6 +273,49 @@
       }
     },
     {
+      "type": "Microsoft.Authorization/roleDefinitions",
+      "apiVersion": "2022-05-01-preview",
+      "condition": "[not(empty(parameters('remediationTargetResourceGroupName')))]",
+      "scope": "[subscription().id]",
+      "name": "[guid(subscription().id, parameters('remediationTargetResourceGroupName'), 'runcommand-remediation-role')]",
+      "properties": {
+        "roleName": "[concat(parameters('baseName'), '-runcommand-remediator')]",
+        "description": "Least-privilege role for STIG remediation RunCommand execution only.",
+        "type": "CustomRole",
+        "permissions": [
+          {
+            "actions": [
+              "Microsoft.Compute/virtualMachines/read",
+              "Microsoft.Compute/virtualMachines/runCommand/action",
+              "Microsoft.HybridCompute/machines/read",
+              "Microsoft.HybridCompute/machines/runCommand/action"
+            ],
+            "notActions": [],
+            "dataActions": [],
+            "notDataActions": []
+          }
+        ],
+        "assignableScopes": [
+          "[resourceId('Microsoft.Resources/resourceGroups', parameters('remediationTargetResourceGroupName'))]"
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Resources/resourceGroups/providers/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "condition": "[not(empty(parameters('remediationTargetResourceGroupName')))]",
+      "name": "[concat(parameters('remediationTargetResourceGroupName'), '/Microsoft.Authorization/', guid(resourceId('Microsoft.Resources/resourceGroups', parameters('remediationTargetResourceGroupName')), reference(resourceId('Microsoft.Web/sites', variables('backendName')), '2023-01-01', 'Full').identity.principalId, 'runcommand-remediation-assignment'))]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('backendName'))]",
+        "[resourceId('Microsoft.Authorization/roleDefinitions', guid(subscription().id, parameters('remediationTargetResourceGroupName'), 'runcommand-remediation-role'))]"
+      ],
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', guid(subscription().id, parameters('remediationTargetResourceGroupName'), 'runcommand-remediation-role'))]",
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('backendName')), '2023-01-01', 'Full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      }
+    },
+    {
       "type": "Microsoft.Web/sites",
       "apiVersion": "2023-01-01",
       "name": "[variables('frontendName')]",
@@ -268,9 +330,12 @@
           "linuxFxVersion": "[concat('DOCKER|', parameters('frontendImage'))]",
           "http20Enabled": true,
           "minTlsVersion": "1.2",
+          "ipSecurityRestrictionsDefaultAction": "[if(parameters('lockdownNetworking'), 'Deny', 'Allow')]",
+          "scmIpSecurityRestrictionsDefaultAction": "[if(parameters('lockdownNetworking'), 'Deny', 'Allow')]",
+          "ipSecurityRestrictions": [],
           "appSettings": [
             { "name": "DOCKER_REGISTRY_SERVER_URL",    "value": "https://ghcr.io" },
-            { "name": "WEBSITES_PORT",                 "value": "80" },
+            { "name": "WEBSITES_PORT",                 "value": "8080" },
             { "name": "WEBSITES_ENABLE_APP_SERVICE_STORAGE", "value": "false" },
             { "name": "AZURE_CLIENT_ID",      "value": "[parameters('azureClientId')]" },
             { "name": "AZURE_TENANT_ID",      "value": "[parameters('azureTenantId')]" },

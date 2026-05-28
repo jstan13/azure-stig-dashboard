@@ -22,6 +22,13 @@ export class RemediationJobEntity {
   /** pending | running | completed | failed | partial */
   @Column({ default: 'pending' }) status!: string;
 
+  /** Whether a second operator approved execution (4-eyes control) */
+  @Column({ default: false }) approvalRequired!: boolean;
+  @Column({ default: false }) approved!: boolean;
+  @Column({ nullable: true }) approvedByOid!: string;
+  @Column({ nullable: true }) approvedByName!: string;
+  @Column({ type: 'timestamp', nullable: true }) approvedAt!: Date;
+
   /** Strategy: dsc_push | azure_policy | manual */
   @Column({ default: 'dsc_push' }) strategy!: string;
 

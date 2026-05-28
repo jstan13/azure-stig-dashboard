@@ -15,6 +15,7 @@ import { requireRole } from '../middleware/auth';
 import { recordAudit } from '../auth';
 import { sendServerError } from '../middleware/errorHandler';
 import { parsePage, parsePageSize } from '../utils/paging';
+import { z } from 'zod';
 
 const router = Router();
 const isMock = () => process.env.MOCK_MODE === 'true';
@@ -28,6 +29,19 @@ const VALID_ROLES = ['admin', 'operator', 'auditor'] as const;
 function isValidRole(role: unknown): role is (typeof VALID_ROLES)[number] {
   return typeof role === 'string' && (VALID_ROLES as readonly string[]).includes(role);
 }
+
+const patchUserSchema = z.object({
+  displayName: z.string().trim().min(1).max(200).optional(),
+  role: z.enum(VALID_ROLES).optional(),
+  enabled: z.boolean().optional(),
+}).refine((v) => Object.keys(v).length > 0, { message: 'At least one field must be provided' });
+
+const assignRoleSchema = z.object({
+  roles: z.union([
+    z.enum(VALID_ROLES),
+    z.array(z.enum(VALID_ROLES)).min(1),
+  ]),
+});
 
 // Mock users seeded into mockStore on startup (see mockSeed.ts)
 const MOCK_USERS = [
@@ -97,7 +111,12 @@ router.get('/:id', async (req: Request, res: Response) => {
 router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { displayName, role, enabled } = req.body;
+    const parse = patchUserSchema.safeParse(req.body ?? {});
+    if (!parse.success) {
+      return res.status(400).json({ error: 'Invalid user update payload', details: parse.error.flatten() });
+    }
+
+    const { displayName, role, enabled } = parse.data;
 
     if (role !== undefined && !isValidRole(role)) {
       return res.status(400).json({ error: `Invalid role. Allowed: ${VALID_ROLES.join(', ')}` });
@@ -147,7 +166,12 @@ router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) =
 router.post('/:id/roles', requireRole('admin'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { roles } = req.body; // string[] or string
+    const parse = assignRoleSchema.safeParse(req.body ?? {});
+    if (!parse.success) {
+      return res.status(400).json({ error: 'Invalid role payload', details: parse.error.flatten() });
+    }
+
+    const { roles } = parse.data;
 
     const requestedRole = Array.isArray(roles) ? roles[0] : roles;
     if (!isValidRole(requestedRole)) {

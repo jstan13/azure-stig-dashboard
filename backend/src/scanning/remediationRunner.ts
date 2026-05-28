@@ -35,6 +35,14 @@ export async function runRemediationJob(jobId: string): Promise<void> {
 
   const job = await jobRepo.findOne({ where: { id: jobId } });
   if (!job) { logger.warn(`[RemediationRunner] Job ${jobId} not found`); return; }
+  if (job.approvalRequired && !job.approved) {
+    logger.warn(`[RemediationRunner] Job ${jobId} is not approved; skipping execution`);
+    return;
+  }
+  if (job.status !== 'pending') {
+    logger.warn(`[RemediationRunner] Job ${jobId} is in status=${job.status}; expected pending`);
+    return;
+  }
 
   job.status    = 'running';
   job.startedAt = new Date();

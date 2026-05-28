@@ -60,13 +60,36 @@ if (process.env.APPINSIGHTS_INSTRUMENTATIONKEY) {
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+app.disable('x-powered-by');
+
 // Trust the first reverse proxy hop (App Service front-end / nginx in the
 // frontend container). Without this, req.ip is the proxy address, which makes
 // express-rate-limit a single global bucket and corrupts audit-log client IPs.
 app.set('trust proxy', 1);
 
 // ─── Security middleware ────────────────────────────────────────────────────
-app.use(helmet());
+app.use(helmet({
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true,
+  },
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'https:'],
+      connectSrc: ["'self'", 'https:'],
+      fontSrc: ["'self'", 'data:'],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      frameAncestors: ["'none'"],
+      formAction: ["'self'"],
+      upgradeInsecureRequests: [],
+    },
+  },
+}));
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5173',
   credentials: true,
@@ -94,6 +117,17 @@ const limiter = rateLimit({
   message: { error: 'Too many requests, please try again later.' },
 });
 app.use('/api/', limiter);
+
+const sensitiveWriteLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many write requests. Please retry later.' },
+});
+app.use('/api/remediation', sensitiveWriteLimiter);
+app.use('/api/users', sensitiveWriteLimiter);
+app.use('/api/notifications', sensitiveWriteLimiter);
 
 // ─── Public routes (no auth required) ──────────────────────────────────────
 app.use('/health', healthRouter);

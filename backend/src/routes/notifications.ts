@@ -13,9 +13,27 @@ import { dispatchNotification } from '../services/notificationService';
 import { requireRole } from '../middleware/auth';
 import { recordAudit } from '../auth';
 import { sendServerError } from '../middleware/errorHandler';
+import { z } from 'zod';
 
 const router = Router();
 const isMock = () => process.env.MOCK_MODE === 'true';
+
+const createNotificationConfigSchema = z.object({
+  trigger: z.string().trim().min(1).max(100),
+  channel: z.string().trim().min(1).max(50),
+  destination: z.string().trim().min(1).max(500),
+  filter: z.any().optional(),
+  ownerOid: z.string().trim().min(1).max(128).optional().nullable(),
+  enabled: z.boolean().optional(),
+});
+const updateNotificationConfigSchema = z.object({
+  trigger: z.string().trim().min(1).max(100).optional(),
+  channel: z.string().trim().min(1).max(50).optional(),
+  destination: z.string().trim().min(1).max(500).optional(),
+  filter: z.any().optional(),
+  ownerOid: z.string().trim().min(1).max(128).optional().nullable(),
+  enabled: z.boolean().optional(),
+}).refine((v) => Object.keys(v).length > 0, { message: 'At least one field must be provided' });
 
 // GET /api/notifications/configs
 router.get('/configs', async (_req: Request, res: Response) => {
@@ -34,10 +52,11 @@ router.get('/configs', async (_req: Request, res: Response) => {
 // POST /api/notifications/configs — admin only
 router.post('/configs', requireRole('admin'), async (req: Request, res: Response) => {
   try {
-    const { trigger, channel, destination, filter, ownerOid, enabled } = req.body;
-    if (!trigger || !channel || !destination) {
-      return res.status(400).json({ error: 'trigger, channel, and destination are required' });
+    const parse = createNotificationConfigSchema.safeParse(req.body ?? {});
+    if (!parse.success) {
+      return res.status(400).json({ error: 'Invalid notification config payload', details: parse.error.flatten() });
     }
+    const { trigger, channel, destination, filter, ownerOid, enabled } = parse.data;
 
     if (isMock()) {
       const cfg = {
@@ -80,7 +99,11 @@ router.post('/configs', requireRole('admin'), async (req: Request, res: Response
 router.patch('/configs/:id', requireRole('admin'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const updates = req.body;
+    const parse = updateNotificationConfigSchema.safeParse(req.body ?? {});
+    if (!parse.success) {
+      return res.status(400).json({ error: 'Invalid notification update payload', details: parse.error.flatten() });
+    }
+    const updates = parse.data;
 
     if (isMock()) {
       const idx = mockStore.notificationConfigs.findIndex((c: any) => c.id === id);

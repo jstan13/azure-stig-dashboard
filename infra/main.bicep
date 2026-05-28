@@ -30,6 +30,26 @@ param dbAdminPassword string
 @description('Enable mock mode — no real Azure subscription required')
 param mockMode bool = false
 
+@description('Target Azure cloud environment')
+@allowed([
+  'AzureCloud'
+  'AzureUSGovernment'
+  'AzureUSGovernmentDoD'
+])
+param cloudEnvironment string = 'AzureCloud'
+
+@description('Enforce strict finding traceability on exports')
+param strictTraceability bool = true
+
+@description('When true, disable public telemetry/query and require explicit ingress CIDR allow-list for App Services')
+param lockdownNetworking bool = false
+
+@description('Allowed ingress CIDRs for frontend/backend when lockdownNetworking=true')
+param allowedIngressCidrs array = []
+
+@description('Optional resource group name containing VMs/Arc machines that this app may remediate')
+param remediationTargetResourceGroupName string = ''
+
 @description('Provision the scheduled-scan Azure Function App + Storage on a Consumption plan')
 param enableScheduler bool = true
 
@@ -56,6 +76,11 @@ var funcStorageName = take(replace('${baseName}funcsa', '-', ''), 24)
 var keyVaultName = take(replace('${baseName}-stig-kv', '-', ''), 24)
 // Built-in role: Key Vault Secrets User
 var kvSecretsUserRoleId = '4633458b-17de-457c-a5dd-322bbab69ee3'
+var isGov = cloudEnvironment == 'AzureUSGovernment' || cloudEnvironment == 'AzureUSGovernmentDoD'
+var appHostSuffix = isGov ? 'azurewebsites.us' : 'azurewebsites.net'
+var authorityHost = isGov ? 'https://login.microsoftonline.us' : 'https://login.microsoftonline.com'
+var graphHost = isGov ? 'https://graph.microsoft.us' : 'https://graph.microsoft.com'
+var armHost = isGov ? 'https://management.usgovcloudapi.net' : 'https://management.azure.com'
 var databaseUrl = 'postgresql://${dbAdminLogin}:${dbAdminPassword}@${pgServer.properties.fullyQualifiedDomainName}:5432/${dbName}?sslmode=require'
 
 // ── App Service Plan ───────────────────────────────────────────────────────────
@@ -78,8 +103,8 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   kind: 'web'
   properties: {
     Application_Type: 'web'
-    publicNetworkAccessForIngestion: 'Enabled'
-    publicNetworkAccessForQuery: 'Enabled'
+    publicNetworkAccessForIngestion: lockdownNetworking ? 'Disabled' : 'Enabled'
+    publicNetworkAccessForQuery: lockdownNetworking ? 'Disabled' : 'Enabled'
   }
 }
 // ── Key Vault (Audit #3 — store AZURE_CLIENT_SECRET + DATABASE_URL) ──────────
@@ -92,7 +117,7 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
     enableRbacAuthorization: true
     enableSoftDelete: true
     softDeleteRetentionInDays: 7
-    publicNetworkAccess: 'Enabled'
+    publicNetworkAccess: lockdownNetworking ? 'Disabled' : 'Enabled'
   }
 }
 
@@ -160,7 +185,7 @@ resource pgRequireSsl 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@
 
 // Allow Azure-hosted services (App Service) to reach the flexible server.
 // 0.0.0.0 -> 0.0.0.0 is the special "Allow Azure services" rule.
-resource pgFirewallAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-06-01-preview' = {
+resource pgFirewallAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-06-01-preview' = if (!lockdownNetworking) {
   parent: pgServer
   name: 'AllowAzureServices'
   properties: {
@@ -184,6 +209,14 @@ resource backendApp 'Microsoft.Web/sites@2023-01-01' = {
       alwaysOn: appServiceSku != 'F1'
       http20Enabled: true
       minTlsVersion: '1.2'
+      ipSecurityRestrictionsDefaultAction: lockdownNetworking ? 'Deny' : 'Allow'
+      scmIpSecurityRestrictionsDefaultAction: lockdownNetworking ? 'Deny' : 'Allow'
+      ipSecurityRestrictions: [for (cidr, i) in allowedIngressCidrs: {
+        ipAddress: cidr
+        action: 'Allow'
+        priority: 100 + i
+        name: 'allow-${i}'
+      }]
       appSettings: [
         { name: 'NODE_ENV',                       value: 'production'                                    }
         { name: 'MOCK_MODE',                      value: mockMode ? 'true' : 'false'                    }
@@ -218,6 +251,47 @@ resource kvRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' =
   }
 }
 
+resource remediationTargetRg 'Microsoft.Resources/resourceGroups@2022-09-01' existing = if (!empty(remediationTargetResourceGroupName)) {
+  name: remediationTargetResourceGroupName
+  scope: subscription()
+}
+
+resource remediationRunCommandRole 'Microsoft.Authorization/roleDefinitions@2022-05-01-preview' = if (!empty(remediationTargetResourceGroupName)) {
+  name: guid(subscription().id, remediationTargetResourceGroupName, 'runcommand-remediation-role')
+  scope: subscription()
+  properties: {
+    roleName: '${baseName}-runcommand-remediator'
+    description: 'Least-privilege role for STIG remediation RunCommand execution only'
+    type: 'CustomRole'
+    assignableScopes: [
+      remediationTargetRg.id
+    ]
+    permissions: [
+      {
+        actions: [
+          'Microsoft.Compute/virtualMachines/read'
+          'Microsoft.Compute/virtualMachines/runCommand/action'
+          'Microsoft.HybridCompute/machines/read'
+          'Microsoft.HybridCompute/machines/runCommand/action'
+        ]
+        notActions: []
+        dataActions: []
+        notDataActions: []
+      }
+    ]
+  }
+}
+
+resource remediationRunCommandAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(remediationTargetResourceGroupName)) {
+  scope: remediationTargetRg
+  name: guid(remediationTargetRg.id, backendApp.identity.principalId, 'runcommand-remediation-assignment')
+  properties: {
+    roleDefinitionId: remediationRunCommandRole.id
+    principalId: backendApp.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 // ── Frontend App Service (Static HTML served by nginx via Docker) ─────────────
 resource frontendApp 'Microsoft.Web/sites@2023-01-01' = {
   name: frontendName
@@ -230,6 +304,14 @@ resource frontendApp 'Microsoft.Web/sites@2023-01-01' = {
       appCommandLine: 'npm start'
       http20Enabled: true
       minTlsVersion: '1.2'
+      ipSecurityRestrictionsDefaultAction: lockdownNetworking ? 'Deny' : 'Allow'
+      scmIpSecurityRestrictionsDefaultAction: lockdownNetworking ? 'Deny' : 'Allow'
+      ipSecurityRestrictions: [for (cidr, i) in allowedIngressCidrs: {
+        ipAddress: cidr
+        action: 'Allow'
+        priority: 100 + i
+        name: 'allow-${i}'
+      }]
       appSettings: [
         { name: 'VITE_AZURE_CLIENT_ID',      value: azureClientId   }
         { name: 'VITE_AZURE_TENANT_ID',      value: azureTenantId   }

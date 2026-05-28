@@ -23,13 +23,18 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
 # Copy built artifacts and minimal packages
 COPY --from=builder /app/backend/dist ./dist
 COPY --from=builder /app/backend/package.json ./
 COPY --from=builder /app/backend/openapi.yaml ./
 
 # Install production-only deps
-RUN npm install --omit=dev
+RUN npm install --omit=dev --ignore-scripts && npm cache clean --force
+
+RUN chown -R appuser:appgroup /app
+USER appuser
 
 EXPOSE 3001
 
