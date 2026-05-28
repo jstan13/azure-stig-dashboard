@@ -30,10 +30,9 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: NPM audit (high/critical)
-        continue-on-error: true
         run: npm audit --workspaces --omit=dev --audit-level=high
 
       - name: Lint backend
@@ -92,11 +91,10 @@ jobs:
           cache-to:   type=gha,mode=max
 
       - name: Trivy filesystem scan
-        continue-on-error: true
         uses: aquasecurity/trivy-action@0.24.0
         with:
           scan-type: fs
           scan-ref: .
           severity: HIGH,CRITICAL
           ignore-unfixed: true
-          exit-code: '0'
+          exit-code: '1'

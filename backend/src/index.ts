@@ -47,16 +47,6 @@ if (process.env.NODE_ENV === 'production' && process.env.MOCK_MODE === 'true') {
   process.exit(1);
 }
 
-// Application Insights (optional, only if instrumentation key is set)
-if (process.env.APPINSIGHTS_INSTRUMENTATIONKEY) {
-  const appInsights = require('applicationinsights');
-  appInsights.setup(process.env.APPINSIGHTS_INSTRUMENTATIONKEY)
-    .setAutoDependencyCorrelation(true)
-    .setAutoCollectRequests(true)
-    .setAutoCollectPerformance(true)
-    .start();
-}
-
 const app = express();
 const PORT = process.env.PORT || 3001;
 
