@@ -59,10 +59,27 @@ export const AppDataSource = new DataSource({
   ],
   migrations: ['dist/database/migrations/*.js'],
   migrationsTableName: 'migrations',
-  ssl: process.env.DB_SSL === 'true'
-    ? { rejectUnauthorized: false }
-    : false,
+  ssl: buildDbSsl(),
 });
+
+/**
+ * TLS settings for the Postgres connection.
+ *
+ * When DB_SSL=true we ALWAYS verify the server certificate (defends against
+ * man-in-the-middle). Azure Database for PostgreSQL Flexible Server presents a
+ * certificate chained to the DigiCert Global Root, which Node trusts via its
+ * built-in CA store, so no extra config is needed for Azure.
+ *
+ * If you terminate TLS with a private CA, set DB_SSL_CA to the PEM bundle.
+ * The only way to skip verification is to explicitly set
+ * DB_SSL_REJECT_UNAUTHORIZED=false — never do this in production.
+ */
+function buildDbSsl(): false | { rejectUnauthorized: boolean; ca?: string } {
+  if (process.env.DB_SSL !== 'true') return false;
+  const ca = process.env.DB_SSL_CA?.trim() || undefined;
+  const rejectUnauthorized = process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false';
+  return { rejectUnauthorized, ...(ca ? { ca } : {}) };
+}
 
 // In‑memory store used when MOCK_MODE=true (no real DB needed)
 export const mockStore: {

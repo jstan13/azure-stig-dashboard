@@ -13,7 +13,8 @@ import { VulnerabilityEntity } from '../models/Vulnerability';
 import { fetchVulnerabilities } from '../connectors/vulnerabilityConnector';
 import { requireRole } from '../middleware/auth';
 import { recordAudit } from '../auth';
-import { logger } from '../utils/logger';
+import { sendServerError } from '../middleware/errorHandler';
+import { parsePage, parsePageSize } from '../utils/paging';
 
 const router = Router();
 const isMock = () => process.env.MOCK_MODE === 'true';
@@ -22,8 +23,8 @@ const isMock = () => process.env.MOCK_MODE === 'true';
 router.get('/', async (req: Request, res: Response) => {
   try {
     const { severity, status, machineId, exploitOnly, q, page = '1', limit = '50' } = req.query as any;
-    const safeLimit = Math.min(Number(limit) || 50, 500);
-    const skip = (Number(page) - 1) * safeLimit;
+    const safeLimit = parsePageSize(limit, 50, 500);
+    const skip = (parsePage(page) - 1) * safeLimit;
 
     let rows: any[];
     if (isMock()) {
@@ -48,8 +49,7 @@ router.get('/', async (req: Request, res: Response) => {
     const sorted = filtered.sort((a, b) => severityRank(b.severity) - severityRank(a.severity));
     return res.json({ data: sorted.slice(skip, skip + safeLimit), total: sorted.length });
   } catch (err: any) {
-    logger.error('[GET /vulnerabilities]', err);
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, '[GET /vulnerabilities]', err);
   }
 });
 
@@ -73,8 +73,7 @@ router.get('/summary', async (_req: Request, res: Response) => {
       affectedHosts: new Set(open.map((v) => v.machineId)).size,
     });
   } catch (err: any) {
-    logger.error('[GET /vulnerabilities/summary]', err);
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, '[GET /vulnerabilities/summary]', err);
   }
 });
 
@@ -119,8 +118,7 @@ router.post('/sync', requireRole('operator'), async (req: Request, res: Response
     });
     return res.json({ ok: true, ingested: rows.length });
   } catch (err: any) {
-    logger.error('[POST /vulnerabilities/sync]', err);
-    return res.status(502).json({ error: err.message });
+    return sendServerError(res, '[POST /vulnerabilities/sync]', err, 502);
   }
 });
 
@@ -161,8 +159,7 @@ router.patch('/:id', requireRole('operator'), async (req: Request, res: Response
     });
     return res.json({ ok: true, vulnerability: updated });
   } catch (err: any) {
-    logger.error('[PATCH /vulnerabilities/:id]', err);
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, '[PATCH /vulnerabilities/:id]', err);
   }
 });
 

@@ -11,6 +11,7 @@ import { recordAudit } from '../auth';
 import { AppDataSource, mockStore } from '../database/dataSource';
 import { ScanEntity } from '../models/Scan';
 import { createError } from '../middleware/errorHandler';
+import { parsePage, parsePageSize } from '../utils/paging';
 import { logger } from '../utils/logger';
 
 const router = Router();
@@ -66,8 +67,8 @@ router.post(
 router.get('/', async (req, res, next) => {
   const MOCK_MODE = process.env.MOCK_MODE === 'true';
   const { page = '1', pageSize = '20', machineId } = req.query as Record<string, string>;
-  const p = Math.max(1, parseInt(page));
-  const ps = Math.min(200, parseInt(pageSize));
+  const p = parsePage(page);
+  const ps = parsePageSize(pageSize, 20, 200);
 
   if (MOCK_MODE) {
     let scans = [...mockStore.scans];

@@ -10,8 +10,9 @@ import { Router, Request, Response } from 'express';
 import { AppDataSource, mockStore } from '../database/dataSource';
 import { ComplianceHistoryEntity } from '../models/ComplianceHistory';
 import { Between } from 'typeorm';
-import { logger } from '../utils/logger';
+import { sendServerError } from '../middleware/errorHandler';
 import { requireRole } from '../middleware/auth';
+import { parseDays } from '../utils/paging';
 
 const router = Router();
 const isMock = () => process.env.MOCK_MODE === 'true';
@@ -19,7 +20,7 @@ const isMock = () => process.env.MOCK_MODE === 'true';
 // GET /api/compliance-history/rollup?days=30
 router.get('/rollup', async (req: Request, res: Response) => {
   try {
-    const days = Math.min(Number(req.query.days ?? 30), 365);
+    const days = parseDays(req.query.days, 30);
     const since = new Date();
     since.setDate(since.getDate() - days);
 
@@ -49,8 +50,7 @@ router.get('/rollup', async (req: Request, res: Response) => {
       .getRawMany();
     return res.json(rows);
   } catch (err: any) {
-    logger.error('[GET /compliance-history/rollup]', err);
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, '[GET /compliance-history/rollup]', err);
   }
 });
 
@@ -58,7 +58,7 @@ router.get('/rollup', async (req: Request, res: Response) => {
 router.get('/:machineId', async (req: Request, res: Response) => {
   try {
     const { machineId } = req.params;
-    const days = Math.min(Number(req.query.days ?? 90), 365);
+    const days = parseDays(req.query.days, 90);
     const since = new Date();
     since.setDate(since.getDate() - days);
 
@@ -77,8 +77,7 @@ router.get('/:machineId', async (req: Request, res: Response) => {
     });
     return res.json(history);
   } catch (err: any) {
-    logger.error('[GET /compliance-history/:machineId]', err);
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, '[GET /compliance-history/:machineId]', err);
   }
 });
 
@@ -114,8 +113,7 @@ router.post('/snapshot', requireRole('admin', 'operator'), async (req: Request, 
     const saved = await repo.save(entity);
     return res.status(201).json(saved);
   } catch (err: any) {
-    logger.error('[POST /compliance-history/snapshot]', err);
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, '[POST /compliance-history/snapshot]', err);
   }
 });
 

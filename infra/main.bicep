@@ -146,6 +146,18 @@ resource pgDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-06
   }
 }
 
+// Enforce TLS on all client connections (defense-in-depth; pairs with the
+// backend's certificate-verifying TLS connection). Clients that connect
+// without SSL are rejected by the server.
+resource pgRequireSsl 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2023-06-01-preview' = {
+  parent: pgServer
+  name: 'require_secure_transport'
+  properties: {
+    value: 'ON'
+    source: 'user-override'
+  }
+}
+
 // Allow Azure-hosted services (App Service) to reach the flexible server.
 // 0.0.0.0 -> 0.0.0.0 is the special "Allow Azure services" rule.
 resource pgFirewallAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-06-01-preview' = {

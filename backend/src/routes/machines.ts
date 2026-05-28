@@ -12,6 +12,7 @@ import { ControlEntity } from '../models/Control';
 import { createError } from '../middleware/errorHandler';
 import { recordAudit } from '../auth';
 import { requireRole } from '../middleware/auth';
+import { parsePage, parsePageSize } from '../utils/paging';
 
 const router = Router();
 const MOCK_MODE = () => process.env.MOCK_MODE === 'true';
@@ -19,8 +20,8 @@ const MOCK_MODE = () => process.env.MOCK_MODE === 'true';
 // GET /api/machines
 router.get('/', async (req, res, next) => {
   const { page = 1, pageSize = 20, q, status, subscriptionId, resourceGroup } = req.query;
-  const p = Number(page);
-  const ps = Math.min(Number(pageSize), 100);
+  const p = parsePage(page);
+  const ps = parsePageSize(pageSize, 20, 100);
 
   if (MOCK_MODE()) {
     let machines = [...mockStore.machines];
@@ -83,6 +84,7 @@ router.get('/:id', async (req, res, next) => {
     const notAFinding = findings.filter((f: any) => f.status === 'not_a_finding').length;
     const notApplicable = findings.filter((f: any) => f.status === 'not_applicable').length;
     const notReviewed = findings.filter((f: any) => f.status === 'not_reviewed').length;
+    const denom = findings.length - notApplicable;
 
     return res.json({
       ...machine,
@@ -93,9 +95,7 @@ router.get('/:id', async (req, res, next) => {
         notAFinding,
         notApplicable,
         notReviewed,
-        complianceScore: findings.length
-          ? Math.round((notAFinding / (findings.length - notApplicable)) * 100)
-          : 0,
+        complianceScore: denom > 0 ? Math.round((notAFinding / denom) * 100) : 0,
       },
     });
   }

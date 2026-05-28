@@ -37,6 +37,18 @@ export function csvSafe(value: string | undefined | null): string {
   return `"${escaped}"`;
 }
 
+/** Sanitize a value for safe use inside a Content-Disposition `filename="..."`
+ *  attribute. Strips quotes, control chars (incl. CR/LF to prevent header
+ *  injection), and path separators, then caps length. Falls back to "export".
+ *  Exported for unit testing. */
+export function safeFilename(value: string | undefined | null): string {
+  const cleaned = String(value ?? '')
+    .replace(/[^A-Za-z0-9._-]+/g, '_') // allow only filename-safe characters
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 100);
+  return cleaned || 'export';
+}
+
 function renderCsv(findings: CKLFinding[]): string {
   const header =
     'VulnID,StigRef,Title,Severity,Status,Comments,FindingDetails\n';
@@ -160,6 +172,7 @@ router.post(
         createdAt: new Date().toISOString(),
       });
 
+      const dlBase = safeFilename(machine.name);
       if (format === 'ckl') {
         const xml = generateCKL({
           machineId,
@@ -173,7 +186,7 @@ router.post(
         res.setHeader('Content-Type', 'application/xml');
         res.setHeader(
           'Content-Disposition',
-          `attachment; filename="${machine.name}_${new Date().toISOString().slice(0, 10)}.ckl"`,
+          `attachment; filename="${dlBase}_${new Date().toISOString().slice(0, 10)}.ckl"`,
         );
         return res.send(xml);
       }
@@ -182,7 +195,7 @@ router.post(
         res.setHeader('Content-Type', 'application/json');
         res.setHeader(
           'Content-Disposition',
-          `attachment; filename="${machine.name}_${new Date().toISOString().slice(0, 10)}.json"`,
+          `attachment; filename="${dlBase}_${new Date().toISOString().slice(0, 10)}.json"`,
         );
         return res.json({
           machine: { id: machineId, name: machine.name, osType: machine.osType },
@@ -196,7 +209,7 @@ router.post(
         res.setHeader('Content-Type', 'text/csv');
         res.setHeader(
           'Content-Disposition',
-          `attachment; filename="${machine.name}_${new Date().toISOString().slice(0, 10)}.csv"`,
+          `attachment; filename="${dlBase}_${new Date().toISOString().slice(0, 10)}.csv"`,
         );
         return res.send(csv);
       }
@@ -306,6 +319,7 @@ router.post(
         } as any),
       );
 
+      const dlBase = safeFilename(machine.name);
       if (format === 'ckl') {
         const xml = generateCKL({
           machineId,
@@ -319,7 +333,7 @@ router.post(
         res.setHeader('Content-Type', 'application/xml');
         res.setHeader(
           'Content-Disposition',
-          `attachment; filename="${machine.name}_${new Date().toISOString().slice(0, 10)}.ckl"`,
+          `attachment; filename="${dlBase}_${new Date().toISOString().slice(0, 10)}.ckl"`,
         );
         return res.send(xml);
       }
@@ -328,7 +342,7 @@ router.post(
         res.setHeader('Content-Type', 'application/json');
         res.setHeader(
           'Content-Disposition',
-          `attachment; filename="${machine.name}_${new Date().toISOString().slice(0, 10)}.json"`,
+          `attachment; filename="${dlBase}_${new Date().toISOString().slice(0, 10)}.json"`,
         );
         return res.json({
           machine: { id: machineId, name: machine.name, osType: machine.osType },
@@ -342,7 +356,7 @@ router.post(
         res.setHeader('Content-Type', 'text/csv');
         res.setHeader(
           'Content-Disposition',
-          `attachment; filename="${machine.name}_${new Date().toISOString().slice(0, 10)}.csv"`,
+          `attachment; filename="${dlBase}_${new Date().toISOString().slice(0, 10)}.csv"`,
         );
         return res.send(csv);
       }

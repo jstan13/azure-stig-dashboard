@@ -13,16 +13,27 @@ import { AppDataSource, mockStore } from '../database/dataSource';
 import { UserEntity } from '../models/User';
 import { requireRole } from '../middleware/auth';
 import { recordAudit } from '../auth';
-import { logger } from '../utils/logger';
+import { sendServerError } from '../middleware/errorHandler';
+import { parsePage, parsePageSize } from '../utils/paging';
 
 const router = Router();
 const isMock = () => process.env.MOCK_MODE === 'true';
 
+// The only roles that actually drive authorization. NOTE: real access control
+// is enforced from Entra ID app-role claims in the JWT (see middleware/auth.ts);
+// the persisted `role` column is informational/display only and does NOT grant
+// access by itself. Editing it here keeps the directory in sync but you must
+// also assign the matching Entra app role for access to take effect.
+const VALID_ROLES = ['admin', 'operator', 'auditor'] as const;
+function isValidRole(role: unknown): role is (typeof VALID_ROLES)[number] {
+  return typeof role === 'string' && (VALID_ROLES as readonly string[]).includes(role);
+}
+
 // Mock users seeded into mockStore on startup (see mockSeed.ts)
 const MOCK_USERS = [
   { id: 'user-001', oid: 'oid-admin-001', displayName: 'Alice Admin', email: 'alice@example.com', role: 'admin', enabled: true },
-  { id: 'user-002', oid: 'oid-analyst-002', displayName: 'Bob Analyst', email: 'bob@example.com', role: 'analyst', enabled: true },
-  { id: 'user-003', oid: 'oid-viewer-003', displayName: 'Carol Viewer', email: 'carol@example.com', role: 'viewer', enabled: true },
+  { id: 'user-002', oid: 'oid-operator-002', displayName: 'Bob Operator', email: 'bob@example.com', role: 'operator', enabled: true },
+  { id: 'user-003', oid: 'oid-auditor-003', displayName: 'Carol Auditor', email: 'carol@example.com', role: 'auditor', enabled: true },
   { id: 'user-004', oid: 'oid-auditor-004', displayName: 'Dave Auditor', email: 'dave@example.com', role: 'auditor', enabled: true },
 ];
 
@@ -30,8 +41,8 @@ const MOCK_USERS = [
 router.get('/', requireRole('admin'), async (req: Request, res: Response) => {
   try {
     const { search, role, page = '1', limit = '50' } = req.query;
-    const safeLimit = Math.min(Number(limit), 200);
-    const skip = (Number(page) - 1) * safeLimit;
+    const safeLimit = parsePageSize(limit, 50, 200);
+    const skip = (parsePage(page) - 1) * safeLimit;
 
     if (isMock()) {
       let users = [...MOCK_USERS];
@@ -54,8 +65,7 @@ router.get('/', requireRole('admin'), async (req: Request, res: Response) => {
     const [users, total] = await qb.getManyAndCount();
     return res.json({ users, total });
   } catch (err: any) {
-    logger.error('[GET /users]', err);
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, '[GET /users]', err);
   }
 });
 
@@ -79,7 +89,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     const user = await repo.findOne({ where: { id } });
     return user ? res.json(user) : res.status(404).json({ error: 'User not found' });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, '[GET /users/:id]', err);
   }
 });
 
@@ -88,6 +98,10 @@ router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) =
   try {
     const { id } = req.params;
     const { displayName, role, enabled } = req.body;
+
+    if (role !== undefined && !isValidRole(role)) {
+      return res.status(400).json({ error: `Invalid role. Allowed: ${VALID_ROLES.join(', ')}` });
+    }
 
     if (isMock()) {
       const user = MOCK_USERS.find((u) => u.id === id);
@@ -125,8 +139,7 @@ router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) =
     });
     return res.json(saved);
   } catch (err: any) {
-    logger.error('[PATCH /users/:id]', err);
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, '[PATCH /users/:id]', err);
   }
 });
 
@@ -135,6 +148,11 @@ router.post('/:id/roles', requireRole('admin'), async (req: Request, res: Respon
   try {
     const { id } = req.params;
     const { roles } = req.body; // string[] or string
+
+    const requestedRole = Array.isArray(roles) ? roles[0] : roles;
+    if (!isValidRole(requestedRole)) {
+      return res.status(400).json({ error: `Invalid role. Allowed: ${VALID_ROLES.join(', ')}` });
+    }
 
     if (isMock()) {
       const user = MOCK_USERS.find((u) => u.id === id);
@@ -168,7 +186,7 @@ router.post('/:id/roles', requireRole('admin'), async (req: Request, res: Respon
     });
     return res.json(saved);
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, '[POST /users/:id/roles]', err);
   }
 });
 
@@ -203,7 +221,7 @@ router.delete('/:id', requireRole('admin'), async (req: Request, res: Response) 
     });
     return res.status(204).send();
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, '[DELETE /users/:id]', err);
   }
 });
 

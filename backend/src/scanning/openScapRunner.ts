@@ -181,7 +181,9 @@ async function uploadResultBlob(machineName: string, scanId: string, xml: string
 
   const blobServiceClient = BlobServiceClient.fromConnectionString(connStr);
   const containerClient   = blobServiceClient.getContainerClient('stig-scan-results');
-  await containerClient.createIfNotExists({ access: 'container' });
+  // Private container (no `access` option) — scan results contain sensitive
+  // compliance/vulnerability data and must never be anonymously readable.
+  await containerClient.createIfNotExists();
 
   const blobName   = `oscap/${machineName}/${scanId}/arf.xml`;
   const blockBlob  = containerClient.getBlockBlobClient(blobName);

@@ -7,13 +7,14 @@ import { Router } from 'express';
 import { AppDataSource, mockStore } from '../database/dataSource';
 import { ControlEntity } from '../models/Control';
 import { createError } from '../middleware/errorHandler';
+import { parsePage, parsePageSize } from '../utils/paging';
 
 const router = Router();
 
 router.get('/', async (req, res, next) => {
   const { severity, q, page = 1, pageSize = 50 } = req.query;
-  const p = Number(page);
-  const ps = Math.min(Number(pageSize), 200);
+  const p = parsePage(page);
+  const ps = parsePageSize(pageSize, 50, 200);
 
   const MOCK_MODE = process.env.MOCK_MODE === 'true';
   if (MOCK_MODE) {

@@ -21,7 +21,7 @@ import * as emass from '../connectors/emassConnector';
 import { generateCklb } from '../exporters/cklbExporter';
 import { requireRole } from '../middleware/auth';
 import { recordAudit } from '../auth';
-import { logger } from '../utils/logger';
+import { sendServerError } from '../middleware/errorHandler';
 
 const router = Router();
 const isMock = () => process.env.MOCK_MODE === 'true';
@@ -40,8 +40,7 @@ router.get('/status', async (_req: Request, res: Response) => {
     const ping = await emass.ping();
     return res.json({ configured: true, ...ping });
   } catch (err: any) {
-    logger.error('[GET /emass/status]', err);
-    return res.status(500).json({ configured: false, error: err.message });
+    return sendServerError(res, '[GET /emass/status]', err, 500, { configured: false });
   }
 });
 
@@ -54,8 +53,7 @@ router.get('/systems', async (_req: Request, res: Response) => {
     const systems = await emass.listSystems();
     return res.json({ systems });
   } catch (err: any) {
-    logger.error('[GET /emass/systems]', err);
-    return res.status(502).json({ error: err.message });
+    return sendServerError(res, '[GET /emass/systems]', err, 502);
   }
 });
 
@@ -94,8 +92,7 @@ router.post('/systems/:id/push-poams', requireRole('operator'), async (req: Requ
 
     return res.json({ ok: true, ...result });
   } catch (err: any) {
-    logger.error('[POST /emass/.../push-poams]', err);
-    return res.status(502).json({ error: err.message });
+    return sendServerError(res, '[POST /emass/.../push-poams]', err, 502);
   }
 });
 
@@ -137,8 +134,7 @@ router.post('/systems/:id/upload-cklb', requireRole('operator'), async (req: Req
 
     return res.json({ ok: true, ...result });
   } catch (err: any) {
-    logger.error('[POST /emass/.../upload-cklb]', err);
-    return res.status(502).json({ error: err.message });
+    return sendServerError(res, '[POST /emass/.../upload-cklb]', err, 502);
   }
 });
 

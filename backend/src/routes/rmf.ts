@@ -15,7 +15,7 @@ import {
   getAllCcis, lookupCci, getCcisByFamily, NIST_FAMILIES, NistFamily,
   mapCcisToNist, ccisToNistControls,
 } from '../data/cciNistMapping';
-import { logger } from '../utils/logger';
+import { sendServerError } from '../middleware/errorHandler';
 
 const router = Router();
 const isMock = () => process.env.MOCK_MODE === 'true';
@@ -51,8 +51,7 @@ router.get('/families', async (_req: Request, res: Response) => {
 
     return res.json(Object.entries(familyCounts).map(([family, data]) => ({ family, ...data })));
   } catch (err: any) {
-    logger.error('[GET /rmf/families]', err);
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, '[GET /rmf/families]', err);
   }
 });
 
@@ -105,8 +104,7 @@ router.get('/nist-crosswalk', async (req: Request, res: Response) => {
     const result = Object.values(byControl).sort((a, b) => b.findings.length - a.findings.length);
     return res.json(result);
   } catch (err: any) {
-    logger.error('[GET /rmf/nist-crosswalk]', err);
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, '[GET /rmf/nist-crosswalk]', err);
   }
 });
 
@@ -119,7 +117,7 @@ router.get('/controls/:control', async (req: Request, res: Response) => {
     );
     return res.json({ control, families: NIST_FAMILIES, ccis });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, '[GET /rmf/controls/:control]', err);
   }
 });
 
@@ -130,7 +128,7 @@ router.get('/cci/:cci', async (req: Request, res: Response) => {
     if (!entry) return res.status(404).json({ error: 'CCI not found' });
     return res.json(entry);
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, '[GET /rmf/cci/:cci]', err);
   }
 });
 

@@ -102,15 +102,69 @@ function buildRemediationScript(control: ControlEntity, strategy: string): strin
   }
 }
 
+// ─── Input hardening ──────────────────────────────────────────────────────────
+// checkParameters originates from imported STIG content. Even though imports are
+// gated to admin/operator, these values are interpolated into PowerShell that
+// runs as SYSTEM on every managed machine, so we treat them as untrusted:
+// validate against strict allowlists and emit only single-quoted literals
+// (which suppress PowerShell variable/subexpression expansion).
+
+/** Quote an arbitrary string as a PowerShell single-quoted literal. */
+function psLiteral(value: string): string {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+/** Throw unless `value` is a non-empty string matching `pattern`. */
+function requireMatch(name: string, value: unknown, pattern: RegExp): string {
+  if (typeof value !== 'string' || value.length === 0 || !pattern.test(value)) {
+    throw new Error(`Remediation: invalid ${name} (must match ${pattern})`);
+  }
+  return value;
+}
+
+/** Throw unless `value` is one of the allowed tokens (case-insensitive). */
+function requireEnum(name: string, value: unknown, allowed: string[], fallback?: string): string {
+  const v = value === undefined || value === null ? fallback : String(value);
+  const match = v !== undefined && allowed.find((a) => a.toLowerCase() === v.toLowerCase());
+  if (!match) {
+    throw new Error(`Remediation: invalid ${name} "${String(value)}" (allowed: ${allowed.join(', ')})`);
+  }
+  return match;
+}
+
+// Registry path: drive-qualified hive path, e.g. HKLM:\SOFTWARE\... — letters,
+// digits, spaces, and common punctuation only; no quotes, $, ;, |, &, backtick.
+const REGISTRY_PATH = /^[A-Za-z]+:\\[A-Za-z0-9 _.\-\\(){}]+$/;
+const REGISTRY_VALUE_NAME = /^[A-Za-z0-9 _.\-()]+$/;
+const REGISTRY_TYPES = ['String', 'ExpandString', 'Binary', 'DWord', 'MultiString', 'QWord', 'None'];
+const SERVICE_NAME = /^[A-Za-z0-9 _.\-()]+$/;
+const SERVICE_STARTUP = ['Automatic', 'Manual', 'Disabled'];
+const AUDIT_SUBCATEGORY = /^[A-Za-z0-9 \-/]+$/;
+const SECEDIT_POLICY_NAME = /^[A-Za-z0-9_]+$/;
+const SECEDIT_POLICY_VALUE = /^[A-Za-z0-9_,"\-. ]+$/;
+
 function buildRegistryScript(params: Record<string, any>): string {
-  const { keyPath, valueName, valueData, valueType = 'DWORD' } = params;
+  const keyPath   = requireMatch('keyPath', params.keyPath, REGISTRY_PATH);
+  const valueName = requireMatch('valueName', params.valueName, REGISTRY_VALUE_NAME);
+  const valueType = requireEnum('valueType', params.valueType, REGISTRY_TYPES, 'DWord');
+
+  // valueData may be a string or a finite number; everything else is rejected.
+  let expectedExpr: string;
+  if (typeof params.valueData === 'number' && Number.isFinite(params.valueData)) {
+    expectedExpr = String(params.valueData);
+  } else if (typeof params.valueData === 'string') {
+    expectedExpr = psLiteral(params.valueData);
+  } else {
+    throw new Error('Remediation: invalid valueData (must be a string or finite number)');
+  }
+
   return `
-$regPath = "${keyPath}"
-$valueName = "${valueName}"
-$expected = ${typeof valueData === 'string' ? `"${valueData}"` : valueData}
+$regPath = ${psLiteral(keyPath)}
+$valueName = ${psLiteral(valueName)}
+$expected = ${expectedExpr}
 if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
 $current = Get-ItemProperty -Path $regPath -Name $valueName -ErrorAction SilentlyContinue
-if ($current.${valueName} -ne $expected) {
+if ($current.$valueName -ne $expected) {
   Set-ItemProperty -Path $regPath -Name $valueName -Value $expected -Type ${valueType}
   Write-Output "Set $regPath\\$valueName = $expected"
 } else {
@@ -119,34 +173,38 @@ if ($current.${valueName} -ne $expected) {
 }
 
 function buildAuditPolicyScript(params: Record<string, any>): string {
-  const { subcategory, successRequired, failureRequired } = params;
+  const subcategory = requireMatch('subcategory', params.subcategory, AUDIT_SUBCATEGORY);
   const flags = [
-    successRequired && '/success:enable',
-    failureRequired && '/failure:enable',
+    params.successRequired && '/success:enable',
+    params.failureRequired && '/failure:enable',
   ].filter(Boolean).join(' ');
-  return `auditpol /set /subcategory:"${subcategory}" ${flags}`;
+  return `auditpol /set /subcategory:${psLiteral(subcategory)} ${flags}`;
 }
 
 function buildSecPolicyScript(params: Record<string, any>): string {
-  const { PolicyName, PolicyValue } = params;
+  const policyName  = requireMatch('PolicyName', params.PolicyName, SECEDIT_POLICY_NAME);
+  const policyValue = requireMatch('PolicyValue', params.PolicyValue, SECEDIT_POLICY_VALUE);
   return `
 $tmpInf = "$env:TEMP\\stig_secedit.inf"
 secedit /export /cfg $tmpInf /quiet
-(Get-Content $tmpInf) -replace "${PolicyName} = .*", "${PolicyName} = ${PolicyValue}" | Set-Content $tmpInf
+$policyName = ${psLiteral(policyName)}
+$policyValue = ${psLiteral(policyValue)}
+(Get-Content $tmpInf) -replace ("^" + [regex]::Escape($policyName) + " = .*"), "$policyName = $policyValue" | Set-Content $tmpInf
 secedit /configure /cfg $tmpInf /db "$env:TEMP\\stig_secedit.sdb" /quiet
-Write-Output "Applied ${PolicyName} = ${PolicyValue}"`.trim();
+Write-Output "Applied $policyName = $policyValue"`.trim();
 }
 
 function buildServiceScript(params: Record<string, any>): string {
-  const { ServiceName, StartupType = 'Disabled' } = params;
+  const serviceName = requireMatch('ServiceName', params.ServiceName, SERVICE_NAME);
+  const startupType = requireEnum('StartupType', params.StartupType, SERVICE_STARTUP, 'Disabled');
   return `
-$svc = Get-Service -Name "${ServiceName}" -ErrorAction SilentlyContinue
+$svc = Get-Service -Name ${psLiteral(serviceName)} -ErrorAction SilentlyContinue
 if ($svc) {
-  Set-Service -Name "${ServiceName}" -StartupType ${StartupType}
-  if ($svc.Status -eq 'Running') { Stop-Service -Name "${ServiceName}" -Force }
-  Write-Output "Service ${ServiceName} set to ${StartupType}"
+  Set-Service -Name ${psLiteral(serviceName)} -StartupType ${startupType}
+  if ($svc.Status -eq 'Running') { Stop-Service -Name ${psLiteral(serviceName)} -Force }
+  Write-Output "Service $($svc.Name) set to ${startupType}"
 } else {
-  Write-Output "Service ${ServiceName} not found — skipping"
+  Write-Output "Service not found — skipping"
 }`.trim();
 }
 

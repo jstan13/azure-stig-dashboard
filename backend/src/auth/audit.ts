@@ -66,7 +66,12 @@ export class Auditor implements AuditSink {
   private readonly writer: AuditWriter;
   private readonly now: () => Date;
   private readonly fallbackLog: FallbackLog;
+  // Bounded FIFO dedupe cache. NOTE: this is per-process only — it makes HTTP
+  // retries within a single instance idempotent, but does NOT dedupe across
+  // multiple scaled-out instances. For cross-instance guarantees, rely on a
+  // unique DB constraint on (correlationId, action, entityId).
   private readonly seen = new Set<string>();
+  private static readonly MAX_SEEN = 5000;
 
   constructor(writer: AuditWriter, opts: AuditorOptions = {}) {
     this.writer = writer;
@@ -85,8 +90,7 @@ export class Auditor implements AuditSink {
     const dedupeKey = `${input.correlationId}|${input.action}|${input.entityId}`;
     if (this.seen.has(dedupeKey)) {
       return;
-    }
-    const entry: AuditEntry = {
+    }    const entry: AuditEntry = {
       actorUserId: input.actorUserId,
       actorRole: input.actorRole,
       action: input.action,
@@ -104,6 +108,12 @@ export class Auditor implements AuditSink {
       await this.writer.write(entry);
       // Only mark as seen on a successful write so a transient failure can
       // be retried by the caller without permanently losing the record.
+      if (this.seen.size >= Auditor.MAX_SEEN) {
+        // Evict the oldest entry (Sets preserve insertion order) to keep the
+        // cache bounded and avoid an unbounded memory leak on long-lived procs.
+        const oldest = this.seen.values().next().value;
+        if (oldest !== undefined) this.seen.delete(oldest);
+      }
       this.seen.add(dedupeKey);
     } catch (err) {
       this.fallbackLog({

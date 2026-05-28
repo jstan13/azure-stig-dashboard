@@ -20,6 +20,7 @@ import { MachineEntity } from '../models/Machine';
 import { requireRole } from '../middleware/auth';
 import { recordAudit } from '../auth';
 import { createError } from '../middleware/errorHandler';
+import { parsePage, parsePageSize } from '../utils/paging';
 import { logger } from '../utils/logger';
 import { importStigs, DEFAULT_BENCHMARKS } from '../stigs/stigImporter';
 import { checkForUpdates, runQuarterlyImport } from '../stigs/stigUpdateScheduler';
@@ -190,8 +191,8 @@ router.get('/:benchmarkId/controls', async (req, res, next) => {
       version,
     } = req.query as Record<string, string>;
 
-    const p  = Math.max(1, parseInt(page));
-    const ps = Math.min(200, parseInt(pageSize));
+    const p  = parsePage(page);
+    const ps = parsePageSize(pageSize, 50, 200);
 
     const MOCK = process.env.MOCK_MODE === 'true';
     if (MOCK) {

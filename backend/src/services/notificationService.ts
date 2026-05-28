@@ -88,6 +88,8 @@ async function sendEmail(to: string, p: NotificationPayload): Promise<void> {
 }
 
 async function sendTeamsWebhook(webhookUrl: string, p: NotificationPayload): Promise<void> {
+  assertAllowedWebhook(webhookUrl);
+
   const color = p.severity === 'high' ? 'FF0000' : p.severity === 'medium' ? 'FF6600' : '0078D4';
 
   const card = {
@@ -111,6 +113,47 @@ async function sendTeamsWebhook(webhookUrl: string, p: NotificationPayload): Pro
 
   await axios.post(webhookUrl, card);
   logger.info(`[Notifications] Teams webhook sent: "${p.title}"`);
+}
+
+/**
+ * SSRF guard for outbound webhook calls. Only allow HTTPS URLs whose host is a
+ * known Microsoft Teams / Power Automate / Logic Apps incoming-webhook domain.
+ * This prevents a stored notification config from being abused to make the
+ * server issue requests to internal/cloud-metadata endpoints.
+ *
+ * Extra hosts may be added via TEAMS_WEBHOOK_ALLOWED_HOSTS (comma-separated
+ * suffixes, e.g. "contoso.webhook.office.com").
+ */
+const DEFAULT_WEBHOOK_HOST_SUFFIXES = [
+  '.webhook.office.com',
+  '.logic.azure.com',
+  '.logic.azure.us',
+  'outlook.office.com',
+  'outlook.office365.com',
+];
+
+function assertAllowedWebhook(webhookUrl: string): void {
+  let url: URL;
+  try {
+    url = new URL(webhookUrl);
+  } catch {
+    throw new Error('Invalid webhook URL');
+  }
+  if (url.protocol !== 'https:') {
+    throw new Error('Webhook URL must use https');
+  }
+  const host = url.hostname.toLowerCase();
+  const extra = (process.env.TEAMS_WEBHOOK_ALLOWED_HOSTS ?? '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  const allowed = [...DEFAULT_WEBHOOK_HOST_SUFFIXES, ...extra];
+  const ok = allowed.some((suffix) =>
+    suffix.startsWith('.') ? host.endsWith(suffix) : host === suffix,
+  );
+  if (!ok) {
+    throw new Error(`Webhook host not allowed: ${host}`);
+  }
 }
 
 async function sendAzureMonitor(workspaceId: string, p: NotificationPayload): Promise<void> {

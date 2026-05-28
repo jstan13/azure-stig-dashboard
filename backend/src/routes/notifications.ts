@@ -12,7 +12,7 @@ import { NotificationConfigEntity } from '../models/NotificationConfig';
 import { dispatchNotification } from '../services/notificationService';
 import { requireRole } from '../middleware/auth';
 import { recordAudit } from '../auth';
-import { logger } from '../utils/logger';
+import { sendServerError } from '../middleware/errorHandler';
 
 const router = Router();
 const isMock = () => process.env.MOCK_MODE === 'true';
@@ -27,8 +27,7 @@ router.get('/configs', async (_req: Request, res: Response) => {
     const configs = await repo.find({ order: { trigger: 'ASC' } });
     return res.json(configs);
   } catch (err: any) {
-    logger.error('[GET /notifications/configs]', err);
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, '[GET /notifications/configs]', err);
   }
 });
 
@@ -73,8 +72,7 @@ router.post('/configs', requireRole('admin'), async (req: Request, res: Response
     });
     return res.status(201).json(saved);
   } catch (err: any) {
-    logger.error('[POST /notifications/configs]', err);
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, '[POST /notifications/configs]', err);
   }
 });
 
@@ -116,8 +114,7 @@ router.patch('/configs/:id', requireRole('admin'), async (req: Request, res: Res
     });
     return res.json(saved);
   } catch (err: any) {
-    logger.error('[PATCH /notifications/configs/:id]', err);
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, '[PATCH /notifications/configs/:id]', err);
   }
 });
 
@@ -154,8 +151,7 @@ router.delete('/configs/:id', requireRole('admin'), async (req: Request, res: Re
     });
     return res.status(204).send();
   } catch (err: any) {
-    logger.error('[DELETE /notifications/configs/:id]', err);
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, '[DELETE /notifications/configs/:id]', err);
   }
 });
 
@@ -190,8 +186,7 @@ router.post('/test/:id', requireRole('admin'), async (req: Request, res: Respons
 
     return res.json({ ok: true, message: `Test notification dispatched via ${cfg.channel} to ${cfg.destination}` });
   } catch (err: any) {
-    logger.error('[POST /notifications/test/:id]', err);
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, '[POST /notifications/test/:id]', err);
   }
 });
 

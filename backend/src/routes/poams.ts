@@ -23,6 +23,7 @@ import { MachineEntity } from '../models/Machine';
 import { requireRole } from '../middleware/auth';
 import { recordAudit } from '../auth';
 import { createError } from '../middleware/errorHandler';
+import { parsePage, parsePageSize } from '../utils/paging';
 import { logger } from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
 import { generatePoamCsv } from '../exporters/poamExporter';
@@ -57,8 +58,8 @@ router.get('/', async (req, res, next) => {
       overdue,
     } = req.query as Record<string, string>;
 
-    const p = Math.max(1, parseInt(page));
-    const ps = Math.min(200, parseInt(pageSize));
+    const p = parsePage(page);
+    const ps = parsePageSize(pageSize, 50, 200);
     const MOCK = process.env.MOCK_MODE === 'true';
 
     if (MOCK) {

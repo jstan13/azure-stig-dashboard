@@ -12,6 +12,8 @@ import { AppDataSource, mockStore } from '../database/dataSource';
 import { RemediationJobEntity } from '../models/RemediationJob';
 import { requireRole } from '../middleware/auth';
 import { recordAudit } from '../auth';
+import { sendServerError } from '../middleware/errorHandler';
+import { parsePage, parsePageSize } from '../utils/paging';
 import { logger } from '../utils/logger';
 
 const router = Router();
@@ -21,8 +23,8 @@ const isMock = () => process.env.MOCK_MODE === 'true';
 router.get('/jobs', async (req: Request, res: Response) => {
   try {
     const { status, page = '1', limit = '20' } = req.query;
-    const safeLimit = Math.min(Number(limit), 200);
-    const skip = (Number(page) - 1) * safeLimit;
+    const safeLimit = parsePageSize(limit, 20, 200);
+    const skip = (parsePage(page) - 1) * safeLimit;
 
     if (isMock()) {
       let jobs = [...mockStore.remediationJobs];
@@ -36,8 +38,7 @@ router.get('/jobs', async (req: Request, res: Response) => {
     const [jobs, total] = await qb.getManyAndCount();
     return res.json({ jobs, total });
   } catch (err: any) {
-    logger.error('[GET /remediation/jobs]', err);
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, '[GET /remediation/jobs]', err);
   }
 });
 
@@ -53,8 +54,7 @@ router.get('/jobs/:id', async (req: Request, res: Response) => {
     const job = await repo.findOne({ where: { id } });
     return job ? res.json(job) : res.status(404).json({ error: 'Not found' });
   } catch (err: any) {
-    logger.error('[GET /remediation/jobs/:id]', err);
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, '[GET /remediation/jobs/:id]', err);
   }
 });
 
@@ -123,8 +123,7 @@ router.post('/jobs', requireRole('admin', 'operator'), async (req: Request, res:
 
     return res.status(202).json(savedJob);
   } catch (err: any) {
-    logger.error('[POST /remediation/jobs]', err);
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, '[POST /remediation/jobs]', err);
   }
 });
 
@@ -165,7 +164,7 @@ router.post('/jobs/:id/cancel', requireRole('admin', 'operator'), async (req: Re
     });
     return res.json(job);
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return sendServerError(res, '[POST /remediation/jobs/:id/cancel]', err);
   }
 });
 

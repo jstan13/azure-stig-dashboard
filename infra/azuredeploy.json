@@ -176,6 +176,18 @@
       }
     },
     {
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers/configurations",
+      "apiVersion": "2023-06-01-preview",
+      "name": "[concat(variables('dbServerName'), '/require_secure_transport')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('dbServerName'))]"
+      ],
+      "properties": {
+        "value": "ON",
+        "source": "user-override"
+      }
+    },
+    {
       "type": "Microsoft.DBforPostgreSQL/flexibleServers/databases",
       "apiVersion": "2023-06-01-preview",
       "name": "[concat(variables('dbServerName'), '/', variables('dbName'))]",
