@@ -243,69 +243,56 @@ To redeploy code-only changes later: `azd deploy` (or `azd deploy backend` / `fr
 
 ## Sizing & monthly cost estimates
 
-All numbers below are **public Azure Commercial, East US, pay-as-you-go, USD/month** — Azure US Gov is typically **+20–30%** on the same SKUs. Use these to pick the `appServiceSku` value during the wizard or in `azd env set APP_SERVICE_SKU`.
+This deployment is **reasonably cost-optimized by default** for a compliance dashboard (burstable Postgres, single shared App Service plan for frontend+backend, Consumption Function, no VNet/private endpoints by default), but the **big swing factor is observability ingestion** when diagnostics are enabled.
 
-### What's always provisioned
+All numbers below are **public Azure Commercial, East US, pay-as-you-go, USD/month** from Azure retail pricing, and are meant as planning estimates.
 
-| Resource | Default SKU | Notes |
-|---|---|---|
-| App Service Plan (Linux) | configurable | Hosts both `*-api` and `*-web` |
-| App Service — backend (`*-api`) | Node 20 LTS | Express API |
-| App Service — frontend (`*-web`) | Node 20 LTS | Vite static bundle |
-| PostgreSQL Flexible Server | **Standard_B1ms** Burstable, 32 GB, 7-day backup, no HA | Database |
-| Key Vault | **Standard** | `AZURE-CLIENT-SECRET`, `DATABASE-URL` |
-| Application Insights | Workspace-based, pay-per-GB | Telemetry |
-| Managed identity + role assignment | — | Key Vault Secrets User |
+### What the template provisions by default
 
-No VNet, no private endpoints, no Cosmos DB, no Container Registry (Oryx build, not containers). All provisioned inside a single resource group in a single region.
+| Resource | Default setting |
+|---|---|
+| App Service Plan (Linux) | `appServiceSku` (default parameter is `B1`) |
+| Backend App Service | Shares same plan |
+| Frontend App Service | Shares same plan |
+| PostgreSQL Flexible Server | `Standard_B1ms`, 32 GB storage, 7-day backup, no HA |
+| Key Vault | Standard |
+| Application Insights | Pay-as-you-go |
+| Function App + Storage | Enabled by default (`enableScheduler=true`) |
+| Log Analytics diagnostics | Enabled by default (`enableDiagnostics=true`) |
 
-### Choose your App Service tier
+### Price points used (East US retail)
 
-| Tier | vCPU / RAM | Plan/mo | **Total stack/mo** | Use it for |
-|---|---|---:|---:|---|
-| **F1** Free | shared / 1 GB | $0 | **~$20** | Demo/POC only — no Always-On, 60 CPU-min/day cap, **not** suitable for prod |
-| **B1** Basic *(default)* | 1 / 1.75 GB | ~$13 | **~$35–45** | Dev/staging, internal tools, <100 daily users |
-| **B2** Basic | 2 / 3.5 GB | ~$26 | **~$50–60** | Small prod, single region |
-| **S1** Standard | 1 / 1.75 GB | ~$73 | **~$95–110** | **Recommended for production** — adds staging slots, custom domains, autoscale, daily backups |
-| **S2** Standard | 2 / 3.5 GB | ~$146 | **~$170–185** | Heavier prod load |
-| **P1v3** Premium v3 | 2 / 8 GB | ~$124 | **~$145–165** | True prod-grade — VNet integration, zone redundancy, modern hardware |
-
-### What goes into the "total" column
-
-Below is the line-item breakdown for the **B1 default** ($35–45/mo). Replace the App Service Plan row with the SKU you choose to project other tiers.
-
-| Resource | Monthly est. |
+| Meter | Price used |
 |---|---:|
-| App Service Plan B1 Linux (730 hrs × $0.018) | $13 |
-| PostgreSQL Flexible B1ms (730 hrs × $0.017) | $12 |
-| PostgreSQL storage 32 GB | $4 |
-| PostgreSQL backup (7-day, ≤storage size) | $0–2 |
-| Key Vault Standard (operations-billed) | <$1 |
-| Application Insights (first 5 GB/mo free, then $2.30/GB) | $0–5 |
-| Egress bandwidth (first 100 GB/mo free) | $0–3 |
-| **Total** | **~$35–45** |
+| PostgreSQL Flexible Server `B1ms` compute | **$0.02/hour** (~$14.60/mo) |
+| PostgreSQL Flexible Server storage | **$0.12/GB-month** (32 GB ~= $3.84/mo) |
+| Log Analytics ingestion | **$2.30/GB** |
+| Application Insights overage ingestion | **$2.30/GB** |
+| Application Insights / Log Analytics retention | **$0.10/GB-month** |
+| Key Vault operations | **$0.03 per 10,000 ops** |
+| App Service Basic `B2` (shown by East US retail feed) | **$0.15/hour** (~$109.50/mo) |
 
-### Optional add-ons that change the bill
+Note: East US retail feed did not return `B1` for App Service during sampling, even though `B1` is in the template allowed values. Treat App Service plan price as **region-variant** and confirm in calculator for your target region.
 
-| Add-on | Cost impact |
+### Estimated monthly total (what users should expect)
+
+| Scenario | Assumptions | Estimated total |
+|---|---|---:|
+| Lean dev/test | B1/B2-class App Service, low telemetry (<1 GB/mo), low Log Analytics ingestion | **~$35 to $140/mo** |
+| Typical internal production | B2-class App Service, ~0.5 GB/day diagnostics + telemetry, default DB/storage | **~$170 to $230/mo** |
+| Heavier production | S1+ plan and ~1 GB/day+ diagnostics/telemetry | **~$240+/mo** |
+
+### Cost optimization levers
+
+| Lever | Impact |
 |---|---|
-| **Postgres HA** (zone-redundant) | Doubles compute charge — adds ~$12/mo on B1ms, more on larger SKUs |
-| **Geo-redundant backup** | +~$8–15/mo depending on storage |
-| **Postgres burstable → general-purpose** (D2ds_v4) | +~$120/mo over B1ms |
-| **Azure US Government** cloud | +20–30% across the board |
-| **Custom domain + TLS** | Free with managed certificates on S1+, $69/yr per cert below S1 |
-| **App Insights heavy use** (>5 GB/mo) | $2.30/GB ingestion |
+| Set `enableDiagnostics=false` if you do not need centralized SIEM pipeline yet | Often biggest immediate savings |
+| Keep Postgres on `Standard_B1ms` until CPU/IO pressure requires upgrade | Avoids large DB step-up cost |
+| Keep one shared App Service plan for frontend+backend | Lowest web-hosting baseline |
+| Tune log volume (sampling, fewer verbose logs) | Directly reduces $2.30/GB ingestion charges |
+| Enable lockdown/private networking only when required | Security goes up, but networking/data-path costs can rise |
 
-### TL;DR sizing recommendations
-
-| Scenario | Pick |
-|---|---|
-| Trying it out, demo, or POC | **F1** (free) — but expect cold starts and CPU caps |
-| Internal tool, dev/staging | **B1** (default) — ~$40/mo |
-| Real production, single region | **S1** — ~$100/mo |
-| Prod with HA / VNet / zone redundancy | **P1v3** + Postgres HA — ~$200/mo |
-
-> Always validate with the official [Azure Pricing Calculator](https://azure.microsoft.com/pricing/calculator/) before committing — Microsoft list prices change and EA/MCA discounts may apply to your tenant.
+> Always validate final numbers with the official [Azure Pricing Calculator](https://azure.microsoft.com/pricing/calculator/) for your region and contract (EA/MCA discounts can materially change totals).
 
 ---
 
