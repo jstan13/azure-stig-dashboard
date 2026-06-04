@@ -19,8 +19,9 @@
  *   - We use `jose` rather than `express-jwt` so the validator is reusable
  *     from Functions handlers and Service Bus consumers, and so we own the
  *     JWKS cache lifecycle.
- *   - The legacy `backend/src/middleware/auth.ts` remains in place to keep
- *     existing routes working until they are migrated to use this validator.
+ *   - This validator is the single token-validation entry point; the
+ *     `authenticate` middleware (middleware/authn.ts) calls it on every
+ *     request to populate `req.principal`.
  */
 import {
   decodeProtectedHeader,
@@ -63,6 +64,18 @@ export interface AuthenticatedPrincipal {
   name: string | undefined;
   /** App roles from the `roles` claim. Empty array when absent. */
   appRoles: string[];
+  /**
+   * Entra security-group object IDs from the `groups` claim. Empty array when
+   * absent. Used to map directory groups onto dashboard roles.
+   */
+  groups: string[];
+  /**
+   * True when Entra omitted the `groups` claim because the user is a member of
+   * more groups than the token can carry (the "groups overage" case, signalled
+   * by `_claim_names`/`_claim_sources`). When true, group-derived roles cannot
+   * be resolved from the token alone and require a Microsoft Graph callback.
+   */
+  groupsOverage: boolean;
   /** The original validated payload, for any consumer needing extra claims. */
   rawPayload: Record<string, unknown>;
 }
@@ -121,11 +134,13 @@ export class JwtValidator {
 
     let payload: Record<string, unknown>;
     try {
+      // NOTE: the injectable `now` clock governs only JWKS cache TTL
+      // bookkeeping (see resolveKey/refresh); JWT temporal claims (exp/nbf)
+      // are always validated against real wall-clock time.
       const verified = await jwtVerify(token, key, {
         audience: this.cfg.audience,
         issuer: this.cfg.issuers,
         algorithms: ['RS256'],
-        currentDate: this.cfg.now ? new Date(this.cfg.now()) : undefined,
       });
       payload = verified.payload as Record<string, unknown>;
     } catch (err) {
@@ -186,7 +201,19 @@ function toPrincipal(
   const appRoles = Array.isArray(rolesRaw)
     ? rolesRaw.filter((r): r is string => typeof r === 'string')
     : [];
-  return { subject, objectId, upn, name, appRoles, rawPayload: payload };
+  const groupsRaw = payload.groups;
+  const groups = Array.isArray(groupsRaw)
+    ? groupsRaw.filter((g): g is string => typeof g === 'string')
+    : [];
+  // Entra signals a groups overage by emitting `_claim_names.groups` pointing
+  // at a `_claim_sources` Graph URL instead of the inline `groups` array.
+  const claimNames = payload._claim_names;
+  const groupsOverage =
+    groups.length === 0 &&
+    typeof claimNames === 'object' &&
+    claimNames !== null &&
+    'groups' in (claimNames as Record<string, unknown>);
+  return { subject, objectId, upn, name, appRoles, groups, groupsOverage, rawPayload: payload };
 }
 
 function mustString(payload: Record<string, unknown>, key: string): string {
@@ -214,21 +241,21 @@ function mapJoseError(err: unknown): JwtValidationError {
     err && typeof err === 'object' && 'code' in err
       ? String((err as { code: unknown }).code)
       : '';
+  // jose attaches the offending claim name (e.g. 'aud', 'iss', 'exp', 'nbf')
+  // to JWTClaimValidationFailed / JWTExpired errors.
+  const claim =
+    err && typeof err === 'object' && 'claim' in err
+      ? String((err as { claim: unknown }).claim)
+      : '';
   const msg = err instanceof Error ? err.message : String(err);
 
-  if (code === 'ERR_JWT_EXPIRED' || /expired/i.test(msg)) {
+  if (code === 'ERR_JWT_EXPIRED' || claim === 'exp' || /expired/i.test(msg)) {
     return new JwtValidationError('expired', msg, err);
   }
-  if (
-    code === 'ERR_JWT_CLAIM_VALIDATION_FAILED' &&
-    /audience/i.test(msg)
-  ) {
+  if (claim === 'aud' || /audience/i.test(msg)) {
     return new JwtValidationError('aud', msg, err);
   }
-  if (
-    code === 'ERR_JWT_CLAIM_VALIDATION_FAILED' &&
-    /issuer/i.test(msg)
-  ) {
+  if (claim === 'iss' || /issuer/i.test(msg)) {
     return new JwtValidationError('iss', msg, err);
   }
   if (

@@ -8,9 +8,13 @@
 
 import { Router, Request, Response } from 'express';
 import { AppDataSource, mockStore } from '../database/dataSource';
-import { NotificationConfigEntity } from '../models/NotificationConfig';
+import {
+  NotificationConfigEntity,
+  type NotificationTrigger,
+  type NotificationChannel,
+} from '../models/NotificationConfig';
 import { dispatchNotification } from '../services/notificationService';
-import { requireRole } from '../middleware/auth';
+import { requirePermission } from '../middleware/authz';
 import { recordAudit } from '../auth';
 import { sendServerError } from '../middleware/errorHandler';
 import { z } from 'zod';
@@ -50,7 +54,7 @@ router.get('/configs', async (_req: Request, res: Response) => {
 });
 
 // POST /api/notifications/configs — admin only
-router.post('/configs', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/configs', requirePermission('notifications:manage'), async (req: Request, res: Response) => {
   try {
     const parse = createNotificationConfigSchema.safeParse(req.body ?? {});
     if (!parse.success) {
@@ -80,7 +84,14 @@ router.post('/configs', requireRole('admin'), async (req: Request, res: Response
     }
 
     const repo = AppDataSource.getRepository(NotificationConfigEntity);
-    const cfg = repo.create({ trigger, channel, destination, filter, ownerOid, enabled: enabled !== false });
+    const cfg = repo.create({
+      trigger: trigger as NotificationTrigger,
+      channel: channel as NotificationChannel,
+      destination,
+      filter,
+      ownerOid: ownerOid ?? undefined,
+      enabled: enabled !== false,
+    });
     const saved = await repo.save(cfg);
     await recordAudit(req, {
       action: 'notification_config.created',
@@ -96,7 +107,7 @@ router.post('/configs', requireRole('admin'), async (req: Request, res: Response
 });
 
 // PATCH /api/notifications/configs/:id — admin only
-router.patch('/configs/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/configs/:id', requirePermission('notifications:manage'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const parse = updateNotificationConfigSchema.safeParse(req.body ?? {});
@@ -142,7 +153,7 @@ router.patch('/configs/:id', requireRole('admin'), async (req: Request, res: Res
 });
 
 // DELETE /api/notifications/configs/:id — admin only
-router.delete('/configs/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.delete('/configs/:id', requirePermission('notifications:manage'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -179,7 +190,7 @@ router.delete('/configs/:id', requireRole('admin'), async (req: Request, res: Re
 });
 
 // POST /api/notifications/test/:id — fire test notification (admin only)
-router.post('/test/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/test/:id', requirePermission('notifications:manage'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 

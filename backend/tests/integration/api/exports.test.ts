@@ -13,9 +13,9 @@ import request from 'supertest';
 process.env.MOCK_MODE = 'true';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { mockStore } = require('../../src/database/dataSource');
+const { mockStore } = require('../../../src/database/dataSource');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const app = require('../../src/index').default;
+const app = require('../../../src/index').default;
 
 const completeChain = () => ({
   source: 'azure-policy',

@@ -64,7 +64,7 @@
 | Module         | Technology          | Purpose                                      |
 |----------------|---------------------|----------------------------------------------|
 | HTTP server    | Express 4           | Request handling, middleware                 |
-| Auth           | express-jwt + jwks-rsa | Validate Azure AD JWT, enforce RBAC roles |
+| Auth           | jose (JWKS) + permission engine | Validate Entra JWT, resolve roles, enforce permissions |
 | Connectors     | Azure SDK v4+       | Ingest data from Azure APIs                  |
 | ORM            | TypeORM 0.3         | Database entities and migrations             |
 | Export         | xml2js              | Generate STIG Viewer .ckl XML               |
@@ -88,17 +88,40 @@ Provisioned resources:
 ## Security model
 
 ```
-Azure AD Token
+Entra ID Token
   └─ Claims:
-       sub   — user object ID
-       name  — display name
-       email — UPN
-       roles — [admin | operator | auditor]   <- custom app roles in manifest
+       sub    — subject
+       oid    — user object ID (stable identity for role bindings)
+       name   — display name
+       upn    — user principal name
+       roles  — Entra app roles [auditor | operator | isso | issm | admin]
+       groups — assigned security-group object IDs (ApplicationGroup claim)
 
-Backend RBAC:
-  admin    — all endpoints
-  operator — trigger scans, edit findings
-  auditor  — read-only, export checklists
+Authorization (permission-based, see backend/src/auth/):
+  authenticate (middleware/authn.ts)
+    └─ validates the token with JwtValidator (auth/jwt.ts) and sets req.principal
+  roleResolver (auth/roleResolver.ts)
+    └─ merges three role sources into global + per-Collection grants:
+         1. Entra app roles            -> global roles
+         2. group_role_mappings        -> Entra group object ID -> role
+         3. role_bindings              -> per-user, optionally Collection-scoped
+  can (auth/can.ts) + permissions catalog (auth/permissions.ts)
+    └─ decides each request on a *permission*, not a raw role.
+
+Role -> permission tiers (cumulative; higher tiers inherit lower):
+  auditor  — dashboard:read, export:generate, audit:read
+  operator — + scan:trigger, findings:write (manual STIG checks),
+             remediation:execute, stig:import, emass:push
+  isso     — + poam:write, exception:write
+  issm     — + poam:approve, exception:approve, remediation:approve,
+             roles:assign   (approvals separated from execution for SoD)
+  admin    — + collection:manage, users:manage, notifications:manage
+
+Scoping:
+  Global grants apply to every ATO boundary. Collection-scoped grants apply
+  only within that Collection, so an ISSO on Collection A cannot edit findings
+  on Collection B. Tenant-wide permissions (collection:manage, users:manage,
+  notifications:manage, audit:read, stig:import) require a *global* grant.
 
 Backend identity (MSI):
   Assigned Reader role on subscriptions at deploy time

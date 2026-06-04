@@ -17,7 +17,7 @@ import { FindingEntity } from '../models/Finding';
 import { ControlEntity } from '../models/Control';
 import { ChecklistEntity } from '../models/Checklist';
 import { createError } from '../middleware/errorHandler';
-import { requireRole } from '../middleware/auth';
+import { requirePermission, scopeByMachineBody } from '../middleware/authz';
 import { recordAudit } from '../auth';
 import type { AuditRequest } from '../auth';
 import { v4 as uuidv4 } from 'uuid';
@@ -71,7 +71,7 @@ function renderCsv(findings: CKLFinding[]): string {
 
 router.post(
   '/checklist',
-  requireRole('admin', 'operator', 'auditor'),
+  requirePermission('export:generate', scopeByMachineBody('machineId')),
   async (req, res, next) => {
     const { machineId, format = 'ckl' } = req.body;
 

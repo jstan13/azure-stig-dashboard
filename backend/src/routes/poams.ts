@@ -20,7 +20,7 @@ import { PoamEntity, PoamMilestoneEntity } from '../models/Poam';
 import { FindingEntity } from '../models/Finding';
 import { ControlEntity } from '../models/Control';
 import { MachineEntity } from '../models/Machine';
-import { requireRole } from '../middleware/auth';
+import { requirePermission, requireDifferentActor } from '../middleware/authz';
 import { recordAudit } from '../auth';
 import { createError } from '../middleware/errorHandler';
 import { parsePage, parsePageSize } from '../utils/paging';
@@ -29,6 +29,18 @@ import { v4 as uuidv4 } from 'uuid';
 import { generatePoamCsv } from '../exporters/poamExporter';
 
 const router = Router();
+
+/**
+ * Resolves the ISSO who owns a POA&M, for the separation-of-duties check on
+ * approval. Skipped in mock mode (no DB).
+ */
+async function poamRequesterOid(req: import('express').Request): Promise<string | undefined> {
+  if (process.env.MOCK_MODE === 'true') return undefined;
+  const { id } = req.params;
+  const repo = AppDataSource.getRepository(PoamEntity);
+  const poam = await repo.findOne({ where: [{ id }, { poamId: id }] });
+  return poam?.issoOid ?? undefined;
+}
 
 // ── sequential POA&M counter (in-memory for mock; DB sequence in production) ──
 let mockPoamCounter = 100;
@@ -95,7 +107,7 @@ router.get('/', async (req, res, next) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/poams/export  (before /:id to avoid conflict)
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/export', requireRole('admin', 'operator', 'auditor'), async (req, res, next) => {
+router.get('/export', requirePermission('export:generate'), async (req, res, next) => {
   try {
     const { format = 'csv', status = 'open' } = req.query as Record<string, string>;
     const MOCK = process.env.MOCK_MODE === 'true';
@@ -137,7 +149,7 @@ router.get('/:id', async (req, res, next) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/poams
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/', requireRole('admin', 'operator'), async (req, res, next) => {
+router.post('/', requirePermission('poam:write'), async (req, res, next) => {
   try {
     const {
       findingId, weakness, description, impact, scheduledCompletion,
@@ -217,7 +229,7 @@ router.post('/', requireRole('admin', 'operator'), async (req, res, next) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // PATCH /api/poams/:id
 // ─────────────────────────────────────────────────────────────────────────────
-router.patch('/:id', requireRole('admin', 'operator'), async (req, res, next) => {
+router.patch('/:id', requirePermission('poam:write'), async (req, res, next) => {
   try {
     const { id } = req.params;
     const MOCK = process.env.MOCK_MODE === 'true';
@@ -268,7 +280,7 @@ router.patch('/:id', requireRole('admin', 'operator'), async (req, res, next) =>
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/poams/:id/milestones
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/:id/milestones', requireRole('admin', 'operator'), async (req, res, next) => {
+router.post('/:id/milestones', requirePermission('poam:write'), async (req, res, next) => {
   try {
     const { id } = req.params;
     const { description, dueDate } = req.body;
@@ -302,7 +314,7 @@ router.post('/:id/milestones', requireRole('admin', 'operator'), async (req, res
 // ─────────────────────────────────────────────────────────────────────────────
 // PATCH /api/poams/:id/milestones/:mid
 // ─────────────────────────────────────────────────────────────────────────────
-router.patch('/:id/milestones/:mid', requireRole('admin', 'operator'), async (req, res, next) => {
+router.patch('/:id/milestones/:mid', requirePermission('poam:write'), async (req, res, next) => {
   try {
     const { id, mid } = req.params;
     const MOCK = process.env.MOCK_MODE === 'true';
@@ -327,7 +339,7 @@ router.patch('/:id/milestones/:mid', requireRole('admin', 'operator'), async (re
 // ─────────────────────────────────────────────────────────────────────────────
 // DELETE /api/poams/:id/milestones/:mid
 // ─────────────────────────────────────────────────────────────────────────────
-router.delete('/:id/milestones/:mid', requireRole('admin', 'operator'), async (req, res, next) => {
+router.delete('/:id/milestones/:mid', requirePermission('poam:write'), async (req, res, next) => {
   try {
     const { id, mid } = req.params;
     const MOCK = process.env.MOCK_MODE === 'true';
@@ -345,7 +357,7 @@ router.delete('/:id/milestones/:mid', requireRole('admin', 'operator'), async (r
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/poams/:id/approve  — risk acceptance sign-off
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/:id/approve', requireRole('admin'), async (req, res, next) => {
+router.post('/:id/approve', requirePermission('poam:approve'), requireDifferentActor(poamRequesterOid), async (req, res, next) => {
   try {
     const { id } = req.params;
     const actor = (req as any).auth;
@@ -388,7 +400,7 @@ router.post('/:id/approve', requireRole('admin'), async (req, res, next) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/poams/bulk-create — generate POA&Ms for all open findings
 // ─────────────────────────────────────────────────────────────────────────────
-router.post('/bulk-create', requireRole('admin', 'operator'), async (req, res, next) => {
+router.post('/bulk-create', requirePermission('poam:write'), async (req, res, next) => {
   try {
     const { machineIds, severity, assignedToOid, assignedToName } = req.body;
     const MOCK = process.env.MOCK_MODE === 'true';

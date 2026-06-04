@@ -2,7 +2,7 @@
  * Tests for XCCDF parser — parseXccdf()
  */
 
-import { parseXccdf, ParsedBenchmark } from '../../stigs/xccdfParser';
+import { parseXccdf, ParsedBenchmark } from '../stigs/xccdfParser';
 
 // Minimal XCCDF fixture matching DISA format
 const MINIMAL_XCCDF = `<?xml version="1.0" encoding="utf-8"?>

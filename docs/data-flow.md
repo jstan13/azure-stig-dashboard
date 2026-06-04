@@ -146,12 +146,13 @@ Authenticated requests
         sets header:  Authorization: Bearer <access_token>
 
 Backend
-  └─ authenticateToken middleware (express-jwt + jwks-rsa)
+  └─ authenticate middleware (auth/jwt.ts JwtValidator — jose + JWKS)
         fetches JWKS from https://login.microsoftonline.com/{tenant}/discovery/v2.0/keys
         verifies signature + aud + iss
-        attaches decoded claims to req.auth
+        attaches canonical principal (oid, appRoles, groups) to req.principal
 
-  └─ requireRole('admin','operator') middleware
-        checks req.auth.roles[] intersection
-        403 if no matching role
+  └─ requirePermission('findings:write', scopeByMachineParam('machineId'))
+        roleResolver merges app roles + group mappings + role bindings
+        into global + per-Collection grants, then can() decides
+        403 if the principal lacks the permission in the request's scope
 ```

@@ -2,7 +2,7 @@
  * Tests for DSC result parser — extractJson() + status mapping
  */
 
-import { extractJson, RawAuditOutput } from '../../scanning/dscResultParser';
+import { extractJson, RawAuditOutput } from '../scanning/dscResultParser';
 
 const VALID_JSON_OUTPUT = `
 Invoke-DscResource output:

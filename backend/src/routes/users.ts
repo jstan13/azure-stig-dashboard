@@ -11,8 +11,9 @@
 import { Router, Request, Response } from 'express';
 import { AppDataSource, mockStore } from '../database/dataSource';
 import { UserEntity } from '../models/User';
-import { requireRole } from '../middleware/auth';
+import { requirePermission } from '../middleware/authz';
 import { recordAudit } from '../auth';
+import { ROLES, isRole } from '../auth/permissions';
 import { sendServerError } from '../middleware/errorHandler';
 import { parsePage, parsePageSize } from '../utils/paging';
 import { z } from 'zod';
@@ -20,14 +21,15 @@ import { z } from 'zod';
 const router = Router();
 const isMock = () => process.env.MOCK_MODE === 'true';
 
-// The only roles that actually drive authorization. NOTE: real access control
-// is enforced from Entra ID app-role claims in the JWT (see middleware/auth.ts);
-// the persisted `role` column is informational/display only and does NOT grant
-// access by itself. Editing it here keeps the directory in sync but you must
-// also assign the matching Entra app role for access to take effect.
-const VALID_ROLES = ['admin', 'operator', 'auditor'] as const;
+// The persisted `role` column is informational/display only and does NOT grant
+// access by itself. Real access control is enforced from Entra ID app-role and
+// group claims in the JWT, resolved into global + Collection-scoped grants (see
+// middleware/authn.ts and auth/roleResolver.ts). Editing it here keeps the
+// directory in sync, but you must also assign the matching Entra app role (or a
+// Collection role binding) for access to take effect.
+const VALID_ROLES = ROLES;
 function isValidRole(role: unknown): role is (typeof VALID_ROLES)[number] {
-  return typeof role === 'string' && (VALID_ROLES as readonly string[]).includes(role);
+  return isRole(role);
 }
 
 const patchUserSchema = z.object({
@@ -52,7 +54,7 @@ const MOCK_USERS = [
 ];
 
 // GET /api/users — admin only
-router.get('/', requireRole('admin'), async (req: Request, res: Response) => {
+router.get('/', requirePermission('users:manage'), async (req: Request, res: Response) => {
   try {
     const { search, role, page = '1', limit = '50' } = req.query;
     const safeLimit = parsePageSize(limit, 50, 200);
@@ -108,7 +110,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 });
 
 // PATCH /api/users/:id — admin only
-router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.patch('/:id', requirePermission('users:manage'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const parse = patchUserSchema.safeParse(req.body ?? {});
@@ -163,7 +165,7 @@ router.patch('/:id', requireRole('admin'), async (req: Request, res: Response) =
 });
 
 // POST /api/users/:id/roles — admin only
-router.post('/:id/roles', requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/roles', requirePermission('roles:assign'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const parse = assignRoleSchema.safeParse(req.body ?? {});
@@ -215,7 +217,7 @@ router.post('/:id/roles', requireRole('admin'), async (req: Request, res: Respon
 });
 
 // DELETE /api/users/:id — admin only
-router.delete('/:id', requireRole('admin'), async (req: Request, res: Response) => {
+router.delete('/:id', requirePermission('users:manage'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     if (isMock()) {

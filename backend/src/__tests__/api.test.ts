@@ -1,7 +1,7 @@
 import request from 'supertest';
 import app from '../index';
-import { mockStore } from '../../database/dataSource';
-import { seedMock } from '../../database/mockSeed';
+import { mockStore } from '../database/dataSource';
+import { seedMock } from '../database/mockSeed';
 
 // Re-seed before each test suite
 beforeAll(() => {

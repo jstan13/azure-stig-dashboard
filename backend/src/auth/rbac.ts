@@ -16,14 +16,9 @@
  * Every denial emits an AuditLog `Denied` row via the injected `AuditSink`.
  */
 import { type AuditSink } from './audit';
+import { type Role, ROLE_RANK, isRole } from './permissions';
 
-export type Role = 'admin' | 'operator' | 'auditor';
-
-const HIERARCHY: Record<Role, number> = {
-  admin: 3,
-  operator: 2,
-  auditor: 1,
-};
+export { type Role } from './permissions';
 
 export interface AuthorizedPrincipal {
   subject: string;
@@ -82,16 +77,14 @@ export class RbacDeniedError extends Error {
 }
 
 function rank(role: Role | undefined): number {
-  return role ? HIERARCHY[role] : 0;
+  return role ? ROLE_RANK[role] : 0;
 }
 
 function highestAppRole(appRoles: string[]): Role | undefined {
   let best: Role | undefined;
   for (const r of appRoles) {
-    if (r === 'admin' || r === 'operator' || r === 'auditor') {
-      if (rank(r) > rank(best)) {
-        best = r;
-      }
+    if (isRole(r) && rank(r) > rank(best)) {
+      best = r;
     }
   }
   return best;

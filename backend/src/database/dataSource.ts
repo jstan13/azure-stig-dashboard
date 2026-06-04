@@ -20,6 +20,10 @@ import { ComplianceHistoryEntity } from '../models/ComplianceHistory';
 import { NotificationConfigEntity } from '../models/NotificationConfig';
 import { RemediationJobEntity } from '../models/RemediationJob';
 import { VulnerabilityEntity } from '../models/Vulnerability';
+import { CollectionEntity } from '../models/Collection';
+import { CollectionAssetEntity } from '../models/CollectionAsset';
+import { RoleBindingEntity } from '../models/RoleBinding';
+import { GroupRoleMappingEntity } from '../models/GroupRoleMapping';
 
 const isMockMode = process.env.MOCK_MODE === 'true';
 
@@ -56,6 +60,10 @@ export const AppDataSource = new DataSource({
     NotificationConfigEntity,
     RemediationJobEntity,
     VulnerabilityEntity,
+    CollectionEntity,
+    CollectionAssetEntity,
+    RoleBindingEntity,
+    GroupRoleMappingEntity,
   ],
   migrations: ['dist/database/migrations/*.js'],
   migrationsTableName: 'migrations',

@@ -2,7 +2,7 @@
  * Tests for check type classifier — parseCheckContent()
  */
 
-import { parseCheckContent, CheckParseResult } from '../../stigs/checkTypeParser';
+import { parseCheckContent, CheckParseResult } from '../stigs/checkTypeParser';
 
 describe('parseCheckContent — RegistryCheck', () => {
   test('detects HKLM registry key', () => {

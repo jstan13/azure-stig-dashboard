@@ -136,8 +136,10 @@ az ad app update --id $appId --set "api=@$apiFile" --only-show-errors | Out-Null
 Remove-Item $apiFile -Force
 Write-Host "[4/6] Identifier URI $identifierUri + access_as_user scope configured."
 
-# ── 4. App roles (admin / operator / auditor) ────────────────────────────────
+# ── 4. App roles (admin / issm / isso / operator / auditor) ──────────────────
 $adminRoleId    = [guid]::NewGuid().ToString()
+$issmRoleId     = [guid]::NewGuid().ToString()
+$issoRoleId     = [guid]::NewGuid().ToString()
 $operatorRoleId = [guid]::NewGuid().ToString()
 $auditorRoleId  = [guid]::NewGuid().ToString()
 
@@ -149,6 +151,22 @@ $appRoles = @(
     displayName         = 'Admin'
     isEnabled           = $true
     value               = 'admin'
+  },
+  @{
+    id                  = $issmRoleId
+    allowedMemberTypes  = @('User','Application')
+    description         = 'ISSM — approve POA&Ms, exceptions and remediation; assign roles (separation of duties).'
+    displayName         = 'ISSM'
+    isEnabled           = $true
+    value               = 'issm'
+  },
+  @{
+    id                  = $issoRoleId
+    allowedMemberTypes  = @('User','Application')
+    description         = 'ISSO — operator access plus authoring POA&Ms and exceptions.'
+    displayName         = 'ISSO'
+    isEnabled           = $true
+    value               = 'isso'
   },
   @{
     id                  = $operatorRoleId
@@ -172,7 +190,13 @@ $rolesFile = New-TemporaryFile
 Set-Content -Path $rolesFile -Value $appRoles -Encoding utf8
 az ad app update --id $appId --app-roles "@$rolesFile" --only-show-errors | Out-Null
 Remove-Item $rolesFile -Force
-Write-Host "[5/6] App roles defined: admin, operator, auditor."
+Write-Host "[5/6] App roles defined: admin, issm, isso, operator, auditor."
+
+# ── 4b. Emit group membership in tokens (the 'use existing Entra groups' path) ─
+# 'ApplicationGroup' emits only groups assigned to this app, which keeps the
+# 'groups' claim small and avoids the >200-group overage that drops the claim.
+az ad app update --id $appId --set "groupMembershipClaims=ApplicationGroup" --only-show-errors | Out-Null
+Write-Host "      Group membership claim set to ApplicationGroup (group->role mapping enabled)."
 
 # ── 5. Service principal (required for app-role assignments) ─────────────────
 $sp = az ad sp list --filter "appId eq '$appId'" --only-show-errors -o json | ConvertFrom-Json

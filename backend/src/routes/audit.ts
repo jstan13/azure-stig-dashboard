@@ -5,14 +5,14 @@
 import { Router } from 'express';
 import { AppDataSource, mockStore } from '../database/dataSource';
 import { AuditLogEntity } from '../models/AuditLog';
-import { requireRole } from '../middleware/auth';
+import { requirePermission } from '../middleware/authz';
 import { parsePage, parsePageSize } from '../utils/paging';
 
 const router = Router();
 
 router.get(
   '/',
-  requireRole('admin', 'auditor'),
+  requirePermission('audit:read'),
   async (req, res, next) => {
     const { page = 1, pageSize = 50, targetId, action } = req.query;
     const p = parsePage(page);

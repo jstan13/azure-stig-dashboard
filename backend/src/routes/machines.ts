@@ -11,7 +11,7 @@ import { FindingEntity } from '../models/Finding';
 import { ControlEntity } from '../models/Control';
 import { createError } from '../middleware/errorHandler';
 import { recordAudit } from '../auth';
-import { requireRole } from '../middleware/auth';
+import { requirePermission, scopeByMachineParam } from '../middleware/authz';
 import { parsePage, parsePageSize } from '../utils/paging';
 
 const router = Router();
@@ -140,7 +140,7 @@ router.get('/:id', async (req, res, next) => {
 });
 
 // PATCH /api/machines/:machineId/findings/:findingId
-router.patch('/:machineId/findings/:findingId', requireRole('admin', 'operator'), async (req, res, next) => {
+router.patch('/:machineId/findings/:findingId', requirePermission('findings:write', scopeByMachineParam('machineId')), async (req, res, next) => {
   const { status, comments, findingDetails } = req.body;
 
   if (MOCK_MODE()) {

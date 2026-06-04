@@ -1,8 +1,10 @@
 /**
- * Public surface of the spec-aligned auth layer.
+ * Public surface of the auth layer.
  *
- * Routes should migrate from `backend/src/middleware/auth.ts` to these
- * primitives over time. Until they do, both layers coexist.
+ * Authorization is permission-based: middleware resolves a principal's roles
+ * (global + Collection-scoped) via `roleResolver`, then decides with `can`
+ * against the `permissions` catalog. The legacy role-rank `authorize`/`rbac`
+ * helpers remain only for the unit tests that still exercise them.
  */
 export {
   JwtValidator,
@@ -16,12 +18,26 @@ export {
 export {
   authorize,
   RbacDeniedError,
-  type Role,
   type RoleBinding,
   type RoleBindingLookup,
   type AuthorizedPrincipal,
   type AuthorizeArgs,
 } from './rbac';
+
+export {
+  ROLES,
+  PERMISSIONS,
+  ROLE_RANK,
+  ROLE_PERMISSIONS,
+  GLOBAL_PERMISSIONS,
+  isRole,
+  isGlobalPermission,
+  toRoles,
+  permissionsForRoles,
+  rolesGrant,
+  type Role,
+  type Permission,
+} from './permissions';
 
 export {
   Auditor,

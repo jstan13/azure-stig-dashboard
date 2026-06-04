@@ -11,6 +11,7 @@ import {
   Panel, PanelType, Label, Dropdown, IDropdownOption, TextField,
 } from '@fluentui/react';
 import { api } from '../hooks/useApi';
+import { usePermissions } from '../auth/AuthzProvider';
 import ComplianceDonut from '../components/ComplianceDonut';
 import ComplianceBadge from '../components/ComplianceBadge';
 import type { MachineDetail, Finding } from '../types';
@@ -36,6 +37,7 @@ function statusBadge(status: string) {
 export default function MachinePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { has } = usePermissions();
   const [machine, setMachine] = useState<MachineDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -121,8 +123,12 @@ export default function MachinePage() {
         ],
       },
     },
-    { key: 'scan', text: 'Scan Now', iconProps: { iconName: 'Refresh' }, onClick: () => { void api.post('/api/scan/trigger', { resourceIds: [machine?.resourceId] }); } },
+    ...(has('scan:trigger')
+      ? [{ key: 'scan', text: 'Scan Now', iconProps: { iconName: 'Refresh' }, onClick: () => { void api.post('/api/scan/trigger', { resourceIds: [machine?.resourceId] }); } } as ICommandBarItemProps]
+      : []),
   ];
+
+  const canEditFindings = has('findings:write');
 
   const columns: IColumn[] = [
     { key: 'vulnId', name: 'Vuln ID', minWidth: 80, onRender: (f: Finding) => f.control?.id || f.controlId },
@@ -133,7 +139,9 @@ export default function MachinePage() {
     {
       key: 'edit', name: '', minWidth: 60,
       onRender: (f: Finding) => (
-        <DefaultButton text="Edit" styles={{ root: { height: 24, fontSize: 11 } }} onClick={() => { setSelectedFinding(f); setEditStatus(f.status); setEditComments(f.comments || ''); setEditDetails(f.findingDetails || ''); }} />
+        canEditFindings
+          ? <DefaultButton text="Edit" styles={{ root: { height: 24, fontSize: 11 } }} onClick={() => { setSelectedFinding(f); setEditStatus(f.status); setEditComments(f.comments || ''); setEditDetails(f.findingDetails || ''); }} />
+          : null
       ),
     },
   ];

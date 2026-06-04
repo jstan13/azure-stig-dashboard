@@ -10,7 +10,7 @@
 import { Router, Request, Response } from 'express';
 import { AppDataSource, mockStore } from '../database/dataSource';
 import { RemediationJobEntity } from '../models/RemediationJob';
-import { requireRole } from '../middleware/auth';
+import { requirePermission } from '../middleware/authz';
 import { recordAudit } from '../auth';
 import { sendServerError } from '../middleware/errorHandler';
 import { parsePage, parsePageSize } from '../utils/paging';
@@ -76,7 +76,7 @@ router.get('/jobs/:id', async (req: Request, res: Response) => {
 });
 
 // POST /api/remediation/jobs — create and queue job (admin/operator only)
-router.post('/jobs', requireRole('admin', 'operator'), async (req: Request, res: Response) => {
+router.post('/jobs', requirePermission('remediation:execute'), async (req: Request, res: Response) => {
   try {
     const parse = createRemediationJobSchema.safeParse(req.body ?? {});
     if (!parse.success) {
@@ -159,7 +159,7 @@ router.post('/jobs', requireRole('admin', 'operator'), async (req: Request, res:
 });
 
 // POST /api/remediation/jobs/:id/approve — second-person approval gate
-router.post('/jobs/:id/approve', requireRole('admin', 'operator'), async (req: Request, res: Response) => {
+router.post('/jobs/:id/approve', requirePermission('remediation:approve'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const approver = (req as any).auth;
@@ -251,7 +251,7 @@ router.post('/jobs/:id/approve', requireRole('admin', 'operator'), async (req: R
 });
 
 // POST /api/remediation/jobs/:id/cancel \u2014 admin/operator only (Audit #2)
-router.post('/jobs/:id/cancel', requireRole('admin', 'operator'), async (req: Request, res: Response) => {
+router.post('/jobs/:id/cancel', requirePermission('remediation:execute'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     if (isMock()) {

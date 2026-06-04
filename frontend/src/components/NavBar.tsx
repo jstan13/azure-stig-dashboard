@@ -6,11 +6,13 @@ import {
 } from '@fluentui/react';
 import { useMsal } from '@azure/msal-react';
 import { useState, useRef } from 'react';
+import { usePermissions } from '../auth/AuthzProvider';
 
 export default function NavBar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { instance, accounts } = useMsal();
+  const { has } = usePermissions();
   const [showMenu, setShowMenu] = useState(false);
   const personaRef = useRef<HTMLDivElement>(null);
 
@@ -50,6 +52,7 @@ export default function NavBar() {
       iconProps: { iconName: 'History' },
       checked: location.pathname === '/audit',
       onClick: () => navigate('/audit'),
+      data: { perm: 'audit:read' },
     },
     {
       key: 'stigs',
@@ -85,8 +88,23 @@ export default function NavBar() {
       iconProps: { iconName: 'People' },
       checked: location.pathname === '/users',
       onClick: () => navigate('/users'),
+      data: { perm: 'users:manage' },
+    },
+    {
+      key: 'admin',
+      text: 'Admin',
+      iconProps: { iconName: 'Settings' },
+      checked: location.pathname === '/admin',
+      onClick: () => navigate('/admin'),
+      data: { perm: 'collection:manage' },
     },
   ];
+
+  // Hide nav entries the caller lacks the permission for (server still enforces).
+  const visibleItems = items.filter((it) => {
+    const perm = (it.data as { perm?: string } | undefined)?.perm;
+    return !perm || has(perm as never);
+  });
 
   const farItems: ICommandBarItemProps[] = [
     {
@@ -103,7 +121,7 @@ export default function NavBar() {
       <Stack horizontal verticalAlign="center" styles={{ root: { padding: '0 16px' } }}>
         <Stack.Item grow>
           <CommandBar
-            items={items}
+            items={visibleItems}
             farItems={farItems}
             styles={{
               root: { background: 'transparent', padding: 0 },

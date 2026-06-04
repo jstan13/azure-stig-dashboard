@@ -19,7 +19,7 @@ import { FindingEntity } from '../models/Finding';
 import { ControlEntity } from '../models/Control';
 import * as emass from '../connectors/emassConnector';
 import { generateCklb } from '../exporters/cklbExporter';
-import { requireRole } from '../middleware/auth';
+import { requirePermission } from '../middleware/authz';
 import { recordAudit } from '../auth';
 import { sendServerError } from '../middleware/errorHandler';
 
@@ -59,7 +59,7 @@ router.get('/systems', async (_req: Request, res: Response) => {
 
 // ── POST /api/emass/systems/:id/push-poams ──────────────────────────────────
 // Body: { poamIds?: string[]; onlyOpen?: boolean }
-router.post('/systems/:id/push-poams', requireRole('operator'), async (req: Request, res: Response) => {
+router.post('/systems/:id/push-poams', requirePermission('emass:push'), async (req: Request, res: Response) => {
   try {
     const systemId = Number(req.params.id);
     if (!Number.isFinite(systemId)) return res.status(400).json({ error: 'systemId must be numeric' });
@@ -98,7 +98,7 @@ router.post('/systems/:id/push-poams', requireRole('operator'), async (req: Requ
 
 // ── POST /api/emass/systems/:id/upload-cklb ─────────────────────────────────
 // Body: { machineId: string }
-router.post('/systems/:id/upload-cklb', requireRole('operator'), async (req: Request, res: Response) => {
+router.post('/systems/:id/upload-cklb', requirePermission('emass:push'), async (req: Request, res: Response) => {
   try {
     const systemId  = Number(req.params.id);
     const machineId = String(req.body?.machineId || '');

@@ -17,7 +17,7 @@ import { StigBenchmarkEntity } from '../models/StigBenchmark';
 import { StigVersionEntity } from '../models/StigVersion';
 import { ControlEntity } from '../models/Control';
 import { MachineEntity } from '../models/Machine';
-import { requireRole } from '../middleware/auth';
+import { requirePermission } from '../middleware/authz';
 import { recordAudit } from '../auth';
 import { createError } from '../middleware/errorHandler';
 import { parsePage, parsePageSize } from '../utils/paging';
@@ -258,7 +258,7 @@ router.get('/:benchmarkId/controls', async (req, res, next) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.post(
   '/import',
-  requireRole('admin', 'operator'),
+  requirePermission('stig:import'),
   async (req, res, next) => {
     try {
       const { benchmarkTitles, force = false, dryRun = false } = req.body as {
@@ -312,7 +312,7 @@ router.post(
 // ─────────────────────────────────────────────────────────────────────────────
 router.post(
   '/update-check',
-  requireRole('admin', 'operator'),
+  requirePermission('stig:import'),
   async (req, res, next) => {
     try {
       if (updateCheckStatus.running) {
@@ -366,7 +366,7 @@ router.post(
 // ─────────────────────────────────────────────────────────────────────────────
 router.post(
   '/:benchmarkId/scan',
-  requireRole('admin', 'operator'),
+  requirePermission('scan:trigger'),
   async (req, res, next) => {
     try {
       const { benchmarkId } = req.params;

@@ -1,4 +1,4 @@
-import { generateCKL, CKLFinding } from '../../exporters/cklExporter';
+import { generateCKL, CKLFinding } from '../exporters/cklExporter';
 
 const sampleFindings: CKLFinding[] = [
   {

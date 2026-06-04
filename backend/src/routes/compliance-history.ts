@@ -11,7 +11,7 @@ import { AppDataSource, mockStore } from '../database/dataSource';
 import { ComplianceHistoryEntity } from '../models/ComplianceHistory';
 import { Between } from 'typeorm';
 import { sendServerError } from '../middleware/errorHandler';
-import { requireRole } from '../middleware/auth';
+import { requirePermission } from '../middleware/authz';
 import { parseDays } from '../utils/paging';
 
 const router = Router();
@@ -82,7 +82,7 @@ router.get('/:machineId', async (req: Request, res: Response) => {
 });
 
 // POST /api/compliance-history/snapshot — admin/operator only (Audit #2)
-router.post('/snapshot', requireRole('admin', 'operator'), async (req: Request, res: Response) => {
+router.post('/snapshot', requirePermission('scan:trigger'), async (req: Request, res: Response) => {
   try {
     const { machineId, score, totalControls, openFindings,
             catIOpen, catIIOpen, catIIIOpen, resolved,

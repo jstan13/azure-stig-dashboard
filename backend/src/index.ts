@@ -15,7 +15,7 @@ import path from 'path';
 import { initializeDatabase, AppDataSource } from './database/dataSource';
 import { logger } from './utils/logger';
 import { errorHandler } from './middleware/errorHandler';
-import { authenticateToken } from './middleware/auth';
+import { authenticate } from './middleware/authn';
 import { Auditor, auditMiddleware } from './auth';
 import { TypeOrmAuditWriter, mockAuditWriter } from './auth/writers';
 
@@ -37,6 +37,8 @@ import rmfRouter from './routes/rmf';
 import hierarchyRouter from './routes/hierarchy';
 import emassRouter from './routes/emass';
 import vulnerabilitiesRouter from './routes/vulnerabilities';
+import meRouter from './routes/me';
+import collectionsRouter from './routes/collections';
 
 import { startStigUpdateScheduler } from './stigs/stigUpdateScheduler';
 
@@ -123,7 +125,7 @@ app.use('/api/notifications', sensitiveWriteLimiter);
 app.use('/health', healthRouter);
 
 // ─── Protected routes (JWT required for all /api/* below) ───────────────────
-app.use('/api', authenticateToken);
+app.use('/api', authenticate);
 
 // ─── Audit + correlation ID (Principle II / FR-003) ────────────────────────
 // Wire the canonical Auditor onto every authenticated request so route
@@ -168,6 +170,8 @@ app.use('/api/rmf', rmfRouter);
 app.use('/api/hierarchy', hierarchyRouter);
 app.use('/api/emass', emassRouter);
 app.use('/api/vulnerabilities', vulnerabilitiesRouter);
+app.use('/api/me', meRouter);
+app.use('/api/collections', collectionsRouter);
 
 // ─── Error handling ──────────────────────────────────────────────────────────
 app.use(errorHandler);

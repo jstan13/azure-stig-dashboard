@@ -46,9 +46,11 @@ export default function LoginPage() {
           <div style={{ background: '#f3f2f1', borderRadius: 4, padding: '12px 16px', fontSize: 13 }}>
             <strong>Roles:</strong>
             <ul style={{ margin: '4px 0 0 16px' }}>
-              <li><strong>Admin</strong> — full access, trigger scans, manage exceptions</li>
-              <li><strong>Operator</strong> — trigger scans, update findings</li>
-              <li><strong>Auditor</strong> — read-only, export checklists</li>
+              <li><strong>Auditor</strong> — read-only, export checklists & reports</li>
+              <li><strong>Operator</strong> — trigger scans, edit manual STIG checks, remediate</li>
+              <li><strong>ISSO</strong> — operator + author POA&Ms and exceptions</li>
+              <li><strong>ISSM</strong> — approve POA&Ms, exceptions & remediation; assign roles</li>
+              <li><strong>Admin</strong> — full control, manage boundaries, users & config</li>
             </ul>
           </div>
         </Stack>

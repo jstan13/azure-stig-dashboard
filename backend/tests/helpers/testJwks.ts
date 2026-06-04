@@ -72,7 +72,7 @@ export async function signTestJwt(claims: TestJwtClaims = {}): Promise<string> {
   const issuer =
     claims.issuer ?? `https://login.microsoftonline.com/${DEFAULT_TENANT}/v2.0`;
 
-  const header: Record<string, string> = { alg: 'RS256', typ: 'JWT' };
+  const header: { alg: string; typ: string; kid?: string } = { alg: 'RS256', typ: 'JWT' };
   if (claims.kid !== null) {
     header.kid = claims.kid ?? DEFAULT_KID;
   }

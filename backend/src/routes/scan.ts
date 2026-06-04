@@ -6,7 +6,7 @@
 
 import { Router } from 'express';
 import { ScanOrchestrator } from '../connectors/scanOrchestrator';
-import { requireRole } from '../middleware/auth';
+import { requirePermission } from '../middleware/authz';
 import { recordAudit } from '../auth';
 import { AppDataSource, mockStore } from '../database/dataSource';
 import { ScanEntity } from '../models/Scan';
@@ -20,7 +20,7 @@ const orchestrator = new ScanOrchestrator();
 // POST /api/scan/trigger
 router.post(
   '/trigger',
-  requireRole('admin', 'operator'),
+  requirePermission('scan:trigger'),
   async (req, res, next) => {
     const { subscriptionIds, resourceGroupNames, resourceIds, since } = req.body;
     const actor = (req as any).auth?.email || (req as any).auth?.sub || 'api';

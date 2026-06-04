@@ -11,7 +11,7 @@ import { Router, Request, Response } from 'express';
 import { AppDataSource, mockStore } from '../database/dataSource';
 import { VulnerabilityEntity } from '../models/Vulnerability';
 import { fetchVulnerabilities } from '../connectors/vulnerabilityConnector';
-import { requireRole } from '../middleware/auth';
+import { requirePermission } from '../middleware/authz';
 import { recordAudit } from '../auth';
 import { sendServerError } from '../middleware/errorHandler';
 import { parsePage, parsePageSize } from '../utils/paging';
@@ -78,7 +78,7 @@ router.get('/summary', async (_req: Request, res: Response) => {
 });
 
 // ── POST /api/vulnerabilities/sync ──────────────────────────────────────────
-router.post('/sync', requireRole('operator'), async (req: Request, res: Response) => {
+router.post('/sync', requirePermission('scan:trigger'), async (req: Request, res: Response) => {
   try {
     const subs = (process.env.AZURE_SUBSCRIPTION_IDS || '').split(',').map((s) => s.trim()).filter(Boolean);
     const rows = await fetchVulnerabilities(subs);
@@ -123,7 +123,7 @@ router.post('/sync', requireRole('operator'), async (req: Request, res: Response
 });
 
 // ── PATCH /api/vulnerabilities/:id ──────────────────────────────────────────
-router.patch('/:id', requireRole('operator'), async (req: Request, res: Response) => {
+router.patch('/:id', requirePermission('findings:write'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { status, remediation } = req.body || {};
