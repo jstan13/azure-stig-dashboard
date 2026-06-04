@@ -50,7 +50,7 @@
         "type": "Microsoft.Common.DropDown",
         "label": "App Service plan SKU",
         "defaultValue": "B1 — Basic",
-        "toolTip": "B1 is the minimum recommended for production. F1 is free but lacks Always-On.",
+        "toolTip": "Used when auto-size is disabled. For very small environments, keep auto-size enabled instead.",
         "constraints": {
           "allowedValues": [
             { "label": "F1 — Free",       "value": "F1" },
@@ -60,6 +60,122 @@
             { "label": "S2 — Standard",   "value": "S2" },
             { "label": "P1v3 — Premium",  "value": "P1v3" }
           ]
+        }
+      },
+      {
+        "name": "autoSizeByTrackedHosts",
+        "type": "Microsoft.Common.OptionsGroup",
+        "label": "Auto-size from tracked host count",
+        "defaultValue": "Yes",
+        "toolTip": "Recommended. Uses tracked host count to choose lower-cost defaults for SKU, scheduler, and diagnostics.",
+        "constraints": {
+          "allowedValues": [
+            { "label": "Yes", "value": true },
+            { "label": "No",  "value": false }
+          ],
+          "required": true
+        }
+      },
+      {
+        "name": "trackedHostCount",
+        "type": "Microsoft.Common.TextBox",
+        "label": "Estimated tracked hosts",
+        "defaultValue": "25",
+        "toolTip": "Used when auto-size is enabled. 1-25 defaults to smallest footprint; 26-150 medium; 151+ larger footprint.",
+        "constraints": {
+          "required": true,
+          "regex": "^[1-9][0-9]{0,4}$",
+          "validationMessage": "Enter a number from 1 to 99999."
+        }
+      },
+      {
+        "name": "enableScheduler",
+        "type": "Microsoft.Common.OptionsGroup",
+        "label": "Enable scheduled scans/alerts",
+        "defaultValue": "Yes",
+        "toolTip": "If disabled, no timer-based scan orchestration or drift alerting is deployed.",
+        "constraints": {
+          "allowedValues": [
+            { "label": "Yes", "value": true },
+            { "label": "No",  "value": false }
+          ],
+          "required": true
+        }
+      },
+      {
+        "name": "enableDiagnostics",
+        "type": "Microsoft.Common.OptionsGroup",
+        "label": "Enable centralized diagnostics (Log Analytics)",
+        "defaultValue": "No",
+        "toolTip": "Can be a major monthly cost driver in small environments.",
+        "constraints": {
+          "allowedValues": [
+            { "label": "Yes", "value": true },
+            { "label": "No",  "value": false }
+          ],
+          "required": true
+        }
+      },
+      {
+        "name": "businessHoursMode",
+        "type": "Microsoft.Common.OptionsGroup",
+        "label": "Business-hours mode",
+        "defaultValue": "No",
+        "toolTip": "Runs scheduled scan jobs only during business hours in your selected timezone.",
+        "constraints": {
+          "allowedValues": [
+            { "label": "No",  "value": false },
+            { "label": "Yes", "value": true }
+          ],
+          "required": true
+        }
+      },
+      {
+        "name": "businessHoursTimeZone",
+        "type": "Microsoft.Common.TextBox",
+        "label": "Business-hours timezone",
+        "defaultValue": "UTC",
+        "toolTip": "IANA timezone name such as UTC or America/New_York.",
+        "constraints": {
+          "required": true,
+          "regex": "^[A-Za-z_]+(?:\/[A-Za-z_]+)*$",
+          "validationMessage": "Use a valid IANA timezone name, for example UTC or America/New_York."
+        }
+      },
+      {
+        "name": "businessHoursStartHour",
+        "type": "Microsoft.Common.TextBox",
+        "label": "Business day start hour (0-23)",
+        "defaultValue": "8",
+        "constraints": {
+          "required": true,
+          "regex": "^(?:[0-9]|1[0-9]|2[0-3])$",
+          "validationMessage": "Enter a value from 0 to 23."
+        }
+      },
+      {
+        "name": "businessHoursEndHour",
+        "type": "Microsoft.Common.TextBox",
+        "label": "Business day end hour (0-23)",
+        "defaultValue": "18",
+        "constraints": {
+          "required": true,
+          "regex": "^(?:[0-9]|1[0-9]|2[0-3])$",
+          "validationMessage": "Enter a value from 0 to 23."
+        }
+      },
+      {
+        "name": "autoShutdownOutsideBusinessHours",
+        "type": "Microsoft.Common.OptionsGroup",
+        "label": "Auto-stop app + DB outside business hours",
+        "defaultValue": "No",
+        "toolTip": "When enabled with Scheduler + Business-hours mode, the Function app starts/stops backend, frontend, and PostgreSQL on a weekday schedule.",
+        "constraints": {
+          "allowedValues": [
+            { "label": "No",  "value": false },
+            { "label": "Yes", "value": true }
+          ],
+          "required": true
         }
       },
       {
@@ -175,6 +291,15 @@
       "location":          "[location()]",
       "cloudEnvironment":  "[basics('cloudEnvironment')]",
       "appServiceSku":     "[basics('appServiceSku')]",
+      "autoSizeByTrackedHosts": "[basics('autoSizeByTrackedHosts')]",
+      "trackedHostCount": "[int(basics('trackedHostCount'))]",
+      "enableScheduler": "[basics('enableScheduler')]",
+      "enableDiagnostics": "[basics('enableDiagnostics')]",
+      "businessHoursMode": "[basics('businessHoursMode')]",
+      "businessHoursTimeZone": "[basics('businessHoursTimeZone')]",
+      "businessHoursStartHour": "[int(basics('businessHoursStartHour'))]",
+      "businessHoursEndHour": "[int(basics('businessHoursEndHour'))]",
+      "autoShutdownOutsideBusinessHours": "[basics('autoShutdownOutsideBusinessHours')]",
       "mockMode":          "[basics('mockMode')]",
       "azureTenantId":     "[steps('azureAd').azureTenantId]",
       "azureClientId":     "[steps('azureAd').azureClientId]",

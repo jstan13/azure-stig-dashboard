@@ -24,6 +24,40 @@ const BACKEND_API_AUD   = process.env.BACKEND_API_AUDIENCE || '';
 const FUNCTION_API_KEY  = process.env.FUNCTION_API_KEY || '';
 const TEAMS_WEBHOOK_URL = process.env.TEAMS_WEBHOOK_URL || '';
 const DRIFT_CAT1_THRESH = Number(process.env.DRIFT_CAT1_THRESHOLD || 0);
+const BUSINESS_HOURS_MODE = String(process.env.BUSINESS_HOURS_MODE || 'false').toLowerCase() === 'true';
+const BUSINESS_HOURS_TZ = process.env.BUSINESS_HOURS_TIME_ZONE || 'UTC';
+const BUSINESS_HOURS_START = Number(process.env.BUSINESS_HOURS_START_HOUR || 8);
+const BUSINESS_HOURS_END = Number(process.env.BUSINESS_HOURS_END_HOUR || 18);
+const BUSINESS_HOURS_AUTO_SHUTDOWN = String(process.env.BUSINESS_HOURS_AUTO_SHUTDOWN || 'false').toLowerCase() === 'true';
+const ARM_ENDPOINT = (process.env.AZURE_ARM_ENDPOINT || 'https://management.azure.com').replace(/\/$/, '');
+const BACKEND_APP_RESOURCE_ID = process.env.BACKEND_APP_RESOURCE_ID || '';
+const FRONTEND_APP_RESOURCE_ID = process.env.FRONTEND_APP_RESOURCE_ID || '';
+const POSTGRES_SERVER_RESOURCE_ID = process.env.POSTGRES_SERVER_RESOURCE_ID || '';
+
+function getBusinessHourNow(date = new Date()): number {
+  const formatted = new Intl.DateTimeFormat('en-US', {
+    timeZone: BUSINESS_HOURS_TZ,
+    hour: '2-digit',
+    hour12: false,
+  }).format(date);
+
+  return Number(formatted);
+}
+
+function isWithinBusinessHours(date = new Date()): boolean {
+  if (!BUSINESS_HOURS_MODE) return true;
+  const hour = getBusinessHourNow(date);
+
+  if (BUSINESS_HOURS_START === BUSINESS_HOURS_END) {
+    return true;
+  }
+
+  if (BUSINESS_HOURS_START < BUSINESS_HOURS_END) {
+    return hour >= BUSINESS_HOURS_START && hour < BUSINESS_HOURS_END;
+  }
+
+  return hour >= BUSINESS_HOURS_START || hour < BUSINESS_HOURS_END;
+}
 
 async function backendHeaders(): Promise<Record<string, string>> {
   if (FUNCTION_API_KEY) return { 'X-Function-Key': FUNCTION_API_KEY };
@@ -34,6 +68,22 @@ async function backendHeaders(): Promise<Record<string, string>> {
   const token = await cred.getToken(`${BACKEND_API_AUD}/.default`);
   if (!token) throw new Error('Unable to acquire managed-identity token');
   return { Authorization: `Bearer ${token.token}` };
+}
+
+async function armHeaders(): Promise<Record<string, string>> {
+  const { DefaultAzureCredential } = await import('@azure/identity');
+  const cred = new DefaultAzureCredential();
+  const token = await cred.getToken(`${ARM_ENDPOINT}/.default`);
+  if (!token) throw new Error('Unable to acquire ARM token for scheduler operations');
+  return { Authorization: `Bearer ${token.token}` };
+}
+
+async function callArmAction(resourceId: string, action: 'start' | 'stop', apiVersion: string, ctx: InvocationContext): Promise<void> {
+  if (!resourceId) return;
+  const headers = await armHeaders();
+  const url = `${ARM_ENDPOINT}${resourceId}/${action}?api-version=${apiVersion}`;
+  const res = await axios.post(url, {}, { headers, timeout: 60_000 });
+  ctx.log(`[functions] ARM ${action} ${resourceId} -> ${res.status}`);
 }
 
 async function postJson(path: string, body: unknown, ctx: InvocationContext): Promise<void> {
@@ -57,6 +107,12 @@ async function getJson<T = any>(path: string, ctx: InvocationContext): Promise<T
 app.timer('scheduledScan', {
   schedule: '0 0 6 * * *',
   handler: async (_t: Timer, ctx: InvocationContext) => {
+    if (!isWithinBusinessHours()) {
+      const hour = getBusinessHourNow();
+      ctx.log(`[scheduledScan] skipped (outside business hours, hour=${hour}, tz=${BUSINESS_HOURS_TZ})`);
+      return;
+    }
+
     ctx.log('[scheduledScan] starting nightly scan');
     try {
       await postJson('/api/scan/trigger', { scanType: 'full' }, ctx);
@@ -74,6 +130,12 @@ app.timer('scheduledScan', {
 app.timer('complianceDriftCheck', {
   schedule: '0 0 */6 * * *',
   handler: async (_t: Timer, ctx: InvocationContext) => {
+    if (!isWithinBusinessHours()) {
+      const hour = getBusinessHourNow();
+      ctx.log(`[drift] skipped (outside business hours, hour=${hour}, tz=${BUSINESS_HOURS_TZ})`);
+      return;
+    }
+
     try {
       const kpis: any = await getJson('/api/hierarchy/kpis', ctx);
       const vulns: any = await getJson('/api/vulnerabilities/summary', ctx);
@@ -106,5 +168,33 @@ app.timer('complianceDriftCheck', {
     } catch (e: any) {
       ctx.error(`[drift] failed: ${e.message}`);
     }
+  },
+});
+
+app.timer('businessHoursAutoStart', {
+  schedule: '%BUSINESS_HOURS_START_CRON%',
+  handler: async (_t: Timer, ctx: InvocationContext) => {
+    if (!BUSINESS_HOURS_MODE || !BUSINESS_HOURS_AUTO_SHUTDOWN) {
+      ctx.log('[businessHoursAutoStart] disabled');
+      return;
+    }
+
+    await callArmAction(POSTGRES_SERVER_RESOURCE_ID, 'start', '2023-06-01-preview', ctx);
+    await callArmAction(BACKEND_APP_RESOURCE_ID, 'start', '2023-01-01', ctx);
+    await callArmAction(FRONTEND_APP_RESOURCE_ID, 'start', '2023-01-01', ctx);
+  },
+});
+
+app.timer('businessHoursAutoShutdown', {
+  schedule: '%BUSINESS_HOURS_STOP_CRON%',
+  handler: async (_t: Timer, ctx: InvocationContext) => {
+    if (!BUSINESS_HOURS_MODE || !BUSINESS_HOURS_AUTO_SHUTDOWN) {
+      ctx.log('[businessHoursAutoShutdown] disabled');
+      return;
+    }
+
+    await callArmAction(BACKEND_APP_RESOURCE_ID, 'stop', '2023-01-01', ctx);
+    await callArmAction(FRONTEND_APP_RESOURCE_ID, 'stop', '2023-01-01', ctx);
+    await callArmAction(POSTGRES_SERVER_RESOURCE_ID, 'stop', '2023-06-01-preview', ctx);
   },
 });

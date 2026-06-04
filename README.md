@@ -205,6 +205,10 @@ azd env set DB_ADMIN_PASSWORD   '<strong-password>'
 azd env set MOCK_MODE           false                # IMPORTANT for prod
 azd env set APP_SERVICE_SKU     S1                   # see sizing table below
 
+# Cost-aware defaults (recommended for small deployments)
+# azd env set AUTO_SIZE_BY_TRACKED_HOSTS true
+# azd env set TRACKED_HOST_COUNT 25
+
 # Optional — scheduled-scan Function App alert channel
 # azd env set TEAMS_WEBHOOK_URL    https://outlook.office.com/webhook/...
 # azd env set DRIFT_CAT1_THRESHOLD 0
@@ -212,6 +216,13 @@ azd env set APP_SERVICE_SKU     S1                   # see sizing table below
 # Optional — disable the Function App or SIEM diagnostics
 # azd env set ENABLE_SCHEDULER     false
 # azd env set ENABLE_DIAGNOSTICS   false
+
+# Optional — business-hours mode + auto shutdown/start of app + DB
+# azd env set BUSINESS_HOURS_MODE true
+# azd env set BUSINESS_HOURS_TIME_ZONE America/New_York
+# azd env set BUSINESS_HOURS_START_HOUR 8
+# azd env set BUSINESS_HOURS_END_HOUR 18
+# azd env set AUTO_SHUTDOWN_OUTSIDE_BUSINESS_HOURS true
 
 # Optional sovereign cloud (Azure US Gov / DoD)
 # azd env set AZURE_CLOUD AzureUSGovernment
@@ -251,14 +262,44 @@ All numbers below are **public Azure Commercial, East US, pay-as-you-go, USD/mon
 
 | Resource | Default setting |
 |---|---|
-| App Service Plan (Linux) | `appServiceSku` (default parameter is `B1`) |
+| App Service Plan (Linux) | `appServiceSku` (default parameter is `B1`; can auto-size from host count) |
 | Backend App Service | Shares same plan |
 | Frontend App Service | Shares same plan |
 | PostgreSQL Flexible Server | `Standard_B1ms`, 32 GB storage, 7-day backup, no HA |
 | Key Vault | Standard |
 | Application Insights | Pay-as-you-go |
-| Function App + Storage | Enabled by default (`enableScheduler=true`) |
-| Log Analytics diagnostics | Enabled by default (`enableDiagnostics=true`) |
+| Function App + Storage | Enabled by default (`enableScheduler=true`; can auto-disable for tiny footprints) |
+| Log Analytics diagnostics | Enabled by default (`enableDiagnostics=true`; can auto-disable for tiny footprints) |
+
+### Host-count-driven defaults
+
+If `AUTO_SIZE_BY_TRACKED_HOSTS=true`, infrastructure defaults are inferred from `TRACKED_HOST_COUNT`:
+
+| Tracked hosts | App Service SKU | Scheduler | Diagnostics |
+|---|---|---|---|
+| 1-25 | B1 | Off | Off |
+| 26-150 | B1 | On | Off |
+| 151+ | S1 | On | On |
+
+`B1` is the minimum tier that supports custom containers and Always-On, so it is
+used as the floor even for the smallest environments. Set
+`AUTO_SIZE_BY_TRACKED_HOSTS=false` to use explicit `APP_SERVICE_SKU`,
+`ENABLE_SCHEDULER`, and `ENABLE_DIAGNOSTICS` values.
+
+### Business-hours mode
+
+You can run scheduled jobs only during business hours and optionally auto-stop/start the web apps + PostgreSQL outside those hours:
+
+- `BUSINESS_HOURS_MODE=true` enables business-hours gating for scheduler jobs.
+- `AUTO_SHUTDOWN_OUTSIDE_BUSINESS_HOURS=true` enables scheduled ARM stop/start actions.
+- `BUSINESS_HOURS_TIME_ZONE`, `BUSINESS_HOURS_START_HOUR`, and `BUSINESS_HOURS_END_HOUR` define the local business window.
+
+This can materially reduce spend in small internal environments, at the cost of availability outside business hours.
+
+> **Where the savings come from:** stopping the PostgreSQL Flexible Server pauses
+> its compute billing (you keep paying only for storage). Stopping the web apps
+> does **not** reduce App Service Plan cost — the plan bills 24/7 regardless — so
+> the auto-stop savings are driven primarily by the database.
 
 ### Price points used (East US retail)
 

@@ -33,6 +33,56 @@
       "allowedValues": ["F1","B1","B2","S1","S2","P1v3"],
       "metadata": { "description": "App Service plan SKU." }
     },
+    "autoSizeByTrackedHosts": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": { "description": "When true, deployment infers right-sized defaults from trackedHostCount." }
+    },
+    "trackedHostCount": {
+      "type": "int",
+      "defaultValue": 25,
+      "minValue": 1,
+      "metadata": { "description": "Estimated number of hosts this deployment will track." }
+    },
+    "enableScheduler": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": { "description": "Reserved for cost-profile compatibility with the Bicep deployment path." }
+    },
+    "enableDiagnostics": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": { "description": "Reserved for cost-profile compatibility with the Bicep deployment path." }
+    },
+    "businessHoursMode": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": { "description": "Reserved for business-hours mode compatibility with the Bicep deployment path." }
+    },
+    "businessHoursTimeZone": {
+      "type": "string",
+      "defaultValue": "UTC",
+      "metadata": { "description": "Reserved for business-hours mode compatibility with the Bicep deployment path." }
+    },
+    "businessHoursStartHour": {
+      "type": "int",
+      "defaultValue": 8,
+      "minValue": 0,
+      "maxValue": 23,
+      "metadata": { "description": "Reserved for business-hours mode compatibility with the Bicep deployment path." }
+    },
+    "businessHoursEndHour": {
+      "type": "int",
+      "defaultValue": 18,
+      "minValue": 0,
+      "maxValue": 23,
+      "metadata": { "description": "Reserved for business-hours mode compatibility with the Bicep deployment path." }
+    },
+    "autoShutdownOutsideBusinessHours": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": { "description": "Reserved for business-hours auto-shutdown compatibility with the Bicep deployment path." }
+    },
     "azureTenantId": {
       "type": "string",
       "metadata": { "description": "Microsoft Entra (Azure AD) tenant ID." }
@@ -106,6 +156,8 @@
     "keyVaultName": "[take(replace(concat(parameters('baseName'), '-stig-kv'), '-', ''), 24)]",
     "kvSecretsUserRoleId": "4633458b-17de-457c-a5dd-322bbab69ee3",
     "dbConnectionString": "[concat('postgresql://', parameters('dbAdminLogin'), ':', parameters('dbAdminPassword'), '@', variables('dbServerName'), '.', variables('pgHostSuffix'), ':5432/', variables('dbName'), '?sslmode=require')]"
+    ,"autoAppServiceSku": "[if(lessOrEquals(parameters('trackedHostCount'), 150), 'B1', 'S1')]"
+    ,"effectiveAppServiceSku": "[if(parameters('autoSizeByTrackedHosts'), variables('autoAppServiceSku'), parameters('appServiceSku'))]"
   },
   "resources": [
     {
@@ -158,7 +210,7 @@
       "apiVersion": "2023-01-01",
       "name": "[variables('planName')]",
       "location": "[parameters('location')]",
-      "sku": { "name": "[parameters('appServiceSku')]" },
+      "sku": { "name": "[variables('effectiveAppServiceSku')]" },
       "kind": "linux",
       "properties": { "reserved": true }
     },
@@ -230,7 +282,7 @@
         "httpsOnly": true,
         "siteConfig": {
           "linuxFxVersion": "[concat('DOCKER|', parameters('backendImage'))]",
-          "alwaysOn": "[not(equals(parameters('appServiceSku'),'F1'))]",
+          "alwaysOn": "[not(equals(variables('effectiveAppServiceSku'),'F1'))]",
           "http20Enabled": true,
           "minTlsVersion": "1.2",
           "ipSecurityRestrictionsDefaultAction": "[if(parameters('lockdownNetworking'), 'Deny', 'Allow')]",

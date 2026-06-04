@@ -6,9 +6,16 @@ param baseName string = 'stigdash'
 @description('Azure region for all resources')
 param location string = resourceGroup().location
 
-@description('App Service SKU')
+@description('App Service SKU (used when autoSizeByTrackedHosts=false)')
 @allowed(['F1', 'B1', 'B2', 'S1', 'S2', 'P1v3'])
 param appServiceSku string = 'B1'
+
+@description('When true, App Service SKU + diagnostics + scheduler defaults are derived from trackedHostCount')
+param autoSizeByTrackedHosts bool = true
+
+@description('Estimated number of hosts this deployment will track')
+@minValue(1)
+param trackedHostCount int = 25
 
 @description('Azure AD tenant ID for OIDC auth')
 param azureTenantId string
@@ -56,6 +63,31 @@ param enableScheduler bool = true
 @description('Forward backend + Function App diagnostics to Log Analytics so Sentinel/Splunk can pull from there')
 param enableDiagnostics bool = true
 
+@description('When true, scheduled jobs only run during the configured business-hours window')
+param businessHoursMode bool = false
+
+@description('IANA timezone used for business-hours gating in the Function App (for example: UTC, America/New_York)')
+param businessHoursTimeZone string = 'UTC'
+
+@description('Business-hours start hour (0-23, inclusive) in businessHoursTimeZone')
+@minValue(0)
+@maxValue(23)
+param businessHoursStartHour int = 8
+
+@description('Business-hours end hour (0-23, exclusive) in businessHoursTimeZone')
+@minValue(0)
+@maxValue(23)
+param businessHoursEndHour int = 18
+
+@description('When true, the Function App will stop the web apps + PostgreSQL outside business hours and start them before business hours')
+param autoShutdownOutsideBusinessHours bool = false
+
+@description('Start schedule for business-hours auto-start (NCRONTAB with seconds, UTC). Default: 07:45 UTC weekdays')
+param businessHoursStartCron string = '0 45 7 * * 1-5'
+
+@description('Stop schedule for business-hours auto-shutdown (NCRONTAB with seconds, UTC). Default: 18:15 UTC weekdays')
+param businessHoursStopCron string = '0 15 18 * * 1-5'
+
 @description('Optional incoming-webhook URL for Microsoft Teams compliance drift alerts')
 param teamsWebhookUrl string = ''
 
@@ -82,13 +114,20 @@ var authorityHost = isGov ? 'https://login.microsoftonline.us' : 'https://login.
 var graphHost = isGov ? 'https://graph.microsoft.us' : 'https://graph.microsoft.com'
 var armHost = isGov ? 'https://management.usgovcloudapi.net' : 'https://management.azure.com'
 var databaseUrl = 'postgresql://${dbAdminLogin}:${dbAdminPassword}@${pgServer.properties.fullyQualifiedDomainName}:5432/${dbName}?sslmode=require'
+var autoAppServiceSku = trackedHostCount <= 150 ? 'B1' : 'S1'
+var autoEnableScheduler = trackedHostCount > 25
+var autoEnableDiagnostics = trackedHostCount > 150
+var effectiveAppServiceSku = autoSizeByTrackedHosts ? autoAppServiceSku : appServiceSku
+var effectiveEnableScheduler = autoSizeByTrackedHosts ? autoEnableScheduler : enableScheduler
+var effectiveEnableDiagnostics = autoSizeByTrackedHosts ? autoEnableDiagnostics : enableDiagnostics
+var enableBusinessHoursShutdown = effectiveEnableScheduler && businessHoursMode && autoShutdownOutsideBusinessHours
 
 // ── App Service Plan ───────────────────────────────────────────────────────────
 resource appServicePlan 'Microsoft.Web/serverfarms@2023-01-01' = {
   name: planName
   location: location
   sku: {
-    name: appServiceSku
+    name: effectiveAppServiceSku
   }
   kind: 'linux'
   properties: {
@@ -206,7 +245,7 @@ resource backendApp 'Microsoft.Web/sites@2023-01-01' = {
     httpsOnly: true
     siteConfig: {
       linuxFxVersion: 'NODE|20-lts'
-      alwaysOn: appServiceSku != 'F1'
+      alwaysOn: effectiveAppServiceSku != 'F1'
       http20Enabled: true
       minTlsVersion: '1.2'
       ipSecurityRestrictionsDefaultAction: lockdownNetworking ? 'Deny' : 'Allow'
@@ -327,7 +366,7 @@ resource frontendApp 'Microsoft.Web/sites@2023-01-01' = {
 }
 
 // ── Log Analytics + Diagnostics (SIEM-ready) ───────────────────────────────
-resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = if (enableDiagnostics) {
+resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = if (effectiveEnableDiagnostics) {
   name: lawName
   location: location
   properties: {
@@ -339,7 +378,7 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = if
 
 // Stream backend App Service logs + metrics to Log Analytics so Sentinel /
 // Splunk / 3rd-party SIEMs can pull from a single workspace.
-resource backendDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (enableDiagnostics) {
+resource backendDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (effectiveEnableDiagnostics) {
   scope: backendApp
   name: 'siem-stream'
   properties: {
@@ -356,7 +395,7 @@ resource backendDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' 
   }
 }
 
-resource frontendDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (enableDiagnostics) {
+resource frontendDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (effectiveEnableDiagnostics) {
   scope: frontendApp
   name: 'siem-stream'
   properties: {
@@ -370,7 +409,7 @@ resource frontendDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview'
   }
 }
 
-resource kvDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (enableDiagnostics) {
+resource kvDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (effectiveEnableDiagnostics) {
   scope: keyVault
   name: 'siem-stream'
   properties: {
@@ -384,7 +423,7 @@ resource kvDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if 
 }
 
 // ── Scheduled Scan Function App (Consumption plan) ─────────────────────────
-resource funcStorage 'Microsoft.Storage/storageAccounts@2023-01-01' = if (enableScheduler) {
+resource funcStorage 'Microsoft.Storage/storageAccounts@2023-01-01' = if (effectiveEnableScheduler) {
   name: funcStorageName
   location: location
   sku: { name: 'Standard_LRS' }
@@ -396,7 +435,7 @@ resource funcStorage 'Microsoft.Storage/storageAccounts@2023-01-01' = if (enable
   }
 }
 
-resource funcPlan 'Microsoft.Web/serverfarms@2023-01-01' = if (enableScheduler) {
+resource funcPlan 'Microsoft.Web/serverfarms@2023-01-01' = if (effectiveEnableScheduler) {
   name: '${funcName}-plan'
   location: location
   sku: { name: 'Y1', tier: 'Dynamic' }
@@ -404,7 +443,7 @@ resource funcPlan 'Microsoft.Web/serverfarms@2023-01-01' = if (enableScheduler) 
   kind: 'functionapp'
 }
 
-resource funcApp 'Microsoft.Web/sites@2023-01-01' = if (enableScheduler) {
+resource funcApp 'Microsoft.Web/sites@2023-01-01' = if (effectiveEnableScheduler) {
   name: funcName
   location: location
   kind: 'functionapp,linux'
@@ -426,12 +465,61 @@ resource funcApp 'Microsoft.Web/sites@2023-01-01' = if (enableScheduler) {
         { name: 'BACKEND_API_AUDIENCE',                value: 'api://${azureClientId}' }
         { name: 'TEAMS_WEBHOOK_URL',                   value: teamsWebhookUrl }
         { name: 'DRIFT_CAT1_THRESHOLD',                value: string(driftCat1Threshold) }
+        { name: 'BUSINESS_HOURS_MODE',                 value: businessHoursMode ? 'true' : 'false' }
+        { name: 'BUSINESS_HOURS_TIME_ZONE',            value: businessHoursTimeZone }
+        { name: 'BUSINESS_HOURS_START_HOUR',           value: string(businessHoursStartHour) }
+        { name: 'BUSINESS_HOURS_END_HOUR',             value: string(businessHoursEndHour) }
+        { name: 'BUSINESS_HOURS_AUTO_SHUTDOWN',        value: autoShutdownOutsideBusinessHours ? 'true' : 'false' }
+        { name: 'BUSINESS_HOURS_START_CRON',           value: businessHoursStartCron }
+        { name: 'BUSINESS_HOURS_STOP_CRON',            value: businessHoursStopCron }
+        { name: 'AZURE_ARM_ENDPOINT',                  value: armHost }
+        { name: 'BACKEND_APP_RESOURCE_ID',             value: backendApp.id }
+        { name: 'FRONTEND_APP_RESOURCE_ID',            value: frontendApp.id }
+        { name: 'POSTGRES_SERVER_RESOURCE_ID',         value: pgServer.id }
       ]
     }
   }
 }
 
-resource funcDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (enableScheduler && enableDiagnostics) {
+resource schedulerOpsRole 'Microsoft.Authorization/roleDefinitions@2022-05-01-preview' = if (enableBusinessHoursShutdown) {
+  name: guid(subscription().id, resourceGroup().id, '${baseName}-ops-scheduler-role')
+  scope: resourceGroup()
+  properties: {
+    roleName: '${baseName}-ops-scheduler'
+    description: 'Least-privilege role so the scheduler Function can start/stop dashboard web apps and PostgreSQL.'
+    type: 'CustomRole'
+    assignableScopes: [
+      resourceGroup().id
+    ]
+    permissions: [
+      {
+        actions: [
+          'Microsoft.Web/sites/read'
+          'Microsoft.Web/sites/start/action'
+          'Microsoft.Web/sites/stop/action'
+          'Microsoft.DBforPostgreSQL/flexibleServers/read'
+          'Microsoft.DBforPostgreSQL/flexibleServers/start/action'
+          'Microsoft.DBforPostgreSQL/flexibleServers/stop/action'
+        ]
+        notActions: []
+        dataActions: []
+        notDataActions: []
+      }
+    ]
+  }
+}
+
+resource schedulerOpsAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableBusinessHoursShutdown) {
+  scope: resourceGroup()
+  name: guid(resourceGroup().id, funcApp.id, 'ops-scheduler-assignment')
+  properties: {
+    roleDefinitionId: schedulerOpsRole.id
+    principalId: funcApp.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource funcDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (effectiveEnableScheduler && effectiveEnableDiagnostics) {
   scope: funcApp
   name: 'siem-stream'
   properties: {
@@ -452,7 +540,10 @@ output redirectUriToConfigure string = 'https://${frontendApp.properties.default
 output dbServerFqdn string = pgServer.properties.fullyQualifiedDomainName
 output aiKey        string = appInsights.properties.InstrumentationKey
 output backendPrincipalId string = backendApp.identity.principalId
-output functionAppName string = enableScheduler ? funcApp.name : ''
-output functionPrincipalId string = enableScheduler ? funcApp.identity.principalId : ''
-output logAnalyticsWorkspaceId string = enableDiagnostics ? logAnalytics.id : ''
+output functionAppName string = effectiveEnableScheduler ? funcApp.name : ''
+output functionPrincipalId string = effectiveEnableScheduler ? funcApp.identity.principalId : ''
+output logAnalyticsWorkspaceId string = effectiveEnableDiagnostics ? logAnalytics.id : ''
+output effectiveAppServiceSku string = effectiveAppServiceSku
+output effectiveEnableScheduler bool = effectiveEnableScheduler
+output effectiveEnableDiagnostics bool = effectiveEnableDiagnostics
 

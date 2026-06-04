@@ -41,7 +41,18 @@ param(
   [string]$EnvName          = 'prod',
   [ValidateSet('AzureCloud','AzureUSGovernment','AzureUSGovernmentDoD')]
   [string]$CloudEnvironment = 'AzureCloud',
-  [string]$AppServiceSku    = 'B1'
+  [string]$AppServiceSku    = 'B1',
+  [int]$TrackedHostCount    = 25,
+  [bool]$AutoSizeByTrackedHosts = $true,
+  [bool]$EnableScheduler    = $true,
+  [bool]$EnableDiagnostics  = $true,
+  [bool]$BusinessHoursMode  = $false,
+  [string]$BusinessHoursTimeZone = 'UTC',
+  [ValidateRange(0,23)]
+  [int]$BusinessHoursStartHour = 8,
+  [ValidateRange(0,23)]
+  [int]$BusinessHoursEndHour = 18,
+  [bool]$AutoShutdownOutsideBusinessHours = $false
 )
 
 $ErrorActionPreference = 'Stop'
@@ -110,8 +121,17 @@ azd env set AZURE_CLIENT_SECRET  $reg.clientSecret   | Out-Null
 azd env set DB_ADMIN_PASSWORD    $dbPassword         | Out-Null
 azd env set MOCK_MODE            'false'             | Out-Null
 azd env set APP_SERVICE_SKU      $AppServiceSku      | Out-Null
+azd env set AUTO_SIZE_BY_TRACKED_HOSTS ($AutoSizeByTrackedHosts.ToString().ToLowerInvariant()) | Out-Null
+azd env set TRACKED_HOST_COUNT   $TrackedHostCount   | Out-Null
 azd env set ORG_NAME             $OrgName            | Out-Null
 azd env set CLOUD_ENVIRONMENT    $CloudEnvironment   | Out-Null
+azd env set ENABLE_SCHEDULER     ($EnableScheduler.ToString().ToLowerInvariant()) | Out-Null
+azd env set ENABLE_DIAGNOSTICS   ($EnableDiagnostics.ToString().ToLowerInvariant()) | Out-Null
+azd env set BUSINESS_HOURS_MODE  ($BusinessHoursMode.ToString().ToLowerInvariant()) | Out-Null
+azd env set BUSINESS_HOURS_TIME_ZONE $BusinessHoursTimeZone | Out-Null
+azd env set BUSINESS_HOURS_START_HOUR $BusinessHoursStartHour | Out-Null
+azd env set BUSINESS_HOURS_END_HOUR $BusinessHoursEndHour | Out-Null
+azd env set AUTO_SHUTDOWN_OUTSIDE_BUSINESS_HOURS ($AutoShutdownOutsideBusinessHours.ToString().ToLowerInvariant()) | Out-Null
 
 azd up --no-prompt
 if ($LASTEXITCODE -ne 0) { Write-Error 'azd up failed. See output above.'; exit $LASTEXITCODE }
