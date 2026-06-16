@@ -31,6 +31,7 @@ const NAV: NavGroup[] = [
       { key: 'explorer',  label: 'Cloud Explorer',   icon: 'AzureLogo',        path: '/explorer' },
       { key: 'inventory', label: 'Machine Inventory',icon: 'ServerEnviroment', path: '/inventory' },
       { key: 'groups',    label: 'Resource Groups',  icon: 'Group',            path: '/groups/all' },
+      { key: 'pools',     label: 'Asset Pools',      icon: 'BranchMerge',      path: '/pools' },
     ],
   },
   {

@@ -41,11 +41,16 @@ interface TenantSummary {
   id: string; name: string; subscriptionCount: number; machineCount: number;
   avgScore: number; rollup: Rollup;
 }
+interface PoolSummary {
+  id: string; name: string; role?: string | null;
+  memberCount: number; answerCount: number; avgScore: number; rollup: Rollup;
+}
 
 export default function DashboardPage() {
   const navigate = useNavigate();
   const [kpis,    setKpis]    = useState<Kpis | null>(null);
   const [tenants, setTenants] = useState<TenantSummary[]>([]);
+  const [pools,   setPools]   = useState<PoolSummary[]>([]);
   const [machines, setMachines] = useState<any[]>([]);
   const [scans,   setScans]   = useState<Scan[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,6 +71,11 @@ export default function DashboardPage() {
         setTenants(hRes.data.tenants);
         setMachines(mRes.data.data);
         setScans(sRes.data.data);
+        // Pools are optional — failures (e.g. mock mode) must not break the dashboard.
+        try {
+          const pRes = await api.get<{ data: PoolSummary[] }>('/api/pools');
+          setPools(pRes.data.data);
+        } catch { /* pools unavailable — section simply hides */ }
       } catch (e: any) {
         setError(e?.message || 'Failed to load dashboard');
       } finally {
@@ -173,6 +183,45 @@ export default function DashboardPage() {
           ))}
         </Stack>
       </div>
+
+      {/* Asset Pool tiles — optional drill-down lens, shown only when pools exist */}
+      {pools.length > 0 && (
+        <div style={{ background: '#fff', border: '1px solid #edebe9', borderRadius: 8, padding: 20 }}>
+          <Stack horizontal horizontalAlign="space-between" verticalAlign="center" style={{ marginBottom: 12 }}>
+            <Text variant="large" style={{ fontWeight: 600 }}>Asset Pools</Text>
+            <Text style={{ color: '#605e5c', fontSize: 12 }}>Role-based rollup. Click a tile to drill into the pool.</Text>
+          </Stack>
+          <Stack horizontal tokens={{ childrenGap: 12 }} wrap>
+            {pools.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => navigate('/pools')}
+                style={{
+                  background: '#fafafa', border: '1px solid #edebe9', borderRadius: 8,
+                  padding: 16, minWidth: 260, textAlign: 'left', cursor: 'pointer',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <i className="ms-Icon ms-Icon--BranchMerge" style={{ color: '#0078d4', fontSize: 18 }} />
+                  <span style={{ fontWeight: 600 }}>{p.name}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 6 }}>
+                  <span style={{ fontSize: 28, fontWeight: 700, color: scoreColor(p.avgScore) }}>{p.memberCount ? `${p.avgScore}%` : '—'}</span>
+                  {p.memberCount > 0 && <ComplianceBadge score={p.avgScore} />}
+                </div>
+                <div style={{ color: '#605e5c', fontSize: 12, marginTop: 4 }}>
+                  {p.role ? `${p.role} · ` : ''}{p.memberCount} machines · {p.answerCount} shared answers
+                </div>
+                <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
+                  <Pill color="#a4262c" label="I"   value={p.rollup.catIOpen}   />
+                  <Pill color="#ca5010" label="II"  value={p.rollup.catIIOpen}  />
+                  <Pill color="#605e5c" label="III" value={p.rollup.catIIIOpen} />
+                </div>
+              </button>
+            ))}
+          </Stack>
+        </div>
+      )}
 
       {/* Charts row */}
       <Stack horizontal tokens={{ childrenGap: 16 }} wrap>

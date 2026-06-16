@@ -13,6 +13,8 @@ import { createError } from '../middleware/errorHandler';
 import { recordAudit } from '../auth';
 import { requirePermission, scopeByMachineParam } from '../middleware/authz';
 import { parsePage, parsePageSize } from '../utils/paging';
+import { platformInfoOf } from '../utils/platform';
+import { poolsForMachine, upsertAndApplyManualAnswer } from '../services/manualAnswers';
 
 const router = Router();
 const MOCK_MODE = () => process.env.MOCK_MODE === 'true';
@@ -122,8 +124,12 @@ router.get('/:id', async (req, res, next) => {
     const notApplicable = findings.filter((f) => f.status === 'not_applicable').length;
     const notReviewed = findings.filter((f) => f.status === 'not_reviewed').length;
     const denom = findings.length - notApplicable;
+    const platform = platformInfoOf(machine);
+    const pools = await poolsForMachine(AppDataSource, machine);
     return res.json({
       ...machine,
+      platform,
+      pools: pools.map((p) => ({ id: p.id, name: p.name, role: p.role })),
       findings,
       summary: {
         total: findings.length,
@@ -142,6 +148,11 @@ router.get('/:id', async (req, res, next) => {
 // PATCH /api/machines/:machineId/findings/:findingId
 router.patch('/:machineId/findings/:findingId', requirePermission('findings:write', scopeByMachineParam('machineId')), async (req, res, next) => {
   const { status, comments, findingDetails } = req.body;
+  // applyTo: 'machine' (default) | 'pool' | 'platform' — when 'pool'/'platform'
+  // the answer is authored once at that scope and inherited by every member.
+  const applyTo: 'machine' | 'pool' | 'platform' =
+    req.body?.applyTo === 'pool' || req.body?.applyTo === 'platform' ? req.body.applyTo : 'machine';
+  const poolId: string | undefined = req.body?.poolId;
 
   if (MOCK_MODE()) {
     const finding = mockStore.findings.find(
@@ -202,9 +213,53 @@ router.patch('/:machineId/findings/:findingId', requirePermission('findings:writ
       findingDetails: finding.findingDetails,
     };
 
+    // Broader-scope authoring: write the answer once at pool/platform scope and
+    // fan it out to every member (including this machine) via the service.
+    if (applyTo !== 'machine') {
+      if (status === undefined) {
+        return next(createError('status is required when applying to a pool or platform', 400, 'VALIDATION_ERROR'));
+      }
+      let scopeId: string;
+      if (applyTo === 'pool') {
+        if (!poolId) return next(createError('poolId is required when applyTo=pool', 400, 'VALIDATION_ERROR'));
+        scopeId = poolId;
+      } else {
+        scopeId = platformInfoOf(finding.machine ?? (await machineRepo.findOne({ where: { id: req.params.machineId } }))!).key;
+      }
+      // Clear any machine-scoped lock on this finding so the broader answer lands.
+      if (finding.manualAnswerScope === 'machine') {
+        finding.manualAnswerScope = null;
+        finding.manualAnswerScopeId = null;
+        await findingRepo.save(finding);
+      }
+      const result = await upsertAndApplyManualAnswer(AppDataSource, {
+        scopeType: applyTo,
+        scopeId,
+        controlId: finding.controlId,
+        status,
+        comments,
+        findingDetails,
+        answeredBy: req.principal?.objectId ?? null,
+      });
+      await recordAudit(req, {
+        action: `manualAnswer.${applyTo}.upserted`,
+        entityType: 'manual_answer',
+        entityId: result.answer.id,
+        before,
+        after: { scopeId, controlId: finding.controlId, status, applied: result.applied },
+        result: 'Success',
+      });
+      const updated = await findingRepo.findOne({ where: { id: finding.id } });
+      return res.json({ ...updated, appliedTo: applyTo, scopeId, applied: result.applied });
+    }
+
     if (status !== undefined) finding.status = status;
     if (comments !== undefined) finding.comments = comments;
     if (findingDetails !== undefined) finding.findingDetails = findingDetails;
+    // A direct edit is always machine-scoped and takes precedence over inheritance.
+    finding.manualAnswerScope = 'machine';
+    finding.manualAnswerScopeId = null;
+    if (status !== undefined) finding.sourceType = 'manual';
     await findingRepo.save(finding);
 
     // Recompute machine compliance score

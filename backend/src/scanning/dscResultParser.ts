@@ -37,6 +37,7 @@ import { FindingEntity } from '../models/Finding';
 import { ControlEntity } from '../models/Control';
 import { MachineEntity } from '../models/Machine';
 import { StigVersionEntity } from '../models/StigVersion';
+import { shouldReplaceFinding } from './sourceFidelity';
 import { logger } from '../utils/logger';
 
 /** Raw JSON shape output by the PowerSTIG audit script */
@@ -173,22 +174,18 @@ export async function parseStigResults(
     });
 
     if (existingFinding) {
+      // Best-source precedence: PowerSTIG reads real OS state and is the most
+      // authoritative automated source, but it must still not overwrite an
+      // equal-or-higher source (another in-guest run) or a human reviewer's
+      // decision. The centralized helper makes that call consistently.
+      if (!shouldReplaceFinding(existingFinding.sourceType, 'powerstig')) {
+        continue;
+      }
       const previousStatus = existingFinding.status;
       existingFinding.status     = newStatus;
       existingFinding.comments   = raw.Reason || existingFinding.comments;
+      existingFinding.sourceType = 'powerstig';
       existingFinding.reviewedAt = new Date();
-
-      // Preserve manual overrides: if reviewer marked as 'not_applicable' or 'not_a_finding',
-      // only override back to 'open' if it's now failing
-      if (
-        (existingFinding.status === 'not_applicable' || existingFinding.status === 'not_a_finding') &&
-        newStatus !== 'open'
-      ) {
-        // Keep manual override unless it newly actively fails
-        existingFinding.status = existingFinding.status;
-      } else {
-        existingFinding.status = newStatus;
-      }
 
       await findingRepo.save(existingFinding);
       if (previousStatus !== existingFinding.status) {
@@ -201,6 +198,7 @@ export async function parseStigResults(
         controlId:    resolvedControl.id,
         status:       newStatus,
         severity:     resolvedControl.severity,
+        sourceType:   'powerstig',
         comments:     raw.Reason || null,
         reviewedAt:   new Date(),
         dueDate:      computeDueDate(resolvedControl.severity, newStatus),

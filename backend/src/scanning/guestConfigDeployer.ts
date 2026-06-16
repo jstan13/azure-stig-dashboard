@@ -31,6 +31,7 @@ import { DefaultAzureCredential } from '@azure/identity';
 import { DataSource } from 'typeorm';
 import { FindingEntity } from '../models/Finding';
 import { ControlEntity } from '../models/Control';
+import { shouldReplaceFinding } from './sourceFidelity';
 import { logger } from '../utils/logger';
 
 const GC_STORAGE_CONTAINER = process.env.GC_STORAGE_CONTAINER ?? 'stig-gc-packages';
@@ -281,7 +282,14 @@ export async function syncGcReportToDb(
     const existing = await findingRepo.findOne({ where: { machineId, controlId: control.id } });
 
     if (existing) {
+      // Best-source precedence: don't let Guest Configuration downgrade a
+      // higher-fidelity in-guest result (PowerSTIG/SCAP) or a human decision.
+      if (!shouldReplaceFinding(existing.sourceType, 'guest-configuration')) {
+        skipped++;
+        continue;
+      }
       existing.status     = status;
+      existing.sourceType = 'guest-configuration';
       existing.reviewedAt = report.startTime;
       if (resource.reasons.length > 0) {
         existing.comments = resource.reasons.join('; ');
@@ -295,6 +303,7 @@ export async function syncGcReportToDb(
           controlId:  control.id,
           status,
           severity:   control.severity,
+          sourceType: 'guest-configuration',
           comments:   resource.reasons.join('; ') || null,
           reviewedAt: report.startTime,
         } as any),

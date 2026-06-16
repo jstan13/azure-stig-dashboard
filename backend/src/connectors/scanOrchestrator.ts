@@ -28,6 +28,14 @@ import { ControlMappingEntity } from '../models/ControlMapping';
 import { SubscriptionEntity } from '../models/Subscription';
 import { ResourceGroupEntity } from '../models/ResourceGroup';
 import { AuditLogEntity } from '../models/AuditLog';
+import { StigVersionEntity } from '../models/StigVersion';
+import { shouldReplaceFinding } from '../scanning/sourceFidelity';
+import {
+  buildAssignmentName,
+  getVmGcComplianceReport,
+  syncGcReportToDb,
+} from '../scanning/guestConfigDeployer';
+import { reapplyAllForMachine } from '../services/manualAnswers';
 import { logger } from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -121,6 +129,46 @@ export class ScanOrchestrator {
         `[Orchestrator] Wrote ${findingResults.total} finding(s) (${findingResults.open} open)`,
       );
 
+      // ── Step 6b: Guest Configuration (in-guest) ingestion ──────────────
+      // Azure Policy + Defender only see cloud-plane posture (~5-15% of a STIG).
+      // The bulk of a STIG is in-guest OS state, surfaced here via Azure Guest
+      // Configuration. Results flow through the same best-source precedence, so
+      // they upgrade the matching control-plane findings without downgrading any
+      // higher-fidelity PowerSTIG/SCAP result already on record.
+      // Set GUEST_CONFIG_INGEST=off to skip (e.g. when GC is not deployed).
+      if (process.env.GUEST_CONFIG_INGEST !== 'off') {
+        try {
+          const gcSynced = await ingestGuestConfiguration(machines);
+          if (gcSynced > 0) {
+            logger.info(
+              `[Orchestrator] Guest Configuration synced ${gcSynced} in-guest finding(s)`,
+            );
+          }
+        } catch (gcErr: any) {
+          logger.warn(
+            `[Orchestrator] Guest Configuration ingestion skipped: ${gcErr?.message}`,
+          );
+        }
+      }
+
+      // ── Step 6c: Inherit shared manual answers (pool / platform) ───────
+      // Manual STIG answers authored once at a pool or platform scope are
+      // re-applied here so newly-discovered machines inherit them and edits
+      // re-propagate. Machine-specific answers always take precedence.
+      for (const machine of machines) {
+        try {
+          await reapplyAllForMachine(AppDataSource, machine);
+        } catch (maErr: any) {
+          logger.warn(
+            `[Orchestrator] Manual-answer inheritance skipped for ${machine.name}: ${maErr?.message}`,
+          );
+        }
+      }
+
+      // Recompute authoritative totals from the DB: the GC step may have changed
+      // statuses via best-source precedence after the policy/defender counts.
+      const totals = await summariseMachineFindings(machines);
+
       // ── Step 7: Update machine compliance scores and lastScanDate ──────
       const completedAt = new Date();
       await updateMachineRollups(machines, completedAt);
@@ -137,9 +185,9 @@ export class ScanOrchestrator {
           : options.since
             ? 'incremental'
             : 'full',
-        openCount: findingResults.open,
-        totalControls: findingResults.total,
-        compliantControls: findingResults.compliant,
+        openCount: totals.open,
+        totalControls: totals.total,
+        compliantControls: totals.compliant,
       });
 
       // ── Step 9: Audit ──────────────────────────────────────────────────
@@ -154,8 +202,8 @@ export class ScanOrchestrator {
             result: 'Success',
             details: {
               machineCount: machines.length,
-              findingCount: findingResults.total,
-              openCount: findingResults.open,
+              findingCount: totals.total,
+              openCount: totals.open,
               durationMs: Date.now() - start,
             },
           }),
@@ -167,8 +215,8 @@ export class ScanOrchestrator {
       return {
         scanId: summaryScanId,
         machineCount: machines.length,
-        findingCount: findingResults.total,
-        openCount: findingResults.open,
+        findingCount: totals.total,
+        openCount: totals.open,
         durationMs: Date.now() - start,
       };
     } catch (err: any) {
@@ -388,6 +436,13 @@ async function upsertFinding(
     where: { machineId: data.machineId, controlId: data.controlId },
   });
   if (existing) {
+    // Best-source selection: only let this result overwrite the one already on
+    // record if it comes from an equal-or-higher-fidelity source. A control-plane
+    // signal (Policy/Defender) must never downgrade a high-fidelity in-guest
+    // result, and no automated scan may overwrite a human reviewer's decision.
+    if (!shouldReplaceFinding(existing.sourceType, data.sourceType)) {
+      return existing;
+    }
     existing.status = data.status;
     if (data.severity) existing.severity = data.severity;
     existing.sourceType = data.sourceType;
@@ -481,6 +536,134 @@ async function persistScans(args: PersistScansArgs): Promise<string> {
   });
   await scanRepo.save(summary);
   return summary.id;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Guest Configuration (in-guest) ingestion
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface ResolvedStigVersion {
+  stigVersionId: string;
+  benchmarkId: string;
+  version: string;
+}
+
+/**
+ * Resolve the active STIG version that applies to a machine's OS so we can build
+ * the Guest Configuration assignment name and map GC resources back to controls.
+ * Best-effort keyword match against the benchmark platform/title; returns null
+ * when no active benchmark matches (the GC step is then skipped for that host).
+ */
+async function resolveActiveStigVersion(
+  osType?: string,
+  osVersion?: string,
+): Promise<ResolvedStigVersion | null> {
+  const versionRepo = AppDataSource.getRepository(StigVersionEntity);
+  const versions = await versionRepo.find({
+    where: { status: 'active' },
+    relations: ['benchmark'],
+  });
+  if (!versions.length) return null;
+
+  const tokens = `${osType ?? ''} ${osVersion ?? ''}`
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((t) => t.length >= 2);
+  if (!tokens.length) return null;
+
+  let best: { v: StigVersionEntity; score: number } | null = null;
+  for (const v of versions) {
+    const haystack =
+      `${v.benchmark?.platform ?? ''} ${v.benchmark?.title ?? ''} ${v.benchmark?.benchmarkId ?? ''}`.toLowerCase();
+    let score = 0;
+    for (const token of tokens) {
+      if (haystack.includes(token)) score += token.length;
+    }
+    if (score > 0 && (!best || score > best.score)) best = { v, score };
+  }
+  if (!best || !best.v.benchmark) return null;
+
+  return {
+    stigVersionId: best.v.id,
+    benchmarkId: best.v.benchmark.benchmarkId,
+    version: best.v.version,
+  };
+}
+
+/**
+ * Pull the latest Azure Guest Configuration compliance report for each Azure VM
+ * and sync it into Findings. Per-machine failures (e.g. GC not assigned) are
+ * swallowed so a missing in-guest source degrades gracefully to control-plane
+ * data. Arc-connected machines are covered by the PowerSTIG runner path.
+ */
+async function ingestGuestConfiguration(
+  machines: MachineEntity[],
+): Promise<number> {
+  const versionCache = new Map<string, ResolvedStigVersion | null>();
+  let synced = 0;
+
+  for (const m of machines) {
+    // Only native Azure VMs expose the VM Guest Configuration report API here.
+    if (!m.resourceId.includes('/virtualMachines/')) continue;
+
+    const osKey = `${m.osType}|${m.osVersion ?? ''}`;
+    let resolved = versionCache.get(osKey);
+    if (resolved === undefined) {
+      resolved = await resolveActiveStigVersion(m.osType, m.osVersion);
+      versionCache.set(osKey, resolved);
+    }
+    if (!resolved) continue;
+
+    try {
+      const assignmentName = buildAssignmentName(
+        resolved.benchmarkId,
+        resolved.version,
+      );
+      const report = await getVmGcComplianceReport(
+        m.subscriptionId,
+        m.resourceGroupName,
+        m.name,
+        assignmentName,
+      );
+      if (!report) continue;
+
+      const result = await syncGcReportToDb(
+        report,
+        m.id,
+        resolved.stigVersionId,
+        AppDataSource,
+      );
+      synced += result.updated;
+    } catch (err: any) {
+      logger.warn(
+        `[Orchestrator] GC sync failed for ${m.name}: ${err?.message}`,
+      );
+    }
+  }
+
+  return synced;
+}
+
+/**
+ * Recompute finding totals for a set of machines straight from the DB so the
+ * scan summary reflects the final, best-source-resolved statuses.
+ */
+async function summariseMachineFindings(
+  machines: MachineEntity[],
+): Promise<{ total: number; open: number; compliant: number }> {
+  const findingRepo = AppDataSource.getRepository(FindingEntity);
+  let total = 0;
+  let open = 0;
+  let compliant = 0;
+
+  for (const m of machines) {
+    const findings = await findingRepo.find({ where: { machineId: m.id } });
+    total += findings.length;
+    open += findings.filter((f) => f.status === 'open').length;
+    compliant += findings.filter((f) => f.status === 'not_a_finding').length;
+  }
+
+  return { total, open, compliant };
 }
 
 function mapPolicyState(state: string): string {

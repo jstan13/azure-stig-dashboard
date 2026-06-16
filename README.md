@@ -355,7 +355,7 @@ This dashboard is the **central system of record and reporting layer** for STIG 
 | **Microsoft Defender for Cloud** | CSPM + workload protection | **Ingested** — [`defenderConnector.ts`](backend/src/connectors/defenderConnector.ts) maps assessment IDs → STIG controls |
 | **Azure Resource Graph / ARM** | Resource inventory | **Ingested** — [`resourceGraphConnector.ts`](backend/src/connectors/resourceGraphConnector.ts), [`armConnector.ts`](backend/src/connectors/armConnector.ts) |
 | **Azure Arc** | On-prem/multi-cloud machine onboarding | **Required** for non-Azure hosts you want to scan |
-| **Azure Guest Configuration** | Push DSC/PowerSTIG to VMs and Arc machines | **Used** — [`guestConfigDeployer.ts`](backend/src/scanning/guestConfigDeployer.ts) |
+| **Azure Guest Configuration** | Push DSC/PowerSTIG to VMs and Arc machines | **Required for full STIG coverage** — [`guestConfigDeployer.ts`](backend/src/scanning/guestConfigDeployer.ts). Azure Policy + Defender alone cover only ~5–15% of a STIG (cloud-plane posture). The remaining in-guest OS settings are surfaced through Guest Configuration (or the PowerSTIG/SCAP Run Command path). See [Source coverage & precedence](#source-coverage--precedence). |
 | **ACAS / Tenable Nessus** | Vulnerability (CVE) scanning | **Keep separate** — different data class (CVEs ≠ STIG rules); roadmap item below |
 | **Splunk / Microsoft Sentinel** | SIEM / log correlation | **Keep** — point at this app's App Insights workspace; roadmap for native push |
 | **Wazuh / OSSEC** | HIDS + SCAP | **Keep** if already deployed; we don't replace HIDS |
@@ -394,6 +394,122 @@ Azure VMs · Azure Arc machines ─────────────┘
 
 ---
 
+### Source coverage & precedence
+
+A single STIG control on a single host can be evaluated by more than one source.
+They do **not** see the same things, so the dashboard records the result from the
+**highest-fidelity source** for each `(machine, control)` pair and never lets a
+weaker signal downgrade a stronger one. This selection is centralized in
+[`sourceFidelity.ts`](backend/src/scanning/sourceFidelity.ts) and applied by every
+ingestion path (scan orchestrator, PowerSTIG/DSC parser, SCAP parser, Guest
+Configuration sync).
+
+| Source | `sourceType` | Sees | Approx. STIG coverage | Fidelity |
+|---|---|---|---|---|
+| Human reviewer (manual / STIG Manager edit) | `manual`, `stig-manager` | Reviewer decisions, NA justifications, risk acceptance | n/a | **Highest — never auto-overwritten** |
+| PowerSTIG (DSC) | `powerstig` | Real in-guest OS state (registry, audit policy, user rights, services, …) | ~80–90% | 100 |
+| DISA SCC | `scc` | Windows SCAP/ARF in-guest results | ~80–90% | 95 |
+| OpenSCAP / SCAP | `openscap`, `scap` | Linux/Windows SCAP/ARF in-guest results | ~80–90% | 90 |
+| **Azure Guest Configuration** | `guest-configuration` | In-guest OS state via the GC agent (agentless to operate, fleet-wide) | ~80–90% | 85 |
+| Microsoft Defender for Cloud | `defender` | Cloud-plane CSPM posture | thin slice | 50 |
+| Azure Policy | `azure-policy` | Cloud-plane resource configuration | thin slice | 40 |
+| Azure Resource Graph / ARM | `resource-graph` | Inventory / metadata only | none (inventory) | 20 |
+
+**Why Guest Configuration is required for full coverage.** Azure Policy and
+Defender for Cloud observe only the cloud control plane — they can answer a small
+set of high-level controls (MFA, disk encryption, anti-malware presence, network
+exposure) but **cannot read in-guest OS settings**, which are the bulk of any
+STIG. To raise coverage from ~5–15% to ~80–90% you must deploy an in-guest
+source. Azure Guest Configuration is the recommended fleet-wide option (it also
+covers Azure Arc machines); the PowerSTIG/SCAP Run Command path is the
+alternative. The remaining ~10–20% are pure `Manual` checks (documentation,
+physical, procedural) that have no automated check by design.
+
+The scan orchestrator pulls Guest Configuration compliance automatically during a
+scan. Set `GUEST_CONFIG_INGEST=off` to skip it (e.g. in environments where GC is
+not deployed); the scan then degrades gracefully to control-plane-only data.
+
+---
+
+### Control mapping build-out (Policy/Defender → STIG)
+
+Cloud-plane findings (Azure Policy, Defender) arrive keyed by
+`policyDefinitionId` / assessment id. The dashboard needs a join from those ids to
+STIG controls; that join lives in the `control_mappings` table and is built by
+[`controlMappingSeeder.ts`](backend/src/data/controlMappingSeeder.ts) in two tiers:
+
+| Tier | Confidence | Source |
+|---|---|---|
+| **Direct** | 1 | Explicit STIG-rule → Azure-source pairs from [`docs/example-mapping.json`](docs/example-mapping.json) (override with `CONTROL_MAPPING_FILE`) and from each control's `azurePolicyIds` / `defenderRuleIds` columns. |
+| **Transitive** | 2 | Each rule's CCIs resolve to NIST 800-53 controls ([`cciNistMapping.ts`](backend/src/data/cciNistMapping.ts)); any Azure source known for a NIST control ([`nistAzurePolicyMap.ts`](backend/src/data/nistAzurePolicyMap.ts)) fans out to every rule sharing it. A handful of authoritative mappings thereby cover hundreds of related controls. |
+
+The seeder runs automatically after each STIG import. You can also drive it via the API:
+
+```http
+POST /api/controls/mappings/rebuild      # requires stig:import; rebuilds the table (real mode only)
+GET  /api/controls/mappings/coverage      # controls mapped, % coverage, breakdown by source & confidence
+```
+
+**Authoritative NIST → Azure Policy data.** The curated registry in
+`nistAzurePolicyMap.ts` is seeded with a representative subset. To pull the exact,
+tenant-current GUIDs from Microsoft's built-in *NIST SP 800-53 Rev. 5* initiative,
+run:
+
+```powershell
+./scripts/build-nist-policy-map.ps1   # writes backend/src/data/nistAzurePolicyMap.generated.json
+```
+
+The seeder automatically merges that generated overlay (or set
+`NIST_POLICY_MAP_FILE` to point elsewhere), then rebuild via the endpoint above.
+Using Azure-sourced GUIDs guarantees they match what the connectors observe at
+runtime.
+
+---
+
+### Manual answers: answer once for a pool or platform
+
+The ~10–20% of a STIG that is procedural/physical/documentation has no automated
+check — a human must record the decision. Re-answering identical checks on every
+Domain Controller (or every machine in a cloud) is wasteful, so manual answers
+can be authored once at a broader **scope** and inherited:
+
+| Scope | Applies to | Authored from |
+|---|---|---|
+| **Machine** | one machine's finding | machine detail → **Edit** finding → *This machine only* |
+| **Pool** | every machine in an [Asset Pool](#using-the-dashboard) (role group) | finding editor → *Apply to all machines in a pool* |
+| **Platform** | every machine on a derived platform (`azure`, `arc`, `arc-<cloud>`) | finding editor → *Apply to all machines on platform* |
+
+Precedence is **machine > pool > platform > automated**: a more specific answer
+is never overwritten by a broader one. The broader answers are stored in
+`manual_answers` (source of truth) and **applied** onto member findings, so:
+
+- newly-discovered machines automatically inherit applicable answers on their
+  next scan ([`reapplyAllForMachine`](backend/src/services/manualAnswers.ts)), and
+- editing one answer re-propagates to every member.
+
+Platforms are derived with no data entry: native Azure VMs are `azure`; Azure
+Arc-connected servers (which can run on-prem, AWS, or GCP and still report
+in-guest state through Azure) are `arc`, refined to `arc-<cloud>` when a cloud
+tag is present. See [`utils/platform.ts`](backend/src/utils/platform.ts).
+
+API:
+
+```http
+GET    /api/pools                                  list pools (+ member/answer counts)
+POST   /api/pools                                  create a pool
+GET    /api/pools/:id                              pool detail + members
+POST   /api/pools/:id/members                      add machines
+DELETE /api/pools/:id/members/:machineId           remove a machine
+PUT    /api/pools/:id/answers/:controlId           upsert + apply a pool answer
+GET    /api/pools/platforms                         list platforms (+ counts)
+PUT    /api/pools/platforms/:platform/answers/:controlId   upsert + apply a platform answer
+```
+
+Pool administration requires `collection:manage`; authoring answers requires
+`findings:write`.
+
+---
+
 ## Using the dashboard
 
 After signing in, the left rail groups every page into three sections.
@@ -406,6 +522,7 @@ After signing in, the left rail groups every page into three sections.
 | **Cloud Explorer**    | `/explorer`      | Azure-portal-style tree of management group → subscription → resource group → machine. Click any node for its filtered findings. |
 | **Machine Inventory** | `/inventory`     | Sortable / filterable table of every Azure + Arc machine. Click a row for the machine detail view (per-control status, comments, scan history, remediation actions). |
 | **Resource Groups**   | `/groups/all`    | Group-level rollup with per-group compliance score and open CAT I count. |
+| **Asset Pools**       | `/pools`         | Group machines by role (Domain Controllers, Web Servers, Build Servers…) so a manual STIG answer is authored **once** and inherited by every member. Also lists derived platforms. |
 
 ### Reporting
 
@@ -430,6 +547,29 @@ After signing in, the left rail groups every page into three sections.
 
 **1. Run a scan right now.**
 Open *Machine Inventory* → select machines → **Trigger scan**. The orchestrator chooses PowerSTIG (Windows) or OpenSCAP (Linux) automatically. Or hit `POST /api/scan/trigger` from a CI pipeline.
+
+**1a. Schedule automatic refreshes (how often *you* decide).**
+The dashboard is a **database that is refreshed by scans**, not a live query against Azure — so it only changes when a scan runs. Automated scans are **off by default**; an operator opts in:
+
+```bash
+azd env set SCAN_SCHEDULE_ENABLED true        # turn the scheduler on
+azd env set SCAN_CRON_SCHEDULE   "0 */6 * * *" # choose the cadence (every 6 h here)
+```
+
+Pick the cadence that matches how fresh you need the data:
+
+| Cadence | `SCAN_CRON_SCHEDULE` | Good for |
+|---|---|---|
+| Hourly        | `0 * * * *`   | Active remediation / near-live tracking |
+| Every 6 hours | `0 */6 * * *` | Balanced default for most teams |
+| Nightly (2AM) | `0 2 * * *`   | Steady-state monitoring (lightest load) |
+| Weekly (Sun)  | `0 2 * * 0`   | Slow-changing estates / audit prep |
+
+> **Resource overhead.** Each run is a **batch pull** across Resource Graph, Policy, Defender, ARM, and Guest Configuration. Cost scales with fleet size — roughly a few API calls per subscription plus per VM, so a few hundred VMs is a few minutes of work and a brief CPU/network spike on the backend container. Calls are **read-only** but count against ARM/Resource Graph throttling limits, so prefer **hourly-or-slower** on large fleets (very frequent schedules can hit HTTP 429). Each run also writes a `Scan` row + a compliance-history snapshot, so the DB grows slowly and linearly with frequency. **Overlapping runs are skipped** — if a scan is still going when the next tick fires, the tick is logged and dropped rather than stacking concurrent scans.
+
+> **First-time fill-in can take days.** The scheduler only surfaces what Azure has *already evaluated*. On a brand-new deployment the dashboard populates **gradually**: inventory (machines/OS/RGs) appears on the **first run**; Azure Policy + Defender posture (~5–15% of a STIG) appears once Azure finishes evaluating assignments (**~30 min, up to ~24 h**); and the bulk of a STIG (~80–90%) only after **Guest Configuration is deployed to the VMs and reports back** — which can take **hours to days** to fully populate across a fleet. Scanning more often does **not** speed up Azure's own evaluation; it just refreshes what is ready. Expect the compliance picture to climb over the first few days, then stabilise.
+
+For business-hours gating, retries, and bundling vulnerability sync + history snapshots, the [Azure Functions timer](functions/README.md) (`scheduledScan`) is an alternative that calls the same endpoint from outside the app.
 
 **2. Get a Teams alert when CAT I drift happens.**
 Set `TEAMS_WEBHOOK_URL` in azd (`azd env set TEAMS_WEBHOOK_URL https://outlook.office.com/...`) before `azd up`, or set it on the Function App after the fact. The `complianceDriftCheck` function runs every 6 hours and posts to the channel when CAT I open or critical/exploitable CVE counts cross your `DRIFT_CAT1_THRESHOLD`.

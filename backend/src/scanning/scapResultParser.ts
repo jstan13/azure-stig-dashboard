@@ -24,6 +24,7 @@ import { MachineEntity } from '../models/Machine';
 import { ScanEntity } from '../models/Scan';
 import { ControlEntity } from '../models/Control';
 import { ComplianceHistoryEntity } from '../models/ComplianceHistory';
+import { shouldReplaceFinding } from './sourceFidelity';
 import { logger } from '../utils/logger';
 
 type FindingStatus = 'open' | 'not_a_finding' | 'not_applicable' | 'not_reviewed';
@@ -181,10 +182,16 @@ async function upsertFinding(
     where: { machineId: data.machineId, controlId: data.controlId },
   });
   if (existing) {
+    // Best-source precedence: an in-guest SCAP result must not downgrade a
+    // higher-fidelity result or a human reviewer's decision already on record.
+    if (!shouldReplaceFinding(existing.sourceType, data.sourceType)) {
+      return;
+    }
     Object.assign(existing, {
       status:         data.status,
       findingDetails: data.findingDetails,
       comments:       data.comments,
+      sourceType:     data.sourceType,
       scanId:         data.scanId,
     });
     await repo.save(existing);

@@ -37,11 +37,27 @@ export interface Finding {
   comments?: string;
   findingDetails?: string;
   sourceType: string;
+  /** Provenance of a manual answer: machine | pool | platform | null. */
+  manualAnswerScope?: 'machine' | 'pool' | 'platform' | null;
+  manualAnswerScopeId?: string | null;
   lastUpdated?: string;
   control?: Control;
 }
 
+export interface AssetPoolRef {
+  id: string;
+  name: string;
+  role?: string | null;
+}
+
+export interface PlatformInfo {
+  key: string;
+  label: string;
+}
+
 export interface MachineDetail extends Machine {
+  platform?: PlatformInfo;
+  pools?: AssetPoolRef[];
   findings: Finding[];
   summary: {
     total: number;

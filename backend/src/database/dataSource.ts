@@ -24,6 +24,9 @@ import { CollectionEntity } from '../models/Collection';
 import { CollectionAssetEntity } from '../models/CollectionAsset';
 import { RoleBindingEntity } from '../models/RoleBinding';
 import { GroupRoleMappingEntity } from '../models/GroupRoleMapping';
+import { AssetPoolEntity } from '../models/AssetPool';
+import { AssetPoolMemberEntity } from '../models/AssetPoolMember';
+import { ManualAnswerEntity } from '../models/ManualAnswer';
 
 const isMockMode = process.env.MOCK_MODE === 'true';
 
@@ -64,6 +67,9 @@ export const AppDataSource = new DataSource({
     CollectionAssetEntity,
     RoleBindingEntity,
     GroupRoleMappingEntity,
+    AssetPoolEntity,
+    AssetPoolMemberEntity,
+    ManualAnswerEntity,
   ],
   migrations: ['dist/database/migrations/*.js'],
   migrationsTableName: 'migrations',

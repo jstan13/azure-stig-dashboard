@@ -23,6 +23,19 @@ export class FindingEntity {
   @Column({ type: 'text', nullable: true }) findingDetails!: string;
   /** Source of the finding: azure-policy | defender | resource-graph | manual */
   @Column({ default: 'azure-policy' }) sourceType!: string;
+  /**
+   * Provenance of a *manual* answer, when the current status was set by a human
+   * (directly or through inheritance). One of:
+   *   'machine'  — answered on this specific finding (machine-scoped).
+   *   'pool'     — inherited from an AssetPool ManualAnswer.
+   *   'platform' — inherited from a platform-wide ManualAnswer.
+   *   null       — automated/default status (never manually answered).
+   * Precedence: machine > pool > platform. A higher scope must never overwrite
+   * a lower (more specific) one.
+   */
+  @Column({ type: 'varchar', nullable: true }) manualAnswerScope!: 'machine' | 'pool' | 'platform' | null;
+  /** AssetPool id or platform key the inherited answer came from (null for machine/auto). */
+  @Column({ type: 'varchar', nullable: true }) manualAnswerScopeId!: string | null;
   /** Raw evidence payload from Azure (policy evaluation result, Defender alert, etc.) */
   @Column({ type: 'jsonb', nullable: true }) evidence!: Record<string, any>;
   /**

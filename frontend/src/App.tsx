@@ -8,6 +8,7 @@ import DashboardPage from './pages/DashboardPage';
 import CloudExplorerPage from './pages/CloudExplorerPage';
 import InventoryPage from './pages/InventoryPage';
 import MachinePage from './pages/MachinePage';
+import PoolsPage from './pages/PoolsPage';
 import GroupPage from './pages/GroupPage';
 import AuditPage from './pages/AuditPage';
 import StigLibraryPage from './pages/StigLibraryPage';
@@ -42,6 +43,7 @@ export default function App() {
               <Route path="/explorer" element={<CloudExplorerPage />} />
               <Route path="/inventory" element={<InventoryPage />} />
               <Route path="/machines/:id" element={<MachinePage />} />
+              <Route path="/pools" element={<PoolsPage />} />
               <Route path="/groups/:id" element={<GroupPage />} />
               <Route path="/audit" element={<AuditPage />} />
               <Route path="/stigs" element={<StigLibraryPage />} />

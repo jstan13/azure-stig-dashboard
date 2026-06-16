@@ -16,6 +16,7 @@ import { AuditLogEntity } from '../models/AuditLog';
 import { downloadStigZip } from './xccdfDownloader';
 import { parseXccdf, ParsedBenchmark } from './xccdfParser';
 import { fetchStigCatalog, filterCatalog, normaliseVersionString } from './stigCatalog';
+import { rebuildControlMappings } from '../data/controlMappingSeeder';
 import { logger } from '../utils/logger';
 
 export interface ImportOptions {
@@ -270,6 +271,19 @@ async function persistParsedBenchmark(
   );
 
   logger.info(`[STIGImporter] "${parsed.title}" ${parsed.version}: ${imported} new, ${updated} updated controls`);
+
+  // Build out Azure Policy / Defender control mappings for the freshly imported
+  // version: direct mappings from the curated file + per-control columns, then
+  // transitive expansion across shared NIST 800-53 controls (CCI-derived).
+  try {
+    const coverage = await rebuildControlMappings(ds, versionRecord.id);
+    logger.info(
+      `[STIGImporter] Control mappings for "${parsed.title}" ${parsed.version}: ` +
+        `${coverage.controlsMapped}/${coverage.controlsTotal} controls (${coverage.coveragePercent}%)`,
+    );
+  } catch (mapErr: any) {
+    logger.warn(`[STIGImporter] Control mapping build-out failed: ${mapErr?.message}`);
+  }
 
   return {
     benchmarkId: parsed.benchmarkId,

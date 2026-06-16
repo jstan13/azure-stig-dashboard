@@ -9,6 +9,7 @@ import {
   DefaultButton, PrimaryButton, DetailsList, DetailsListLayoutMode,
   SelectionMode, IColumn, CommandBar, ICommandBarItemProps,
   Panel, PanelType, Label, Dropdown, IDropdownOption, TextField,
+  ChoiceGroup, IChoiceGroupOption,
 } from '@fluentui/react';
 import { api } from '../hooks/useApi';
 import { usePermissions } from '../auth/AuthzProvider';
@@ -47,6 +48,8 @@ export default function MachinePage() {
   const [editStatus, setEditStatus] = useState('');
   const [editComments, setEditComments] = useState('');
   const [editDetails, setEditDetails] = useState('');
+  const [applyScope, setApplyScope] = useState<'machine' | 'pool' | 'platform'>('machine');
+  const [applyPoolId, setApplyPoolId] = useState<string>('');
   const [saving, setSaving] = useState(false);
 
   async function load() {
@@ -92,12 +95,18 @@ export default function MachinePage() {
 
   async function saveFinding() {
     if (!selectedFinding) return;
+    if (applyScope === 'pool' && !applyPoolId) {
+      alert('Select a pool to apply this answer to.');
+      return;
+    }
     setSaving(true);
     try {
       await api.patch(`/api/machines/${id}/findings/${selectedFinding.id}`, {
         status: editStatus,
         comments: editComments,
         findingDetails: editDetails,
+        applyTo: applyScope,
+        ...(applyScope === 'pool' ? { poolId: applyPoolId } : {}),
       });
       setSelectedFinding(null);
       await load();
@@ -135,12 +144,24 @@ export default function MachinePage() {
     { key: 'stigId', name: 'Rule', minWidth: 110, onRender: (f: Finding) => f.control?.stigId || '-' },
     { key: 'title', name: 'Title', minWidth: 260, isResizable: true, onRender: (f: Finding) => <span title={f.control?.title}>{f.control?.title?.slice(0, 70)}…</span> },
     { key: 'severity', name: 'Sev', minWidth: 60, onRender: (f: Finding) => f.severity },
-    { key: 'status', name: 'Status', minWidth: 110, onRender: (f: Finding) => statusBadge(f.status) },
+    { key: 'status', name: 'Status', minWidth: 110, onRender: (f: Finding) => (
+      <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 6 }}>
+        {statusBadge(f.status)}
+        {(f.manualAnswerScope === 'pool' || f.manualAnswerScope === 'platform') && (
+          <span
+            title={`Inherited from ${f.manualAnswerScope} answer`}
+            style={{ background: '#eff6fc', color: '#0078d4', padding: '1px 6px', borderRadius: 8, fontSize: 10, fontWeight: 600 }}
+          >
+            {f.manualAnswerScope === 'pool' ? 'Pool' : 'Platform'}
+          </span>
+        )}
+      </Stack>
+    ) },
     {
       key: 'edit', name: '', minWidth: 60,
       onRender: (f: Finding) => (
         canEditFindings
-          ? <DefaultButton text="Edit" styles={{ root: { height: 24, fontSize: 11 } }} onClick={() => { setSelectedFinding(f); setEditStatus(f.status); setEditComments(f.comments || ''); setEditDetails(f.findingDetails || ''); }} />
+          ? <DefaultButton text="Edit" styles={{ root: { height: 24, fontSize: 11 } }} onClick={() => { setSelectedFinding(f); setEditStatus(f.status); setEditComments(f.comments || ''); setEditDetails(f.findingDetails || ''); setApplyScope('machine'); setApplyPoolId(machine?.pools?.[0]?.id || ''); }} />
           : null
       ),
     },
@@ -245,6 +266,44 @@ export default function MachinePage() {
               value={editComments}
               onChange={(_e, v) => setEditComments(v || '')}
             />
+
+            {/* Apply scope: answer once for a whole pool or platform */}
+            <div style={{ background: '#faf9f8', border: '1px solid #edebe9', borderRadius: 6, padding: 12 }}>
+              <ChoiceGroup
+                label="Apply this answer to"
+                selectedKey={applyScope}
+                options={[
+                  { key: 'machine', text: 'This machine only' },
+                  {
+                    key: 'pool',
+                    text: 'All machines in a pool',
+                    disabled: !machine?.pools?.length,
+                  } as IChoiceGroupOption,
+                  {
+                    key: 'platform',
+                    text: `All machines on platform${machine?.platform ? ` (${machine.platform.label})` : ''}`,
+                  },
+                ]}
+                onChange={(_e, o) => setApplyScope((o?.key as 'machine' | 'pool' | 'platform') || 'machine')}
+              />
+              {applyScope === 'pool' && (
+                <Dropdown
+                  label="Pool"
+                  styles={{ root: { marginTop: 8 } }}
+                  selectedKey={applyPoolId}
+                  options={(machine?.pools || []).map((p) => ({ key: p.id, text: p.role ? `${p.name} (${p.role})` : p.name }))}
+                  onChange={(_e, o) => setApplyPoolId(o?.key as string)}
+                />
+              )}
+              {!machine?.pools?.length && (
+                <Text style={{ display: 'block', marginTop: 6, color: '#605e5c', fontSize: 12 }}>
+                  This machine is not in any pool. Create one under Asset Pools to answer once for a group of servers.
+                </Text>
+              )}
+              <Text style={{ display: 'block', marginTop: 6, color: '#605e5c', fontSize: 12 }}>
+                Pool/platform answers are authored once and inherited by every member; a machine-specific answer always takes precedence.
+              </Text>
+            </div>
             {selectedFinding.control?.checkContent && (
               <div style={{ background: '#f3f2f1', borderRadius: 6, padding: 12 }}>
                 <Label>Check Content</Label>

@@ -39,8 +39,10 @@ import emassRouter from './routes/emass';
 import vulnerabilitiesRouter from './routes/vulnerabilities';
 import meRouter from './routes/me';
 import collectionsRouter from './routes/collections';
+import poolsRouter from './routes/pools';
 
 import { startStigUpdateScheduler } from './stigs/stigUpdateScheduler';
+import { startScanScheduler } from './scanning/scanScheduler';
 
 // ─── Production safety: forbid MOCK_MODE in prod (Audit #1) ───────────────
 if (process.env.NODE_ENV === 'production' && process.env.MOCK_MODE === 'true') {
@@ -172,6 +174,7 @@ app.use('/api/emass', emassRouter);
 app.use('/api/vulnerabilities', vulnerabilitiesRouter);
 app.use('/api/me', meRouter);
 app.use('/api/collections', collectionsRouter);
+app.use('/api/pools', poolsRouter);
 
 // ─── Error handling ──────────────────────────────────────────────────────────
 app.use(errorHandler);
@@ -190,6 +193,8 @@ async function bootstrap() {
     // Start STIG update scheduler (skip in mock mode — no DB)
     if (process.env.MOCK_MODE !== 'true') {
       startStigUpdateScheduler(AppDataSource);
+      // Automated compliance scans (opt-in via SCAN_SCHEDULE_ENABLED=true)
+      startScanScheduler();
     }
   } catch (err) {
     logger.error('Failed to start application', err);
