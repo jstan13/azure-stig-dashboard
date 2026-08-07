@@ -180,11 +180,29 @@ async function runArcCommand(
  *   3. Runs Test-DscConfiguration in audit mode.
  *   4. Outputs results as JSON for the result parser.
  */
+/** Quote a string as a PowerShell single-quoted literal (escapes embedded quotes). */
+function psSingleQuote(value: string): string {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+/**
+ * Build the `Where-Object` rule filter. Rule IDs are validated against a strict
+ * STIG identifier pattern and quoted as PowerShell literals so a hostile rule ID
+ * cannot inject arbitrary commands into the Run Command payload (runs as SYSTEM).
+ */
+function buildRuleFilter(targetRuleIds?: string[]): string {
+  if (!targetRuleIds?.length) return '';
+  const valid = targetRuleIds.filter(
+    (id) => typeof id === 'string' && /^[A-Za-z0-9._-]{1,64}$/.test(id),
+  );
+  if (!valid.length) return '';
+  const list = valid.map(psSingleQuote).join(',');
+  return `$rules = $rules | Where-Object { $_.Id -in @(${list}) }`;
+}
+
 function buildAuditScript(opts: PowerStigRunOptions): string {
   const moduleVersion = '4.22.0'; // pinned PowerSTIG version — update quarterly if needed
-  const ruleFilter = opts.targetRuleIds?.length
-    ? `$rules = $rules | Where-Object { $_.Id -in @('${opts.targetRuleIds.join("','")}') }`
-    : '';
+  const ruleFilter = buildRuleFilter(opts.targetRuleIds);
 
   return `
 #Requires -RunAsAdministrator
@@ -203,7 +221,7 @@ $osCaption  = (Get-CimInstance Win32_OperatingSystem).Caption
 $osType     = if ($osCaption -match 'Server') { 'WindowsServer' } else { 'Windows10' }
 
 # ── 3. Get STIG rules ─────────────────────────────────────────────────────────
-$stig  = [STIG]::new($osType, '${opts.stigVersion}')
+$stig  = [STIG]::new($osType, ${psSingleQuote(opts.stigVersion)})
 $rules = $stig.RuleList
 ${ruleFilter}
 

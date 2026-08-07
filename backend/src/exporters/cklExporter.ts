@@ -52,6 +52,7 @@ export interface CKLFinding {
   severityJustification?: string;
   checkContent?: string;
   fixText?: string;
+  ccis?: string[];      // e.g. ["CCI-000130", "CCI-000135"]
 }
 
 /** Maps internal status strings to STIG Viewer status values */
@@ -89,32 +90,37 @@ export function generateCKL(options: CKLExportOptions): string {
 
   const now = new Date().toISOString().replace('T', ' ').replace('Z', '').slice(0, 19);
 
-  // Build VULN elements
+  // Build VULN elements. xml2js renders an array under a single key as
+  // repeated sibling elements, so `VULN` must be an array of VULN bodies —
+  // not an array of `{ VULN: ... }` wrappers spread into the parent object
+  // (that would produce invalid numeric element names).
   const vulns = findings.map((f) => ({
-    VULN: {
-      STIG_DATA: [
-        buildStigData('Vuln_Num',     f.vulnId),
-        buildStigData('Severity',     mapSeverity(f.severity)),
-        buildStigData('Group_Title',  `Group ID ${f.vulnId}`),
-        buildStigData('Rule_ID',      f.ruleId || `${f.vulnId}_rule`),
-        buildStigData('Rule_Ver',     f.stigRef || f.vulnId),
-        buildStigData('Rule_Title',   f.title || ''),
-        buildStigData('Vuln_Discuss', f.title || ''),
-        buildStigData('Check_Content', f.checkContent || ''),
-        buildStigData('Fix_Text',     f.fixText || ''),
-        buildStigData('CCI_REF',      'CCI-000130'),  // placeholder — real mapping in docs/
-      ],
-      STATUS:               mapStatus(f.status),
-      FINDING_DETAILS:      f.findingDetails || '',
-      COMMENTS:             f.comments || '',
-      SEVERITY_OVERRIDE:    f.severityOverride || '',
-      SEVERITY_JUSTIFICATION: f.severityJustification || '',
-    },
+    STIG_DATA: [
+      buildStigData('Vuln_Num',     f.vulnId),
+      buildStigData('Severity',     mapSeverity(f.severity)),
+      buildStigData('Group_Title',  `Group ID ${f.vulnId}`),
+      buildStigData('Rule_ID',      f.ruleId || `${f.vulnId}_rule`),
+      buildStigData('Rule_Ver',     f.stigRef || f.vulnId),
+      buildStigData('Rule_Title',   f.title || ''),
+      buildStigData('Vuln_Discuss', f.title || ''),
+      buildStigData('Check_Content', f.checkContent || ''),
+      buildStigData('Fix_Text',     f.fixText || ''),
+      // One CCI_REF per Control Correlation Identifier (STIG Viewer allows
+      // repeated CCI_REF entries). Emitted from the control's real `ccis`
+      // list so NIST 800-53 traceability is preserved in the export.
+      ...(f.ccis ?? [])
+        .filter((cci) => typeof cci === 'string' && cci.trim().length > 0)
+        .map((cci) => buildStigData('CCI_REF', cci.trim())),
+    ],
+    STATUS:               mapStatus(f.status),
+    FINDING_DETAILS:      f.findingDetails || '',
+    COMMENTS:             f.comments || '',
+    SEVERITY_OVERRIDE:    f.severityOverride || '',
+    SEVERITY_JUSTIFICATION: f.severityJustification || '',
   }));
 
   const checklistObj = {
     CHECKLIST: {
-      $: { xmlns: '' },
       ASSET: {
         ROLE:           'Workstation',
         ASSET_TYPE:     osType === 'Windows' ? 'Computing' : 'Computing',
@@ -146,7 +152,7 @@ export function generateCKL(options: CKLExportOptions): string {
               buildSiData('source',       'STIG.DOD.MIL'),
             ],
           },
-          ...vulns,
+          VULN: vulns,
         },
       },
     },

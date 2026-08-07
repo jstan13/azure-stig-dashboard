@@ -59,6 +59,9 @@ const parser = new XMLParser({
   textNodeName: '#text',
   parseTagValue: false,
   trimValues: true,
+  // Do not expand XML entities — defends against XXE / entity-expansion (billion
+  // laughs) attacks in untrusted STIG content.
+  processEntities: false,
   isArray: (tagName) => ['Group', 'Rule', 'ident', 'reference', 'fix'].includes(tagName),
 });
 

@@ -155,7 +155,8 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
     sku: { family: 'A', name: 'standard' }
     enableRbacAuthorization: true
     enableSoftDelete: true
-    softDeleteRetentionInDays: 7
+    enablePurgeProtection: true
+    softDeleteRetentionInDays: 90
     publicNetworkAccess: lockdownNetworking ? 'Disabled' : 'Enabled'
   }
 }

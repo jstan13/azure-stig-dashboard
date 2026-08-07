@@ -46,7 +46,11 @@ function sha256File(filePath: string): string {
 export async function downloadStigZip(url: string, knownHash?: string): Promise<DownloadResult> {
   ensureCache();
 
-  const filename = decodeURIComponent(url.split('/').pop() || 'stig.zip');
+  // Derive a safe filename: take the URL basename, strip any path separators or
+  // traversal sequences, and allow only filename-safe characters. Prevents a
+  // crafted URL from writing outside CACHE_DIR (path traversal).
+  const rawName = decodeURIComponent(url.split('/').pop() || 'stig.zip');
+  const filename = path.basename(rawName).replace(/[^A-Za-z0-9._-]+/g, '_') || 'stig.zip';
   const zipPath = path.join(CACHE_DIR, filename);
 
   // Check cache

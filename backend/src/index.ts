@@ -84,8 +84,17 @@ app.use(helmet({
     },
   },
 }));
+// CORS origin is locked to FRONTEND_URL. In production it MUST be https so that
+// credentialed (cookie/authorization) cross-origin requests cannot be sent to a
+// plaintext or misconfigured origin.
+const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+if (process.env.NODE_ENV === 'production' && !frontendUrl.startsWith('https://')) {
+  // eslint-disable-next-line no-console
+  console.error('FATAL: FRONTEND_URL must be an https:// URL when NODE_ENV=production');
+  process.exit(1);
+}
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: frontendUrl,
   credentials: true,
 }));
 app.use(compression());

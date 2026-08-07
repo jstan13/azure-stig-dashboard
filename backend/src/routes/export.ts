@@ -138,6 +138,7 @@ router.post(
             comments: f.comments || '',
             checkContent: control?.checkContent,
             fixText: control?.fixText,
+            ccis: control?.ccis,
           };
         });
 
@@ -284,6 +285,7 @@ router.post(
           comments: f.comments || '',
           checkContent: control?.checkContent,
           fixText: control?.fixText,
+          ccis: control?.ccis,
         };
       });
 

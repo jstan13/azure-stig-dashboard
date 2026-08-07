@@ -39,7 +39,10 @@ async function poamRequesterOid(req: import('express').Request): Promise<string 
   const { id } = req.params;
   const repo = AppDataSource.getRepository(PoamEntity);
   const poam = await repo.findOne({ where: [{ id }, { poamId: id }] });
-  return poam?.issoOid ?? undefined;
+  // Use the immutable, server-recorded creator OID for the separation-of-duties
+  // check. Fall back to issoOid only for legacy rows created before createdByOid
+  // existed. Never trust a client-supplied owner field for this check.
+  return poam?.createdByOid ?? poam?.issoOid ?? undefined;
 }
 
 // ── sequential POA&M counter (in-memory for mock; DB sequence in production) ──
@@ -156,6 +159,11 @@ router.post('/', requirePermission('poam:write'), async (req, res, next) => {
       assignedToOid, assignedToName, issoOid, countermeasures, resourcesRequired,
     } = req.body;
 
+    // Immutable creator identity taken from the verified token (never the body),
+    // used for the separation-of-duties check on approval.
+    const actor = (req as any).auth;
+    const createdByOid: string | undefined = actor?.oid ?? actor?.sub;
+
     if (!findingId || !weakness) {
       return next(createError('findingId and weakness are required', 400, 'VALIDATION_ERROR'));
     }
@@ -179,6 +187,7 @@ router.post('/', requirePermission('poam:write'), async (req, res, next) => {
         severity: finding.severity,
         scheduledCompletion: scheduledCompletion ?? dueDateBySeverity(finding.severity),
         assignedToOid, assignedToName, issoOid,
+        createdByOid,
         countermeasures, resourcesRequired,
         milestones: [],
         createdAt: new Date().toISOString(),
@@ -210,6 +219,7 @@ router.post('/', requirePermission('poam:write'), async (req, res, next) => {
       assignedToOid,
       assignedToName,
       issoOid,
+      createdByOid,
       countermeasures,
       resourcesRequired,
     });

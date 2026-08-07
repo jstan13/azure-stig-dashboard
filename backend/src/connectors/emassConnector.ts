@@ -95,6 +95,11 @@ let cachedClient: AxiosInstance | null = null;
 
 function buildClient(cfg: EmassConfig): AxiosInstance {
   if (cachedClient) return cachedClient;
+  // Never allow disabling eMASS server-certificate validation in production —
+  // this connects to a DoD authoritative system over mTLS.
+  if (process.env.EMASS_TLS_INSECURE === 'true' && process.env.NODE_ENV === 'production') {
+    throw new Error('EMASS_TLS_INSECURE=true is forbidden when NODE_ENV=production');
+  }
   const httpsAgent = new https.Agent({
     cert: cfg.certPem,
     key:  cfg.keyPem,

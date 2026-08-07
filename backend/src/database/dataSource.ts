@@ -92,6 +92,9 @@ function buildDbSsl(): false | { rejectUnauthorized: boolean; ca?: string } {
   if (process.env.DB_SSL !== 'true') return false;
   const ca = process.env.DB_SSL_CA?.trim() || undefined;
   const rejectUnauthorized = process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false';
+  if (!rejectUnauthorized && process.env.NODE_ENV === 'production') {
+    throw new Error('DB_SSL_REJECT_UNAUTHORIZED=false is forbidden when NODE_ENV=production');
+  }
   return { rejectUnauthorized, ...(ca ? { ca } : {}) };
 }
 

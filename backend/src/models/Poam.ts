@@ -67,6 +67,13 @@ export class PoamEntity {
   /** Azure AD OID of the ISSO who owns this POA&M */
   @Column({ nullable: true }) issoOid!: string;
 
+  /**
+   * Immutable Azure AD OID of the authenticated user who created this POA&M.
+   * Set server-side from the verified token; used for the separation-of-duties
+   * check on approval so the approver cannot be the creator.
+   */
+  @Column({ nullable: true }) createdByOid!: string;
+
   /** Delay reason (required when past due) */
   @Column({ type: 'text', nullable: true }) delayReason!: string;
 

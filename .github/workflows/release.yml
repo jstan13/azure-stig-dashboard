@@ -36,7 +36,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
+        with:
+          fetch-depth: 0
       - name: Resolve release tag
         id: tag
         run: |
@@ -51,6 +52,15 @@ jobs:
           TAG='${{ steps.tag.outputs.value }}'
           echo "Releasing $TAG"
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Bad tag: $TAG"; exit 1; }
+
+      - name: Verify commit is on main (supply-chain guard)
+        run: |
+          git fetch --no-tags --depth=2147483647 origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "Refusing to release: commit $GITHUB_SHA is not an ancestor of origin/main"
+            exit 1
+          fi
+          echo "Verified $GITHUB_SHA is on origin/main"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3

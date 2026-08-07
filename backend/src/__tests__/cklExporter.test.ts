@@ -10,6 +10,7 @@ const sampleFindings: CKLFinding[] = [
     status: 'open',
     findingDetails: 'Logon failure auditing is not configured.',
     comments: 'Scheduled for patching in next maintenance window.',
+    ccis: ['CCI-000172', 'CCI-000126'],
   },
   {
     vulnId: 'V-220701',
@@ -51,7 +52,7 @@ describe('CKL Exporter', () => {
   });
 
   it('should include XML declaration', () => {
-    expect(cklXml).toContain("<?xml version='1.0'");
+    expect(cklXml).toContain('<?xml version="1.0"');
   });
 
   it('should wrap content in CHECKLIST root element', () => {
@@ -100,5 +101,29 @@ describe('CKL Exporter', () => {
 
   it('should include COMMENTS', () => {
     expect(cklXml).toContain('Scheduled for patching');
+  });
+
+  it('should emit one CCI_REF per control CCI', () => {
+    expect(cklXml).toContain('<ATTRIBUTE_DATA>CCI-000172</ATTRIBUTE_DATA>');
+    expect(cklXml).toContain('<ATTRIBUTE_DATA>CCI-000126</ATTRIBUTE_DATA>');
+  });
+
+  it('should not emit the old hardcoded CCI placeholder', () => {
+    expect(cklXml).not.toContain('CCI-000130');
+  });
+
+  it('should omit CCI_REF for findings without CCIs', () => {
+    const noCci = generateCKL({
+      machineId: 'm-2',
+      machineName: 'HOST-2',
+      findings: [
+        {
+          vulnId: 'V-999999',
+          severity: 'low',
+          status: 'open',
+        },
+      ],
+    });
+    expect(noCci).not.toContain('CCI_REF');
   });
 });

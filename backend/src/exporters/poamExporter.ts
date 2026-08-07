@@ -21,8 +21,11 @@ export interface PoamRow {
 }
 
 function esc(val: unknown): string {
-  const s = val == null ? '' : String(val);
-  return s.includes(',') || s.includes('"') || s.includes('\n')
+  let s = val == null ? '' : String(val);
+  // Neutralise CSV/Excel formula injection (=, +, -, @, tab, CR) per OWASP by
+  // prefixing a leading apostrophe so spreadsheet apps treat the cell as text.
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')
     ? `"${s.replace(/"/g, '""')}"`
     : s;
 }
