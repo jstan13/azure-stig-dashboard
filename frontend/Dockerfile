@@ -19,6 +19,9 @@ RUN VITE_MOCK_MODE=false npm run build --workspace=frontend
 # ── Stage 2: Production nginx ─────────────────────────────────────────────────
 FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
 
+# This base image defaults to uid 101; apk and the chmod/chown below need root.
+USER root
+
 # envsubst (from gettext) is used by the entrypoint to render runtime-config.js
 RUN apk add --no-cache gettext
 
@@ -27,6 +30,9 @@ COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 COPY frontend/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 RUN chown -R 101:101 /usr/share/nginx/html
+
+# Drop back to the unprivileged nginx user for runtime.
+USER 101
 
 EXPOSE 8080
 
