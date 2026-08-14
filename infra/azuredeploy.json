@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "1819230487477372963"
+      "templateHash": "5677766461303376249"
     }
   },
   "parameters": {
@@ -401,6 +401,7 @@
           "alwaysOn": "[not(equals(variables('effectiveAppServiceSku'), 'F1'))]",
           "http20Enabled": true,
           "minTlsVersion": "1.2",
+          "ftpsState": "Disabled",
           "ipSecurityRestrictionsDefaultAction": "[if(parameters('lockdownNetworking'), 'Deny', 'Allow')]",
           "scmIpSecurityRestrictionsDefaultAction": "[if(parameters('lockdownNetworking'), 'Deny', 'Allow')]",
           "appSettings": [
@@ -535,6 +536,7 @@
           "appCommandLine": "npm start",
           "http20Enabled": true,
           "minTlsVersion": "1.2",
+          "ftpsState": "Disabled",
           "ipSecurityRestrictionsDefaultAction": "[if(parameters('lockdownNetworking'), 'Deny', 'Allow')]",
           "scmIpSecurityRestrictionsDefaultAction": "[if(parameters('lockdownNetworking'), 'Deny', 'Allow')]",
           "appSettings": [

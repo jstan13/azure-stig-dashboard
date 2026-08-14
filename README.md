@@ -234,7 +234,7 @@ azd up                              # provisions infra + builds + deploys
 `azd up` will:
 
 1. Provision the resource group + every resource defined in [infra/main.bicep](infra/main.bicep) (~10–15 min) including the **scheduled-scan Function App**, **Storage account**, and **Log Analytics workspace** for SIEM forwarding.
-2. Store `AZURE_CLIENT_SECRET` and `DATABASE_URL` in **Key Vault**, wired into App Service via Key Vault references — secrets are never logged.
+2. Store `AZURE-CLIENT-SECRET` and `DB-PASSWORD` in **Key Vault**, wired into App Service via Key Vault references — secrets are never logged.
 3. Grant the backend's system-assigned managed identity the **Key Vault Secrets User** role.
 4. Build the backend (`tsc`), frontend (`vite build`), and Function App (`tsc`) and deploy all three.
 5. Run the post-deploy hook ([scripts/post-deploy.ps1](scripts/post-deploy.ps1)) which grants the Function App MI the **operator** app role on the backend Entra registration via Microsoft Graph and verifies the `api://` Application ID URI is set.

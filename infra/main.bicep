@@ -250,6 +250,7 @@ resource backendApp 'Microsoft.Web/sites@2023-01-01' = {
       alwaysOn: effectiveAppServiceSku != 'F1'
       http20Enabled: true
       minTlsVersion: '1.2'
+      ftpsState: 'Disabled'
       ipSecurityRestrictionsDefaultAction: lockdownNetworking ? 'Deny' : 'Allow'
       scmIpSecurityRestrictionsDefaultAction: lockdownNetworking ? 'Deny' : 'Allow'
       ipSecurityRestrictions: [for (cidr, i) in allowedIngressCidrs: {
@@ -320,6 +321,7 @@ resource frontendApp 'Microsoft.Web/sites@2023-01-01' = {
       appCommandLine: 'npm start'
       http20Enabled: true
       minTlsVersion: '1.2'
+      ftpsState: 'Disabled'
       ipSecurityRestrictionsDefaultAction: lockdownNetworking ? 'Deny' : 'Allow'
       scmIpSecurityRestrictionsDefaultAction: lockdownNetworking ? 'Deny' : 'Allow'
       ipSecurityRestrictions: [for (cidr, i) in allowedIngressCidrs: {

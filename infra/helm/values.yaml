@@ -49,7 +49,6 @@ backend:
     MOCK_MODE: "false"
     DB_SSL: "true"
     # Set these via sealed secrets / Azure Key Vault CSI / Helm --set
-    DATABASE_URL: ""
     AZURE_TENANT_ID: ""
     AZURE_CLIENT_ID: ""
     SENDGRID_API_KEY: ""
