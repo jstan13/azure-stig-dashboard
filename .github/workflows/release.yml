@@ -130,9 +130,12 @@ jobs:
         run: |
           az bicep install
           az bicep build --file infra/main.bicep --outfile "$RUNNER_TEMP/azuredeploy.json"
-          # Ignore the _generator metadata block (embeds the Bicep CLI version).
-          jq 'del(.metadata._generator)' "$RUNNER_TEMP/azuredeploy.json" > "$RUNNER_TEMP/expected.json"
-          jq 'del(.metadata._generator)' infra/azuredeploy.json          > "$RUNNER_TEMP/actual.json"
+          # Ignore every _generator metadata block (embeds the Bicep CLI
+          # version). Modules compile to nested templates that carry their own,
+          # so this has to strip recursively rather than only at the top level.
+          STRIP='walk(if type == "object" and has("metadata") then .metadata |= del(._generator) else . end)'
+          jq "$STRIP" "$RUNNER_TEMP/azuredeploy.json" > "$RUNNER_TEMP/expected.json"
+          jq "$STRIP" infra/azuredeploy.json          > "$RUNNER_TEMP/actual.json"
           if ! diff -q "$RUNNER_TEMP/expected.json" "$RUNNER_TEMP/actual.json" >/dev/null; then
             echo "::error::Refusing to release: infra/azuredeploy.json does not match infra/main.bicep."
             diff -u "$RUNNER_TEMP/actual.json" "$RUNNER_TEMP/expected.json" | head -60
