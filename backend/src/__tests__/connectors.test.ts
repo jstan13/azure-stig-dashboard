@@ -2,8 +2,8 @@ import { ResourceGraphConnector } from '../connectors/resourceGraphConnector';
 import { PolicyConnector } from '../connectors/policyConnector';
 import { DefenderConnector } from '../connectors/defenderConnector';
 import { ARMConnector } from '../connectors/armConnector';
-import { mockStore } from '../../database/dataSource';
-import { seedMock } from '../../database/mockSeed';
+import { mockStore } from '../database/dataSource';
+import { seedMock } from '../database/mockSeed';
 
 // Seed mock data before tests
 beforeAll(() => {

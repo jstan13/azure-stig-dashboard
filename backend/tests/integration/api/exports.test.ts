@@ -15,6 +15,8 @@ process.env.MOCK_MODE = 'true';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { mockStore } = require('../../../src/database/dataSource');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
+const { seedMock } = require('../../../src/database/mockSeed');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const app = require('../../../src/index').default;
 
 const completeChain = () => ({
@@ -33,7 +35,15 @@ const completeChain = () => ({
 
 describe('POST /api/export/checklist mappingChain enforcement', () => {
   const originalStrict = process.env.STRICT_TRACEABILITY;
-  const machineId: string = mockStore.machines[0]?.id;
+  // The mock store is seeded asynchronously during data source init, so seed it
+  // explicitly here and resolve the fixture id afterwards rather than at
+  // describe-definition time (when machines[] is still empty).
+  let machineId: string;
+
+  beforeAll(() => {
+    seedMock(mockStore);
+    machineId = mockStore.machines[0]?.id;
+  });
 
   afterEach(() => {
     process.env.STRICT_TRACEABILITY = originalStrict;

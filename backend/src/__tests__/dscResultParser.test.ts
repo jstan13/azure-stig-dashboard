@@ -1,5 +1,8 @@
 /**
- * Tests for DSC result parser — extractJson() + status mapping
+ * Tests for DSC result parser — extractJson()
+ *
+ * extractJson() bounds the JSON block by the first '{' and last '}', so it
+ * tolerates arbitrary PowerShell preamble/epilogue around the payload.
  */
 
 import { extractJson, RawAuditOutput } from '../scanning/dscResultParser';
@@ -7,49 +10,45 @@ import { extractJson, RawAuditOutput } from '../scanning/dscResultParser';
 const VALID_JSON_OUTPUT = `
 Invoke-DscResource output:
 some preamble text...
-###JSON_BEGIN###
 {
-  "ComputerName": "WIN10-TEST-01",
-  "ScanDate": "2024-01-15T08:00:00Z",
-  "DSCVersion": "2.1.0",
+  "Machine": "WIN10-TEST-01",
+  "StigId": "Windows_10_STIG",
+  "Version": "V2R8",
+  "CheckedAt": "2024-01-15T08:00:00Z",
   "Results": [
     {
-      "ResourceId": "[Registry]V-220700",
-      "VulnNum": "V-220700",
-      "Result": "True",
-      "InDesiredState": true,
+      "RuleId": "V-220700",
       "CheckType": "RegistryCheck",
-      "Details": "Registry key matches expected value."
+      "Result": "Pass",
+      "Reason": "Registry key matches expected value.",
+      "Properties": { "ValueName": "AutoShareWks" }
     },
     {
-      "ResourceId": "[Registry]V-220701",
-      "VulnNum": "V-220701",
-      "Result": "False",
-      "InDesiredState": false,
+      "RuleId": "V-220701",
       "CheckType": "RegistryCheck",
-      "Details": "Key value was 0, expected 1."
+      "Result": "Fail",
+      "Reason": "Key value was 0, expected 1.",
+      "Properties": { "ValueName": "EnableLUA" }
     },
     {
-      "ResourceId": "[AuditPolicy]V-220705",
-      "VulnNum": "V-220705",
-      "Result": "True",
-      "InDesiredState": true,
+      "RuleId": "V-220705",
       "CheckType": "AuditPolicyCheck",
-      "Details": "Audit policy configured correctly."
+      "Result": "Pass",
+      "Reason": "Audit policy configured correctly.",
+      "Properties": {}
     }
   ]
 }
-###JSON_END###
 Scan complete.`;
 
-const NO_MARKERS_OUTPUT = `Just plain PowerShell output without any markers at all.`;
-const MALFORMED_JSON_OUTPUT = `###JSON_BEGIN###{ "broken": true, ###JSON_END###`;
+const NO_JSON_OUTPUT = `Just plain PowerShell output without any JSON at all.`;
+const MALFORMED_JSON_OUTPUT = `preamble { "broken": true, `;
 
 describe('extractJson', () => {
   test('extracts valid JSON block', () => {
     const result: RawAuditOutput | null = extractJson(VALID_JSON_OUTPUT);
     expect(result).not.toBeNull();
-    expect(result!.ComputerName).toBe('WIN10-TEST-01');
+    expect(result!.Machine).toBe('WIN10-TEST-01');
   });
 
   test('returns correct number of results', () => {
@@ -57,20 +56,21 @@ describe('extractJson', () => {
     expect(result!.Results).toHaveLength(3);
   });
 
-  test('parses InDesiredState=true as not_a_finding indicator', () => {
+  test('parses a passing rule result', () => {
     const result = extractJson(VALID_JSON_OUTPUT);
-    const passing = result!.Results.find((r) => r.VulnNum === 'V-220700');
-    expect(passing?.InDesiredState).toBe(true);
+    const passing = result!.Results.find((r) => r.RuleId === 'V-220700');
+    expect(passing?.Result).toBe('Pass');
   });
 
-  test('parses InDesiredState=false as open indicator', () => {
+  test('parses a failing rule result', () => {
     const result = extractJson(VALID_JSON_OUTPUT);
-    const failing = result!.Results.find((r) => r.VulnNum === 'V-220701');
-    expect(failing?.InDesiredState).toBe(false);
+    const failing = result!.Results.find((r) => r.RuleId === 'V-220701');
+    expect(failing?.Result).toBe('Fail');
+    expect(failing?.Reason).toContain('expected 1');
   });
 
-  test('returns null when no JSON markers present', () => {
-    const result = extractJson(NO_MARKERS_OUTPUT);
+  test('returns null when no JSON present', () => {
+    const result = extractJson(NO_JSON_OUTPUT);
     expect(result).toBeNull();
   });
 
@@ -92,8 +92,9 @@ describe('extractJson', () => {
 
   test('includes scan metadata', () => {
     const result = extractJson(VALID_JSON_OUTPUT);
-    expect(result!.ScanDate).toBe('2024-01-15T08:00:00Z');
-    expect(result!.DSCVersion).toBe('2.1.0');
+    expect(result!.StigId).toBe('Windows_10_STIG');
+    expect(result!.Version).toBe('V2R8');
+    expect(result!.CheckedAt).toBe('2024-01-15T08:00:00Z');
   });
 });
 
@@ -102,6 +103,12 @@ describe('extractJson — CheckType variety', () => {
     const result = extractJson(VALID_JSON_OUTPUT);
     const auditRule = result!.Results.find((r) => r.CheckType === 'AuditPolicyCheck');
     expect(auditRule).toBeDefined();
-    expect(auditRule!.InDesiredState).toBe(true);
+    expect(auditRule!.Result).toBe('Pass');
+  });
+
+  test('preserves per-rule properties', () => {
+    const result = extractJson(VALID_JSON_OUTPUT);
+    const registryRule = result!.Results.find((r) => r.RuleId === 'V-220700');
+    expect(registryRule!.Properties).toEqual({ ValueName: 'AutoShareWks' });
   });
 });

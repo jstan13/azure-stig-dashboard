@@ -74,7 +74,6 @@ const SECURITY_OPTION_PHRASES = [
 export function parseCheckContent(
   checkContent: string,
   ruleTitle: string,
-  ruleVer: string,
 ): CheckParseResult {
   if (!checkContent) return { checkType: 'Manual', checkParameters: {} };
 

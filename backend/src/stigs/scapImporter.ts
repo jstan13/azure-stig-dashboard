@@ -178,7 +178,7 @@ async function upsertControl(
   const checkEl    = (rule['check'] ?? rule['cdf:check'])?.[0];
   const checkContent = textOf(checkEl?.['check-content'] ?? checkEl?.['cdf:check-content']);
 
-  const classified = parseCheckContent(checkContent + '\n' + descRaw, title, '');
+  const classified = parseCheckContent(checkContent + '\n' + descRaw, title);
 
   const controlId = `${bm.benchmarkId}|${vulnId}`;
 

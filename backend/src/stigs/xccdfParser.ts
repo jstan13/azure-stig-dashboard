@@ -77,7 +77,7 @@ export function parseXccdf(xml: string): ParsedBenchmark {
 
   const benchmarkId = benchmark['@_id'] || '';
   const title = getText(benchmark['title']);
-  const version = getText(benchmark['version']);
+  const rawVersion = getText(benchmark['version']);
   const description = getText(benchmark['description']);
 
   // Release info is in <plain-text id="release-info"> or <status>
@@ -85,12 +85,16 @@ export function parseXccdf(xml: string): ParsedBenchmark {
     getText(benchmark['status']);
   const benchmarkDate = benchmark['status']?.['@_date'] || '';
 
-  // Parse version string into V<n>R<n> format
+  // Parse version string into V<n>R<n> format. DISA publishes the version as a
+  // bare number (<version>2</version>) with the release carried separately in
+  // <plain-text id="release-info">Release: 8 ...</plain-text>. Some third-party
+  // tooling instead emits an already-formatted "V2R8" in <version>, so accept
+  // both rather than silently reporting the release as R0.
+  const preformatted = rawVersion.match(/^\s*V\s*(\d+)\s*R\s*(\d+)\s*$/i);
   const releaseMatch = releaseInfo.match(/Release:\s*(\d+)/i);
-  const versionMatch = getText(benchmark['version']).match(/(\d+)/);
-  const release = releaseMatch?.[1] || '0';
-  const ver = versionMatch?.[1] || '0';
-  const versionString = `V${ver}R${release}`;
+  const versionString = preformatted
+    ? `V${preformatted[1]}R${preformatted[2]}`
+    : `V${rawVersion.match(/(\d+)/)?.[1] || '0'}R${releaseMatch?.[1] || '0'}`;
 
   const groups: any[] = ensureArray(benchmark['Group']);
   logger.info(`[XCCDFParser] Found ${groups.length} groups in ${benchmarkId}`);
@@ -158,7 +162,7 @@ function parseRule(
     .filter((s: string) => s.startsWith('CCI-'));
 
   // Parse check content into structured parameters
-  const { checkType, checkParameters } = parseCheckContent(checkContent, title, version);
+  const { checkType, checkParameters } = parseCheckContent(checkContent, title);
 
   return {
     id: `${benchmarkId}|${vulnId}`,

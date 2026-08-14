@@ -4,15 +4,15 @@
 
 import { parseCheckContent, CheckParseResult } from '../stigs/checkTypeParser';
 
-describe('parseCheckContent — RegistryCheck', () => {
+describe('parseCheckContent — Registry', () => {
   test('detects HKLM registry key', () => {
     const text = `Verify this setting.
 Navigate to HKLM\\System\\CurrentControlSet\\Services\\LanmanServer\\Parameters
 Value Name: AutoShareWks
 Value: 0 (REG_DWORD)`;
     const result: CheckParseResult = parseCheckContent(text, '');
-    expect(result.checkType).toBe('RegistryCheck');
-    expect(result.checkParameters.keyPath).toContain('HKLM');
+    expect(result.checkType).toBe('Registry');
+    expect(result.checkParameters.key).toContain('HKLM');
     expect(result.checkParameters.valueName).toBe('AutoShareWks');
     expect(result.checkParameters.valueData).toBeDefined();
   });
@@ -22,7 +22,7 @@ Value: 0 (REG_DWORD)`;
 Value Name: ScreenSaverGracePeriod
 Value: 5`;
     const result = parseCheckContent(text, '');
-    expect(result.checkType).toBe('RegistryCheck');
+    expect(result.checkType).toBe('Registry');
     expect(result.checkParameters.valueName).toBe('ScreenSaverGracePeriod');
   });
 
@@ -32,28 +32,29 @@ Value Name: DisableFirstRunCustomize
 Value: 1
 Type: REG_DWORD`;
     const result = parseCheckContent(text, '');
-    expect(result.checkType).toBe('RegistryCheck');
+    expect(result.checkType).toBe('Registry');
     expect(result.checkParameters.valueType).toBe('REG_DWORD');
   });
 });
 
-describe('parseCheckContent — AuditPolicyCheck', () => {
+describe('parseCheckContent — AuditPolicy', () => {
   test('detects audit policy success/failure', () => {
     const text = `Verify the effective setting in Local Group Policy Editor.
 Computer Configuration >> Windows Settings >> Security Settings >>
 Advanced Audit Policy Configuration >> System Audit Policies >> Logon/Logoff
   Audit Logon - Success and Failure`;
     const result = parseCheckContent(text, '');
-    expect(result.checkType).toBe('AuditPolicyCheck');
-    expect(result.checkParameters.subcategory).toBeDefined();
+    expect(result.checkType).toBe('AuditPolicy');
+    expect(result.checkParameters.subcategories.length).toBeGreaterThan(0);
+    expect(result.checkParameters.subcategories[0].subcategory).toBeDefined();
   });
 
   test('detects failure-only audit', () => {
     const text = `Advanced Audit Policy Configuration >> Audit Account Management
   Audit User Account Management - Failure`;
     const result = parseCheckContent(text, '');
-    expect(result.checkType).toBe('AuditPolicyCheck');
-    expect(result.checkParameters.failureRequired).toBe(true);
+    expect(result.checkType).toBe('AuditPolicy');
+    expect(result.checkParameters.subcategories.some((s: any) => s.auditFlag === 'Failure')).toBe(true);
   });
 });
 
