@@ -115,7 +115,10 @@ const checkTypeOptions: IDropdownOption[] = [
 
 export default function StigDetailPage() {
   const { benchmarkId } = useParams<{ benchmarkId: string }>();
-  const navigate = useNavigate();
+  const rrNavigate = useNavigate();
+  // React Router v7's navigate() returns `void | Promise<void>`; wrap it so the
+  // Fluent UI breadcrumb handlers stay strictly void-returning.
+  const navigate = (path: string): void => { void rrNavigate(path); };
 
   const [benchmark, setBenchmark] = useState<StigBenchmarkDetail | null>(null);
   const [controls, setControls] = useState<Control[]>([]);

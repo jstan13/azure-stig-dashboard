@@ -71,8 +71,10 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
+      // The API serves JSON only, so no inline script/style is ever needed here.
+      // Swagger UI, which does require them, gets a relaxed policy on its own route.
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'"],
       imgSrc: ["'self'", 'data:', 'https:'],
       connectSrc: ["'self'", 'https:'],
       fontSrc: ["'self'", 'data:'],
@@ -161,7 +163,24 @@ app.use('/api', auditMiddleware({ auditor }));
 try {
   const YAML = require('yamljs');
   const swaggerDocument = YAML.load(path.join(__dirname, '../openapi.yaml'));
-  app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+  // Swagger UI ships inline bootstrap script/styles, so it needs a relaxed CSP.
+  // Scope that relaxation to this route only, keeping the strict policy global.
+  const swaggerCsp = helmet.contentSecurityPolicy({
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'https:'],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'", 'data:'],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      frameAncestors: ["'none'"],
+      formAction: ["'self'"],
+      upgradeInsecureRequests: [],
+    },
+  });
+  app.use('/api/docs', swaggerCsp, swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 } catch {
   logger.warn('openapi.yaml not found — Swagger UI will not be available');
 }

@@ -113,7 +113,6 @@ var appHostSuffix = isGov ? 'azurewebsites.us' : 'azurewebsites.net'
 var authorityHost = isGov ? 'https://login.microsoftonline.us' : 'https://login.microsoftonline.com'
 var graphHost = isGov ? 'https://graph.microsoft.us' : 'https://graph.microsoft.com'
 var armHost = isGov ? 'https://management.usgovcloudapi.net' : 'https://management.azure.com'
-var databaseUrl = 'postgresql://${dbAdminLogin}:${dbAdminPassword}@${pgServer.properties.fullyQualifiedDomainName}:5432/${dbName}?sslmode=require'
 var autoAppServiceSku = trackedHostCount <= 150 ? 'B1' : 'S1'
 var autoEnableScheduler = trackedHostCount > 25
 var autoEnableDiagnostics = trackedHostCount > 150
@@ -146,7 +145,7 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
     publicNetworkAccessForQuery: lockdownNetworking ? 'Disabled' : 'Enabled'
   }
 }
-// ── Key Vault (Audit #3 — store AZURE_CLIENT_SECRET + DATABASE_URL) ──────────
+// ── Key Vault (Audit #3 — store AZURE_CLIENT_SECRET + DB password) ───────────
 resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
   name: keyVaultName
   location: location
@@ -167,11 +166,13 @@ resource kvSecretClientSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   properties: { value: azureClientSecret }
 }
 
-resource kvSecretDbUrl 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+// Only the password is stored as a secret. The full connection string is
+// composed by the backend at runtime from the discrete DB_* settings, so no
+// credential is ever embedded in a template variable or deployment output.
+resource kvSecretDbPassword 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   parent: keyVault
-  name: 'DATABASE-URL'
-  properties: { value: databaseUrl }
-  dependsOn: [ pgServer ]
+  name: 'DB-PASSWORD'
+  properties: { value: dbAdminPassword }
 }
 // ── PostgreSQL Flexible Server ─────────────────────────────────────────────────
 resource pgServer 'Microsoft.DBforPostgreSQL/flexibleServers@2023-06-01-preview' = {
@@ -268,7 +269,11 @@ resource backendApp 'Microsoft.Web/sites@2023-01-01' = {
         { name: 'AZURE_TENANT_ID',                value: azureTenantId                                  }
         { name: 'AZURE_CLIENT_ID',                value: azureClientId                                  }
         { name: 'AZURE_CLIENT_SECRET',            value: '@Microsoft.KeyVault(SecretUri=${kvSecretClientSecret.properties.secretUri})' }
-        { name: 'DATABASE_URL',                   value: '@Microsoft.KeyVault(SecretUri=${kvSecretDbUrl.properties.secretUri})' }
+        { name: 'DB_HOST',                        value: pgServer.properties.fullyQualifiedDomainName    }
+        { name: 'DB_PORT',                        value: '5432'                                         }
+        { name: 'DB_NAME',                        value: dbName                                         }
+        { name: 'DB_USER',                        value: dbAdminLogin                                   }
+        { name: 'DB_PASSWORD',                    value: '@Microsoft.KeyVault(SecretUri=${kvSecretDbPassword.properties.secretUri})' }
         { name: 'DB_SSL',                         value: 'true'                                         }
         { name: 'APPINSIGHTS_INSTRUMENTATIONKEY', value: appInsights.properties.InstrumentationKey      }
         { name: 'FRONTEND_URL',                   value: 'https://${frontendName}.${appHostSuffix}'     }
@@ -291,44 +296,15 @@ resource kvRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' =
   }
 }
 
-resource remediationTargetRg 'Microsoft.Resources/resourceGroups@2022-09-01' existing = if (!empty(remediationTargetResourceGroupName)) {
-  name: remediationTargetResourceGroupName
-  scope: subscription()
-}
-
-resource remediationRunCommandRole 'Microsoft.Authorization/roleDefinitions@2022-05-01-preview' = if (!empty(remediationTargetResourceGroupName)) {
-  name: guid(subscription().id, remediationTargetResourceGroupName, 'runcommand-remediation-role')
-  scope: subscription()
-  properties: {
-    roleName: '${baseName}-runcommand-remediator'
-    description: 'Least-privilege role for STIG remediation RunCommand execution only'
-    type: 'CustomRole'
-    assignableScopes: [
-      remediationTargetRg.id
-    ]
-    permissions: [
-      {
-        actions: [
-          'Microsoft.Compute/virtualMachines/read'
-          'Microsoft.Compute/virtualMachines/runCommand/action'
-          'Microsoft.HybridCompute/machines/read'
-          'Microsoft.HybridCompute/machines/runCommand/action'
-        ]
-        notActions: []
-        dataActions: []
-        notDataActions: []
-      }
-    ]
-  }
-}
-
-resource remediationRunCommandAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(remediationTargetResourceGroupName)) {
-  scope: remediationTargetRg
-  name: guid(remediationTargetRg.id, backendApp.identity.principalId, 'runcommand-remediation-assignment')
-  properties: {
-    roleDefinitionId: remediationRunCommandRole.id
+// Grant the backend's managed identity least-privilege RunCommand rights in the
+// remediation target resource group. Deployed as a module scoped to that RG so
+// the custom role and assignment are created at the correct scope.
+module remediationAccess 'modules/remediationAccess.bicep' = if (!empty(remediationTargetResourceGroupName)) {
+  name: 'stig-remediation-access'
+  scope: resourceGroup(remediationTargetResourceGroupName)
+  params: {
+    baseName: baseName
     principalId: backendApp.identity.principalId
-    principalType: 'ServicePrincipal'
   }
 }
 

@@ -1,21 +1,97 @@
 {
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-  "contentVersion": "1.1.0.0",
+  "contentVersion": "1.0.0.0",
   "metadata": {
-    "description": "Azure STIG Dashboard \u2014 deploys App Service (backend+frontend), PostgreSQL Flexible Server, and Application Insights. Cloud-aware: works in Azure Commercial (portal.azure.com) and Azure US Government (portal.azure.us)."
+    "_generator": {
+      "name": "bicep",
+      "version": "0.43.8.12551",
+      "templateHash": "1819230487477372963"
+    }
   },
   "parameters": {
     "baseName": {
       "type": "string",
-      "minLength": 3,
-      "maxLength": 14,
       "defaultValue": "stigdash",
-      "metadata": { "description": "Organization / resource name prefix (lowercase alphanumeric, must start with a letter)." }
+      "minLength": 3,
+      "maxLength": 20,
+      "metadata": {
+        "description": "Base name used for all resources (lowercase letters and numbers only, 3-20 chars)"
+      }
     },
     "location": {
       "type": "string",
       "defaultValue": "[resourceGroup().location]",
-      "metadata": { "description": "Azure region. Must belong to the selected cloudEnvironment." }
+      "metadata": {
+        "description": "Azure region for all resources"
+      }
+    },
+    "appServiceSku": {
+      "type": "string",
+      "defaultValue": "B1",
+      "allowedValues": [
+        "F1",
+        "B1",
+        "B2",
+        "S1",
+        "S2",
+        "P1v3"
+      ],
+      "metadata": {
+        "description": "App Service SKU (used when autoSizeByTrackedHosts=false)"
+      }
+    },
+    "autoSizeByTrackedHosts": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "When true, App Service SKU + diagnostics + scheduler defaults are derived from trackedHostCount"
+      }
+    },
+    "trackedHostCount": {
+      "type": "int",
+      "defaultValue": 25,
+      "minValue": 1,
+      "metadata": {
+        "description": "Estimated number of hosts this deployment will track"
+      }
+    },
+    "azureTenantId": {
+      "type": "string",
+      "metadata": {
+        "description": "Azure AD tenant ID for OIDC auth"
+      }
+    },
+    "azureClientId": {
+      "type": "string",
+      "metadata": {
+        "description": "Azure AD client ID (app registration)"
+      }
+    },
+    "azureClientSecret": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Azure AD client secret (store in Key Vault in production)"
+      }
+    },
+    "dbAdminLogin": {
+      "type": "string",
+      "defaultValue": "stigadmin",
+      "metadata": {
+        "description": "PostgreSQL administrator login"
+      }
+    },
+    "dbAdminPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "PostgreSQL administrator password"
+      }
+    },
+    "mockMode": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Enable mock mode — no real Azure subscription required"
+      }
     },
     "cloudEnvironment": {
       "type": "string",
@@ -25,173 +101,159 @@
         "AzureUSGovernment",
         "AzureUSGovernmentDoD"
       ],
-      "metadata": { "description": "Target Azure cloud. Drives App Service / Postgres / Microsoft Entra hostname suffixes." }
+      "metadata": {
+        "description": "Target Azure cloud environment"
+      }
     },
-    "appServiceSku": {
-      "type": "string",
-      "defaultValue": "B1",
-      "allowedValues": ["F1","B1","B2","S1","S2","P1v3"],
-      "metadata": { "description": "App Service plan SKU." }
-    },
-    "autoSizeByTrackedHosts": {
+    "strictTraceability": {
       "type": "bool",
       "defaultValue": true,
-      "metadata": { "description": "When true, deployment infers right-sized defaults from trackedHostCount." }
+      "metadata": {
+        "description": "Enforce strict finding traceability on exports"
+      }
     },
-    "trackedHostCount": {
-      "type": "int",
-      "defaultValue": 25,
-      "minValue": 1,
-      "metadata": { "description": "Estimated number of hosts this deployment will track." }
+    "lockdownNetworking": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "When true, disable public telemetry/query and require explicit ingress CIDR allow-list for App Services"
+      }
+    },
+    "allowedIngressCidrs": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "Allowed ingress CIDRs for frontend/backend when lockdownNetworking=true"
+      }
+    },
+    "remediationTargetResourceGroupName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional resource group name containing VMs/Arc machines that this app may remediate"
+      }
     },
     "enableScheduler": {
       "type": "bool",
       "defaultValue": true,
-      "metadata": { "description": "Reserved for cost-profile compatibility with the Bicep deployment path." }
+      "metadata": {
+        "description": "Provision the scheduled-scan Azure Function App + Storage on a Consumption plan"
+      }
     },
     "enableDiagnostics": {
       "type": "bool",
       "defaultValue": true,
-      "metadata": { "description": "Reserved for cost-profile compatibility with the Bicep deployment path." }
+      "metadata": {
+        "description": "Forward backend + Function App diagnostics to Log Analytics so Sentinel/Splunk can pull from there"
+      }
     },
     "businessHoursMode": {
       "type": "bool",
       "defaultValue": false,
-      "metadata": { "description": "Reserved for business-hours mode compatibility with the Bicep deployment path." }
+      "metadata": {
+        "description": "When true, scheduled jobs only run during the configured business-hours window"
+      }
     },
     "businessHoursTimeZone": {
       "type": "string",
       "defaultValue": "UTC",
-      "metadata": { "description": "Reserved for business-hours mode compatibility with the Bicep deployment path." }
+      "metadata": {
+        "description": "IANA timezone used for business-hours gating in the Function App (for example: UTC, America/New_York)"
+      }
     },
     "businessHoursStartHour": {
       "type": "int",
       "defaultValue": 8,
       "minValue": 0,
       "maxValue": 23,
-      "metadata": { "description": "Reserved for business-hours mode compatibility with the Bicep deployment path." }
+      "metadata": {
+        "description": "Business-hours start hour (0-23, inclusive) in businessHoursTimeZone"
+      }
     },
     "businessHoursEndHour": {
       "type": "int",
       "defaultValue": 18,
       "minValue": 0,
       "maxValue": 23,
-      "metadata": { "description": "Reserved for business-hours mode compatibility with the Bicep deployment path." }
+      "metadata": {
+        "description": "Business-hours end hour (0-23, exclusive) in businessHoursTimeZone"
+      }
     },
     "autoShutdownOutsideBusinessHours": {
       "type": "bool",
       "defaultValue": false,
-      "metadata": { "description": "Reserved for business-hours auto-shutdown compatibility with the Bicep deployment path." }
+      "metadata": {
+        "description": "When true, the Function App will stop the web apps + PostgreSQL outside business hours and start them before business hours"
+      }
     },
-    "azureTenantId": {
+    "businessHoursStartCron": {
       "type": "string",
-      "metadata": { "description": "Microsoft Entra (Azure AD) tenant ID." }
+      "defaultValue": "0 45 7 * * 1-5",
+      "metadata": {
+        "description": "Start schedule for business-hours auto-start (NCRONTAB with seconds, UTC). Default: 07:45 UTC weekdays"
+      }
     },
-    "azureClientId": {
+    "businessHoursStopCron": {
       "type": "string",
-      "metadata": { "description": "Microsoft Entra app registration (client) ID." }
+      "defaultValue": "0 15 18 * * 1-5",
+      "metadata": {
+        "description": "Stop schedule for business-hours auto-shutdown (NCRONTAB with seconds, UTC). Default: 18:15 UTC weekdays"
+      }
     },
-    "azureClientSecret": {
-      "type": "securestring",
-      "metadata": { "description": "Microsoft Entra app registration client secret." }
-    },
-    "dbAdminLogin": {
-      "type": "string",
-      "defaultValue": "stigadmin",
-      "metadata": { "description": "PostgreSQL admin login." }
-    },
-    "dbAdminPassword": {
-      "type": "securestring",
-      "metadata": { "description": "PostgreSQL admin password (12+ chars, complexity required)." }
-    },
-    "mockMode": {
-      "type": "bool",
-      "defaultValue": false,
-      "metadata": { "description": "Set to true to run without real Azure subscription data (demo only). MUST be false in production." }
-    },
-    "strictTraceability": {
-      "type": "bool",
-      "defaultValue": true,
-      "metadata": { "description": "Enforce constitution Principle IV / FR-009: every exported finding must carry a complete mappingChain." }
-    },
-    "lockdownNetworking": {
-      "type": "bool",
-      "defaultValue": false,
-      "metadata": { "description": "When true, disables public telemetry/query and enables App Service CIDR-based ingress allow-list enforcement." }
-    },
-    "allowedIngressCidrs": {
-      "type": "array",
-      "defaultValue": [],
-      "metadata": { "description": "CIDRs allowed to reach frontend/backend when lockdownNetworking=true." }
-    },
-    "remediationTargetResourceGroupName": {
+    "teamsWebhookUrl": {
       "type": "string",
       "defaultValue": "",
-      "metadata": { "description": "Optional resource group containing VMs/Arc machines this app is allowed to remediate. Leave empty to skip RunCommand role assignment." }
+      "metadata": {
+        "description": "Optional incoming-webhook URL for Microsoft Teams compliance drift alerts"
+      }
     },
-    "backendImage": {
-      "type": "string",
-      "defaultValue": "ghcr.io/jstan13/stig-backend:latest",
-      "metadata": { "description": "Backend container image reference. Release builds pin this to an immutable @sha256:<digest> — do not loosen unless you know what you are doing." }
-    },
-    "frontendImage": {
-      "type": "string",
-      "defaultValue": "ghcr.io/jstan13/stig-frontend:latest",
-      "metadata": { "description": "Frontend container image reference. Release builds pin this to an immutable @sha256:<digest>." }
+    "driftCat1Threshold": {
+      "type": "int",
+      "defaultValue": 0,
+      "metadata": {
+        "description": "CAT I open finding threshold for drift alerts (0 = alert on any open CAT I)"
+      }
     }
   },
   "variables": {
-    "isGov":         "[or(equals(parameters('cloudEnvironment'),'AzureUSGovernment'), equals(parameters('cloudEnvironment'),'AzureUSGovernmentDoD'))]",
-    "appHostSuffix": "[if(variables('isGov'), 'azurewebsites.us', 'azurewebsites.net')]",
-    "pgHostSuffix":  "[if(variables('isGov'), 'postgres.database.usgovcloudapi.net', 'postgres.database.azure.com')]",
-    "authorityHost": "[if(variables('isGov'), 'https://login.microsoftonline.us', 'https://login.microsoftonline.com')]",
-    "graphHost":     "[if(variables('isGov'), 'https://graph.microsoft.us', 'https://graph.microsoft.com')]",
-    "armHost":       "[if(variables('isGov'), 'https://management.usgovcloudapi.net', 'https://management.azure.com')]",
-    "planName":     "[concat(parameters('baseName'), '-stig-plan')]",
-    "backendName":  "[concat(parameters('baseName'), '-stig-api')]",
-    "frontendName": "[concat(parameters('baseName'), '-stig-web')]",
-    "dbServerName": "[concat(parameters('baseName'), '-stig-pg')]",
-    "dbName":       "stigdashboard",
-    "aiName":       "[concat(parameters('baseName'), '-stig-ai')]",
-    "keyVaultName": "[take(replace(concat(parameters('baseName'), '-stig-kv'), '-', ''), 24)]",
+    "planName": "[format('{0}-plan', parameters('baseName'))]",
+    "backendName": "[format('{0}-api', parameters('baseName'))]",
+    "frontendName": "[format('{0}-web', parameters('baseName'))]",
+    "dbServerName": "[format('{0}-pg', parameters('baseName'))]",
+    "dbName": "stigdashboard",
+    "aiName": "[format('{0}-ai', parameters('baseName'))]",
+    "registryName": "[replace(format('{0}acr', parameters('baseName')), '-', '')]",
+    "lawName": "[format('{0}-law', parameters('baseName'))]",
+    "funcName": "[format('{0}-func', parameters('baseName'))]",
+    "funcStorageName": "[take(replace(format('{0}funcsa', parameters('baseName')), '-', ''), 24)]",
+    "keyVaultName": "[take(replace(format('{0}-stig-kv', parameters('baseName')), '-', ''), 24)]",
     "kvSecretsUserRoleId": "4633458b-17de-457c-a5dd-322bbab69ee3",
-    "dbConnectionString": "[concat('postgresql://', parameters('dbAdminLogin'), ':', parameters('dbAdminPassword'), '@', variables('dbServerName'), '.', variables('pgHostSuffix'), ':5432/', variables('dbName'), '?sslmode=require')]"
-    ,"autoAppServiceSku": "[if(lessOrEquals(parameters('trackedHostCount'), 150), 'B1', 'S1')]"
-    ,"effectiveAppServiceSku": "[if(parameters('autoSizeByTrackedHosts'), variables('autoAppServiceSku'), parameters('appServiceSku'))]"
+    "isGov": "[or(equals(parameters('cloudEnvironment'), 'AzureUSGovernment'), equals(parameters('cloudEnvironment'), 'AzureUSGovernmentDoD'))]",
+    "appHostSuffix": "[if(variables('isGov'), 'azurewebsites.us', 'azurewebsites.net')]",
+    "authorityHost": "[if(variables('isGov'), 'https://login.microsoftonline.us', 'https://login.microsoftonline.com')]",
+    "graphHost": "[if(variables('isGov'), 'https://graph.microsoft.us', 'https://graph.microsoft.com')]",
+    "armHost": "[if(variables('isGov'), 'https://management.usgovcloudapi.net', 'https://management.azure.com')]",
+    "autoAppServiceSku": "[if(lessOrEquals(parameters('trackedHostCount'), 150), 'B1', 'S1')]",
+    "autoEnableScheduler": "[greater(parameters('trackedHostCount'), 25)]",
+    "autoEnableDiagnostics": "[greater(parameters('trackedHostCount'), 150)]",
+    "effectiveAppServiceSku": "[if(parameters('autoSizeByTrackedHosts'), variables('autoAppServiceSku'), parameters('appServiceSku'))]",
+    "effectiveEnableScheduler": "[if(parameters('autoSizeByTrackedHosts'), variables('autoEnableScheduler'), parameters('enableScheduler'))]",
+    "effectiveEnableDiagnostics": "[if(parameters('autoSizeByTrackedHosts'), variables('autoEnableDiagnostics'), parameters('enableDiagnostics'))]",
+    "enableBusinessHoursShutdown": "[and(and(variables('effectiveEnableScheduler'), parameters('businessHoursMode')), parameters('autoShutdownOutsideBusinessHours'))]"
   },
   "resources": [
     {
-      "type": "Microsoft.KeyVault/vaults",
-      "apiVersion": "2023-07-01",
-      "name": "[variables('keyVaultName')]",
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2023-01-01",
+      "name": "[variables('planName')]",
       "location": "[parameters('location')]",
+      "sku": {
+        "name": "[variables('effectiveAppServiceSku')]"
+      },
+      "kind": "linux",
       "properties": {
-        "tenantId": "[subscription().tenantId]",
-        "sku": { "family": "A", "name": "standard" },
-        "enableRbacAuthorization": true,
-        "enableSoftDelete": true,
-        "softDeleteRetentionInDays": 7,
-        "publicNetworkAccess": "[if(parameters('lockdownNetworking'), 'Disabled', 'Enabled')]"
+        "reserved": true
       }
-    },
-    {
-      "type": "Microsoft.KeyVault/vaults/secrets",
-      "apiVersion": "2023-07-01",
-      "name": "[concat(variables('keyVaultName'), '/AZURE-CLIENT-SECRET')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
-      ],
-      "properties": { "value": "[parameters('azureClientSecret')]" }
-    },
-    {
-      "type": "Microsoft.KeyVault/vaults/secrets",
-      "apiVersion": "2023-07-01",
-      "name": "[concat(variables('keyVaultName'), '/DATABASE-URL')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]",
-        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('dbServerName'))]"
-      ],
-      "properties": { "value": "[variables('dbConnectionString')]" }
     },
     {
       "type": "Microsoft.Insights/components",
@@ -206,212 +268,801 @@
       }
     },
     {
-      "type": "Microsoft.Web/serverfarms",
-      "apiVersion": "2023-01-01",
-      "name": "[variables('planName')]",
+      "type": "Microsoft.KeyVault/vaults",
+      "apiVersion": "2023-07-01",
+      "name": "[variables('keyVaultName')]",
       "location": "[parameters('location')]",
-      "sku": { "name": "[variables('effectiveAppServiceSku')]" },
-      "kind": "linux",
-      "properties": { "reserved": true }
+      "properties": {
+        "tenantId": "[subscription().tenantId]",
+        "sku": {
+          "family": "A",
+          "name": "standard"
+        },
+        "enableRbacAuthorization": true,
+        "enableSoftDelete": true,
+        "enablePurgeProtection": true,
+        "softDeleteRetentionInDays": 90,
+        "publicNetworkAccess": "[if(parameters('lockdownNetworking'), 'Disabled', 'Enabled')]"
+      }
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2023-07-01",
+      "name": "[format('{0}/{1}', variables('keyVaultName'), 'AZURE-CLIENT-SECRET')]",
+      "properties": {
+        "value": "[parameters('azureClientSecret')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2023-07-01",
+      "name": "[format('{0}/{1}', variables('keyVaultName'), 'DB-PASSWORD')]",
+      "properties": {
+        "value": "[parameters('dbAdminPassword')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+      ]
     },
     {
       "type": "Microsoft.DBforPostgreSQL/flexibleServers",
       "apiVersion": "2023-06-01-preview",
       "name": "[variables('dbServerName')]",
       "location": "[parameters('location')]",
-      "sku": { "name": "Standard_B1ms", "tier": "Burstable" },
+      "sku": {
+        "name": "Standard_B1ms",
+        "tier": "Burstable"
+      },
       "properties": {
         "administratorLogin": "[parameters('dbAdminLogin')]",
         "administratorLoginPassword": "[parameters('dbAdminPassword')]",
         "version": "16",
-        "storage": { "storageSizeGB": 32 },
-        "backup": { "backupRetentionDays": 7, "geoRedundantBackup": "Disabled" },
-        "highAvailability": { "mode": "Disabled" },
-        "authConfig": { "activeDirectoryAuth": "Disabled", "passwordAuth": "Enabled" }
-      }
-    },
-    {
-      "type": "Microsoft.DBforPostgreSQL/flexibleServers/firewallRules",
-      "apiVersion": "2023-06-01-preview",
-      "condition": "[not(parameters('lockdownNetworking'))]",
-      "name": "[concat(variables('dbServerName'), '/AllowAzureServices')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('dbServerName'))]"
-      ],
-      "properties": {
-        "startIpAddress": "0.0.0.0",
-        "endIpAddress":   "0.0.0.0"
-      }
-    },
-    {
-      "type": "Microsoft.DBforPostgreSQL/flexibleServers/configurations",
-      "apiVersion": "2023-06-01-preview",
-      "name": "[concat(variables('dbServerName'), '/require_secure_transport')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('dbServerName'))]"
-      ],
-      "properties": {
-        "value": "ON",
-        "source": "user-override"
+        "storage": {
+          "storageSizeGB": 32
+        },
+        "backup": {
+          "backupRetentionDays": 7,
+          "geoRedundantBackup": "Disabled"
+        },
+        "highAvailability": {
+          "mode": "Disabled"
+        },
+        "authConfig": {
+          "activeDirectoryAuth": "Disabled",
+          "passwordAuth": "Enabled"
+        }
       }
     },
     {
       "type": "Microsoft.DBforPostgreSQL/flexibleServers/databases",
       "apiVersion": "2023-06-01-preview",
-      "name": "[concat(variables('dbServerName'), '/', variables('dbName'))]",
+      "name": "[format('{0}/{1}', variables('dbServerName'), variables('dbName'))]",
+      "properties": {
+        "charset": "UTF8",
+        "collation": "en_US.utf8"
+      },
       "dependsOn": [
         "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('dbServerName'))]"
-      ],
-      "properties": { "charset": "UTF8", "collation": "en_US.utf8" }
+      ]
+    },
+    {
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers/configurations",
+      "apiVersion": "2023-06-01-preview",
+      "name": "[format('{0}/{1}', variables('dbServerName'), 'require_secure_transport')]",
+      "properties": {
+        "value": "ON",
+        "source": "user-override"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('dbServerName'))]"
+      ]
+    },
+    {
+      "condition": "[not(parameters('lockdownNetworking'))]",
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers/firewallRules",
+      "apiVersion": "2023-06-01-preview",
+      "name": "[format('{0}/{1}', variables('dbServerName'), 'AllowAzureServices')]",
+      "properties": {
+        "startIpAddress": "0.0.0.0",
+        "endIpAddress": "0.0.0.0"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('dbServerName'))]"
+      ]
     },
     {
       "type": "Microsoft.Web/sites",
       "apiVersion": "2023-01-01",
       "name": "[variables('backendName')]",
       "location": "[parameters('location')]",
-      "identity": { "type": "SystemAssigned" },
-      "dependsOn": [
-        "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]",
-        "[resourceId('Microsoft.Insights/components', variables('aiName'))]",
-        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers/databases', variables('dbServerName'), variables('dbName'))]",
-        "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'AZURE-CLIENT-SECRET')]",
-        "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'DATABASE-URL')]"
-      ],
+      "identity": {
+        "type": "SystemAssigned"
+      },
       "properties": {
         "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]",
         "httpsOnly": true,
         "siteConfig": {
-          "linuxFxVersion": "[concat('DOCKER|', parameters('backendImage'))]",
-          "alwaysOn": "[not(equals(variables('effectiveAppServiceSku'),'F1'))]",
+          "copy": [
+            {
+              "name": "ipSecurityRestrictions",
+              "count": "[length(parameters('allowedIngressCidrs'))]",
+              "input": {
+                "ipAddress": "[parameters('allowedIngressCidrs')[copyIndex('ipSecurityRestrictions')]]",
+                "action": "Allow",
+                "priority": "[add(100, copyIndex('ipSecurityRestrictions'))]",
+                "name": "[format('allow-{0}', copyIndex('ipSecurityRestrictions'))]"
+              }
+            }
+          ],
+          "linuxFxVersion": "NODE|20-lts",
+          "alwaysOn": "[not(equals(variables('effectiveAppServiceSku'), 'F1'))]",
           "http20Enabled": true,
           "minTlsVersion": "1.2",
           "ipSecurityRestrictionsDefaultAction": "[if(parameters('lockdownNetworking'), 'Deny', 'Allow')]",
           "scmIpSecurityRestrictionsDefaultAction": "[if(parameters('lockdownNetworking'), 'Deny', 'Allow')]",
-          "ipSecurityRestrictions": [],
           "appSettings": [
-            { "name": "DOCKER_REGISTRY_SERVER_URL",    "value": "https://ghcr.io" },
-            { "name": "WEBSITES_PORT",                 "value": "3001" },
-            { "name": "WEBSITES_ENABLE_APP_SERVICE_STORAGE", "value": "false" },
-            { "name": "NODE_ENV",                       "value": "production" },
-            { "name": "MOCK_MODE",                      "value": "[if(parameters('mockMode'), 'true', 'false')]" },
-            { "name": "STRICT_TRACEABILITY",            "value": "[if(parameters('strictTraceability'), 'true', 'false')]" },
-            { "name": "AZURE_CLOUD",                    "value": "[parameters('cloudEnvironment')]" },
-            { "name": "AZURE_AUTHORITY_HOST",           "value": "[variables('authorityHost')]" },
-            { "name": "AZURE_GRAPH_ENDPOINT",           "value": "[variables('graphHost')]" },
-            { "name": "AZURE_ARM_ENDPOINT",             "value": "[variables('armHost')]" },
-            { "name": "AZURE_TENANT_ID",                "value": "[parameters('azureTenantId')]" },
-            { "name": "AZURE_CLIENT_ID",                "value": "[parameters('azureClientId')]" },
-            { "name": "AZURE_CLIENT_SECRET",            "value": "[concat('@Microsoft.KeyVault(SecretUri=', reference(resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'AZURE-CLIENT-SECRET'), '2023-07-01').secretUri, ')')]" },
-            { "name": "DATABASE_URL",                   "value": "[concat('@Microsoft.KeyVault(SecretUri=', reference(resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'DATABASE-URL'), '2023-07-01').secretUri, ')')]" },
-            { "name": "DB_SSL",                         "value": "true" },
-            { "name": "APPINSIGHTS_INSTRUMENTATIONKEY", "value": "[reference(resourceId('Microsoft.Insights/components', variables('aiName')), '2020-02-02').InstrumentationKey]" },
-            { "name": "FRONTEND_URL",                   "value": "[concat('https://', variables('frontendName'), '.', variables('appHostSuffix'))]" }
+            {
+              "name": "NODE_ENV",
+              "value": "production"
+            },
+            {
+              "name": "MOCK_MODE",
+              "value": "[if(parameters('mockMode'), 'true', 'false')]"
+            },
+            {
+              "name": "STRICT_TRACEABILITY",
+              "value": "[if(parameters('strictTraceability'), 'true', 'false')]"
+            },
+            {
+              "name": "AZURE_CLOUD",
+              "value": "[parameters('cloudEnvironment')]"
+            },
+            {
+              "name": "AZURE_AUTHORITY_HOST",
+              "value": "[variables('authorityHost')]"
+            },
+            {
+              "name": "AZURE_GRAPH_ENDPOINT",
+              "value": "[variables('graphHost')]"
+            },
+            {
+              "name": "AZURE_ARM_ENDPOINT",
+              "value": "[variables('armHost')]"
+            },
+            {
+              "name": "AZURE_TENANT_ID",
+              "value": "[parameters('azureTenantId')]"
+            },
+            {
+              "name": "AZURE_CLIENT_ID",
+              "value": "[parameters('azureClientId')]"
+            },
+            {
+              "name": "AZURE_CLIENT_SECRET",
+              "value": "[format('@Microsoft.KeyVault(SecretUri={0})', reference(resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'AZURE-CLIENT-SECRET'), '2023-07-01').secretUri)]"
+            },
+            {
+              "name": "DB_HOST",
+              "value": "[reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('dbServerName')), '2023-06-01-preview').fullyQualifiedDomainName]"
+            },
+            {
+              "name": "DB_PORT",
+              "value": "5432"
+            },
+            {
+              "name": "DB_NAME",
+              "value": "[variables('dbName')]"
+            },
+            {
+              "name": "DB_USER",
+              "value": "[parameters('dbAdminLogin')]"
+            },
+            {
+              "name": "DB_PASSWORD",
+              "value": "[format('@Microsoft.KeyVault(SecretUri={0})', reference(resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'DB-PASSWORD'), '2023-07-01').secretUri)]"
+            },
+            {
+              "name": "DB_SSL",
+              "value": "true"
+            },
+            {
+              "name": "APPINSIGHTS_INSTRUMENTATIONKEY",
+              "value": "[reference(resourceId('Microsoft.Insights/components', variables('aiName')), '2020-02-02').InstrumentationKey]"
+            },
+            {
+              "name": "FRONTEND_URL",
+              "value": "[format('https://{0}.{1}', variables('frontendName'), variables('appHostSuffix'))]"
+            },
+            {
+              "name": "WEBSITE_NODE_DEFAULT_VERSION",
+              "value": "~20"
+            },
+            {
+              "name": "SCM_DO_BUILD_DURING_DEPLOYMENT",
+              "value": "true"
+            }
           ]
         }
-      }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Insights/components', variables('aiName'))]",
+        "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]",
+        "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'AZURE-CLIENT-SECRET')]",
+        "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'DB-PASSWORD')]",
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('dbServerName'))]"
+      ]
     },
     {
-      "type": "Microsoft.KeyVault/vaults/providers/roleAssignments",
+      "type": "Microsoft.Authorization/roleAssignments",
       "apiVersion": "2022-04-01",
-      "name": "[concat(variables('keyVaultName'), '/Microsoft.Authorization/', guid(resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName')), variables('backendName'), variables('kvSecretsUserRoleId')))]",
-      "dependsOn": [
-        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]",
-        "[resourceId('Microsoft.Web/sites', variables('backendName'))]"
-      ],
+      "scope": "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]",
+      "name": "[guid(resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName')), resourceId('Microsoft.Web/sites', variables('backendName')), variables('kvSecretsUserRoleId'))]",
       "properties": {
         "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('kvSecretsUserRoleId'))]",
-        "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('backendName')), '2023-01-01', 'Full').identity.principalId]",
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('backendName')), '2023-01-01', 'full').identity.principalId]",
         "principalType": "ServicePrincipal"
-      }
-    },
-    {
-      "type": "Microsoft.Authorization/roleDefinitions",
-      "apiVersion": "2022-05-01-preview",
-      "condition": "[not(empty(parameters('remediationTargetResourceGroupName')))]",
-      "scope": "[subscription().id]",
-      "name": "[guid(subscription().id, parameters('remediationTargetResourceGroupName'), 'runcommand-remediation-role')]",
-      "properties": {
-        "roleName": "[concat(parameters('baseName'), '-runcommand-remediator')]",
-        "description": "Least-privilege role for STIG remediation RunCommand execution only.",
-        "type": "CustomRole",
-        "permissions": [
-          {
-            "actions": [
-              "Microsoft.Compute/virtualMachines/read",
-              "Microsoft.Compute/virtualMachines/runCommand/action",
-              "Microsoft.HybridCompute/machines/read",
-              "Microsoft.HybridCompute/machines/runCommand/action"
-            ],
-            "notActions": [],
-            "dataActions": [],
-            "notDataActions": []
-          }
-        ],
-        "assignableScopes": [
-          "[resourceId('Microsoft.Resources/resourceGroups', parameters('remediationTargetResourceGroupName'))]"
-        ]
-      }
-    },
-    {
-      "type": "Microsoft.Resources/resourceGroups/providers/roleAssignments",
-      "apiVersion": "2022-04-01",
-      "condition": "[not(empty(parameters('remediationTargetResourceGroupName')))]",
-      "name": "[concat(parameters('remediationTargetResourceGroupName'), '/Microsoft.Authorization/', guid(resourceId('Microsoft.Resources/resourceGroups', parameters('remediationTargetResourceGroupName')), reference(resourceId('Microsoft.Web/sites', variables('backendName')), '2023-01-01', 'Full').identity.principalId, 'runcommand-remediation-assignment'))]",
+      },
       "dependsOn": [
         "[resourceId('Microsoft.Web/sites', variables('backendName'))]",
-        "[resourceId('Microsoft.Authorization/roleDefinitions', guid(subscription().id, parameters('remediationTargetResourceGroupName'), 'runcommand-remediation-role'))]"
-      ],
-      "properties": {
-        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', guid(subscription().id, parameters('remediationTargetResourceGroupName'), 'runcommand-remediation-role'))]",
-        "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('backendName')), '2023-01-01', 'Full').identity.principalId]",
-        "principalType": "ServicePrincipal"
-      }
+        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]"
+      ]
     },
     {
       "type": "Microsoft.Web/sites",
       "apiVersion": "2023-01-01",
       "name": "[variables('frontendName')]",
       "location": "[parameters('location')]",
-      "dependsOn": [
-        "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]"
-      ],
       "properties": {
         "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]",
         "httpsOnly": true,
         "siteConfig": {
-          "linuxFxVersion": "[concat('DOCKER|', parameters('frontendImage'))]",
+          "copy": [
+            {
+              "name": "ipSecurityRestrictions",
+              "count": "[length(parameters('allowedIngressCidrs'))]",
+              "input": {
+                "ipAddress": "[parameters('allowedIngressCidrs')[copyIndex('ipSecurityRestrictions')]]",
+                "action": "Allow",
+                "priority": "[add(100, copyIndex('ipSecurityRestrictions'))]",
+                "name": "[format('allow-{0}', copyIndex('ipSecurityRestrictions'))]"
+              }
+            }
+          ],
+          "linuxFxVersion": "NODE|20-lts",
+          "appCommandLine": "npm start",
           "http20Enabled": true,
           "minTlsVersion": "1.2",
           "ipSecurityRestrictionsDefaultAction": "[if(parameters('lockdownNetworking'), 'Deny', 'Allow')]",
           "scmIpSecurityRestrictionsDefaultAction": "[if(parameters('lockdownNetworking'), 'Deny', 'Allow')]",
-          "ipSecurityRestrictions": [],
           "appSettings": [
-            { "name": "DOCKER_REGISTRY_SERVER_URL",    "value": "https://ghcr.io" },
-            { "name": "WEBSITES_PORT",                 "value": "8080" },
-            { "name": "WEBSITES_ENABLE_APP_SERVICE_STORAGE", "value": "false" },
-            { "name": "AZURE_CLIENT_ID",      "value": "[parameters('azureClientId')]" },
-            { "name": "AZURE_TENANT_ID",      "value": "[parameters('azureTenantId')]" },
-            { "name": "AZURE_CLOUD",          "value": "[parameters('cloudEnvironment')]" },
-            { "name": "AZURE_AUTHORITY_HOST", "value": "[variables('authorityHost')]" },
-            { "name": "API_URL",              "value": "[concat('https://', variables('backendName'), '.', variables('appHostSuffix'), '/api')]" },
-            { "name": "API_SCOPE",            "value": "[concat('api://', parameters('azureClientId'), '/access_as_user')]" },
-            { "name": "MOCK_MODE",            "value": "[if(parameters('mockMode'), 'true', 'false')]" }
+            {
+              "name": "VITE_AZURE_CLIENT_ID",
+              "value": "[parameters('azureClientId')]"
+            },
+            {
+              "name": "VITE_AZURE_TENANT_ID",
+              "value": "[parameters('azureTenantId')]"
+            },
+            {
+              "name": "VITE_AZURE_CLOUD",
+              "value": "[parameters('cloudEnvironment')]"
+            },
+            {
+              "name": "VITE_AZURE_AUTHORITY_HOST",
+              "value": "[variables('authorityHost')]"
+            },
+            {
+              "name": "VITE_API_URL",
+              "value": "[format('https://{0}.{1}/api', variables('backendName'), variables('appHostSuffix'))]"
+            },
+            {
+              "name": "VITE_MOCK_MODE",
+              "value": "[if(parameters('mockMode'), 'true', 'false')]"
+            },
+            {
+              "name": "WEBSITES_PORT",
+              "value": "8080"
+            },
+            {
+              "name": "SCM_DO_BUILD_DURING_DEPLOYMENT",
+              "value": "false"
+            }
           ]
         }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]"
+      ]
+    },
+    {
+      "condition": "[variables('effectiveEnableDiagnostics')]",
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "apiVersion": "2022-10-01",
+      "name": "[variables('lawName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "sku": {
+          "name": "PerGB2018"
+        },
+        "retentionInDays": 30,
+        "features": {
+          "enableLogAccessUsingOnlyResourcePermissions": true
+        }
       }
+    },
+    {
+      "condition": "[variables('effectiveEnableDiagnostics')]",
+      "type": "Microsoft.Insights/diagnosticSettings",
+      "apiVersion": "2021-05-01-preview",
+      "scope": "[resourceId('Microsoft.Web/sites', variables('backendName'))]",
+      "name": "siem-stream",
+      "properties": {
+        "workspaceId": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('lawName'))]",
+        "logs": [
+          {
+            "category": "AppServiceHTTPLogs",
+            "enabled": true
+          },
+          {
+            "category": "AppServiceConsoleLogs",
+            "enabled": true
+          },
+          {
+            "category": "AppServiceAppLogs",
+            "enabled": true
+          },
+          {
+            "category": "AppServiceAuditLogs",
+            "enabled": true
+          },
+          {
+            "category": "AppServiceIPSecAuditLogs",
+            "enabled": true
+          },
+          {
+            "category": "AppServicePlatformLogs",
+            "enabled": true
+          }
+        ],
+        "metrics": [
+          {
+            "category": "AllMetrics",
+            "enabled": true
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('backendName'))]",
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('lawName'))]"
+      ]
+    },
+    {
+      "condition": "[variables('effectiveEnableDiagnostics')]",
+      "type": "Microsoft.Insights/diagnosticSettings",
+      "apiVersion": "2021-05-01-preview",
+      "scope": "[resourceId('Microsoft.Web/sites', variables('frontendName'))]",
+      "name": "siem-stream",
+      "properties": {
+        "workspaceId": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('lawName'))]",
+        "logs": [
+          {
+            "category": "AppServiceHTTPLogs",
+            "enabled": true
+          },
+          {
+            "category": "AppServiceConsoleLogs",
+            "enabled": true
+          },
+          {
+            "category": "AppServiceAppLogs",
+            "enabled": true
+          }
+        ],
+        "metrics": [
+          {
+            "category": "AllMetrics",
+            "enabled": true
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('frontendName'))]",
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('lawName'))]"
+      ]
+    },
+    {
+      "condition": "[variables('effectiveEnableDiagnostics')]",
+      "type": "Microsoft.Insights/diagnosticSettings",
+      "apiVersion": "2021-05-01-preview",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]",
+      "name": "siem-stream",
+      "properties": {
+        "workspaceId": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('lawName'))]",
+        "logs": [
+          {
+            "category": "AuditEvent",
+            "enabled": true
+          },
+          {
+            "category": "AzurePolicyEvaluationDetails",
+            "enabled": true
+          }
+        ],
+        "metrics": [
+          {
+            "category": "AllMetrics",
+            "enabled": true
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]",
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('lawName'))]"
+      ]
+    },
+    {
+      "condition": "[variables('effectiveEnableScheduler')]",
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2023-01-01",
+      "name": "[variables('funcStorageName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "minimumTlsVersion": "TLS1_2",
+        "allowBlobPublicAccess": false,
+        "supportsHttpsTrafficOnly": true
+      }
+    },
+    {
+      "condition": "[variables('effectiveEnableScheduler')]",
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2023-01-01",
+      "name": "[format('{0}-plan', variables('funcName'))]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Y1",
+        "tier": "Dynamic"
+      },
+      "properties": {
+        "reserved": true
+      },
+      "kind": "functionapp"
+    },
+    {
+      "condition": "[variables('effectiveEnableScheduler')]",
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2023-01-01",
+      "name": "[variables('funcName')]",
+      "location": "[parameters('location')]",
+      "kind": "functionapp,linux",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', format('{0}-plan', variables('funcName')))]",
+        "httpsOnly": true,
+        "siteConfig": {
+          "linuxFxVersion": "NODE|20",
+          "minTlsVersion": "1.2",
+          "ftpsState": "Disabled",
+          "appSettings": [
+            {
+              "name": "AzureWebJobsStorage",
+              "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix={2}', variables('funcStorageName'), listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('funcStorageName')), '2023-01-01').keys[0].value, environment().suffixes.storage)]"
+            },
+            {
+              "name": "FUNCTIONS_EXTENSION_VERSION",
+              "value": "~4"
+            },
+            {
+              "name": "FUNCTIONS_WORKER_RUNTIME",
+              "value": "node"
+            },
+            {
+              "name": "WEBSITE_NODE_DEFAULT_VERSION",
+              "value": "~20"
+            },
+            {
+              "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+              "value": "[reference(resourceId('Microsoft.Insights/components', variables('aiName')), '2020-02-02').ConnectionString]"
+            },
+            {
+              "name": "BACKEND_BASE_URL",
+              "value": "[format('https://{0}', reference(resourceId('Microsoft.Web/sites', variables('backendName')), '2023-01-01').defaultHostName)]"
+            },
+            {
+              "name": "BACKEND_API_AUDIENCE",
+              "value": "[format('api://{0}', parameters('azureClientId'))]"
+            },
+            {
+              "name": "TEAMS_WEBHOOK_URL",
+              "value": "[parameters('teamsWebhookUrl')]"
+            },
+            {
+              "name": "DRIFT_CAT1_THRESHOLD",
+              "value": "[string(parameters('driftCat1Threshold'))]"
+            },
+            {
+              "name": "BUSINESS_HOURS_MODE",
+              "value": "[if(parameters('businessHoursMode'), 'true', 'false')]"
+            },
+            {
+              "name": "BUSINESS_HOURS_TIME_ZONE",
+              "value": "[parameters('businessHoursTimeZone')]"
+            },
+            {
+              "name": "BUSINESS_HOURS_START_HOUR",
+              "value": "[string(parameters('businessHoursStartHour'))]"
+            },
+            {
+              "name": "BUSINESS_HOURS_END_HOUR",
+              "value": "[string(parameters('businessHoursEndHour'))]"
+            },
+            {
+              "name": "BUSINESS_HOURS_AUTO_SHUTDOWN",
+              "value": "[if(parameters('autoShutdownOutsideBusinessHours'), 'true', 'false')]"
+            },
+            {
+              "name": "BUSINESS_HOURS_START_CRON",
+              "value": "[parameters('businessHoursStartCron')]"
+            },
+            {
+              "name": "BUSINESS_HOURS_STOP_CRON",
+              "value": "[parameters('businessHoursStopCron')]"
+            },
+            {
+              "name": "AZURE_ARM_ENDPOINT",
+              "value": "[variables('armHost')]"
+            },
+            {
+              "name": "BACKEND_APP_RESOURCE_ID",
+              "value": "[resourceId('Microsoft.Web/sites', variables('backendName'))]"
+            },
+            {
+              "name": "FRONTEND_APP_RESOURCE_ID",
+              "value": "[resourceId('Microsoft.Web/sites', variables('frontendName'))]"
+            },
+            {
+              "name": "POSTGRES_SERVER_RESOURCE_ID",
+              "value": "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('dbServerName'))]"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Insights/components', variables('aiName'))]",
+        "[resourceId('Microsoft.Web/sites', variables('backendName'))]",
+        "[resourceId('Microsoft.Web/sites', variables('frontendName'))]",
+        "[resourceId('Microsoft.Web/serverfarms', format('{0}-plan', variables('funcName')))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('funcStorageName'))]",
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('dbServerName'))]"
+      ]
+    },
+    {
+      "condition": "[variables('enableBusinessHoursShutdown')]",
+      "type": "Microsoft.Authorization/roleDefinitions",
+      "apiVersion": "2022-05-01-preview",
+      "name": "[guid(subscription().id, resourceGroup().id, format('{0}-ops-scheduler-role', parameters('baseName')))]",
+      "properties": {
+        "roleName": "[format('{0}-ops-scheduler', parameters('baseName'))]",
+        "description": "Least-privilege role so the scheduler Function can start/stop dashboard web apps and PostgreSQL.",
+        "type": "CustomRole",
+        "assignableScopes": [
+          "[resourceGroup().id]"
+        ],
+        "permissions": [
+          {
+            "actions": [
+              "Microsoft.Web/sites/read",
+              "Microsoft.Web/sites/start/action",
+              "Microsoft.Web/sites/stop/action",
+              "Microsoft.DBforPostgreSQL/flexibleServers/read",
+              "Microsoft.DBforPostgreSQL/flexibleServers/start/action",
+              "Microsoft.DBforPostgreSQL/flexibleServers/stop/action"
+            ],
+            "notActions": [],
+            "dataActions": [],
+            "notDataActions": []
+          }
+        ]
+      }
+    },
+    {
+      "condition": "[variables('enableBusinessHoursShutdown')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "name": "[guid(resourceGroup().id, resourceId('Microsoft.Web/sites', variables('funcName')), 'ops-scheduler-assignment')]",
+      "properties": {
+        "roleDefinitionId": "[resourceId('Microsoft.Authorization/roleDefinitions', guid(subscription().id, resourceGroup().id, format('{0}-ops-scheduler-role', parameters('baseName'))))]",
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('funcName')), '2023-01-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('funcName'))]",
+        "[resourceId('Microsoft.Authorization/roleDefinitions', guid(subscription().id, resourceGroup().id, format('{0}-ops-scheduler-role', parameters('baseName'))))]"
+      ]
+    },
+    {
+      "condition": "[and(variables('effectiveEnableScheduler'), variables('effectiveEnableDiagnostics'))]",
+      "type": "Microsoft.Insights/diagnosticSettings",
+      "apiVersion": "2021-05-01-preview",
+      "scope": "[resourceId('Microsoft.Web/sites', variables('funcName'))]",
+      "name": "siem-stream",
+      "properties": {
+        "workspaceId": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('lawName'))]",
+        "logs": [
+          {
+            "category": "FunctionAppLogs",
+            "enabled": true
+          }
+        ],
+        "metrics": [
+          {
+            "category": "AllMetrics",
+            "enabled": true
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('funcName'))]",
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('lawName'))]"
+      ]
+    },
+    {
+      "condition": "[not(empty(parameters('remediationTargetResourceGroupName')))]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "stig-remediation-access",
+      "resourceGroup": "[parameters('remediationTargetResourceGroupName')]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "baseName": {
+            "value": "[parameters('baseName')]"
+          },
+          "principalId": {
+            "value": "[reference(resourceId('Microsoft.Web/sites', variables('backendName')), '2023-01-01', 'full').identity.principalId]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.43.8.12551",
+              "templateHash": "8176911783395667282"
+            }
+          },
+          "parameters": {
+            "baseName": {
+              "type": "string",
+              "metadata": {
+                "description": "Base name used to derive the custom role name"
+              }
+            },
+            "principalId": {
+              "type": "string",
+              "metadata": {
+                "description": "Object ID of the backend App Service managed identity"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Authorization/roleDefinitions",
+              "apiVersion": "2022-05-01-preview",
+              "name": "[guid(resourceGroup().id, 'runcommand-remediation-role')]",
+              "properties": {
+                "roleName": "[format('{0}-runcommand-remediator-{1}', parameters('baseName'), uniqueString(resourceGroup().id))]",
+                "description": "Least-privilege role for STIG remediation RunCommand execution only",
+                "type": "CustomRole",
+                "assignableScopes": [
+                  "[resourceGroup().id]"
+                ],
+                "permissions": [
+                  {
+                    "actions": [
+                      "Microsoft.Compute/virtualMachines/read",
+                      "Microsoft.Compute/virtualMachines/runCommand/action",
+                      "Microsoft.HybridCompute/machines/read",
+                      "Microsoft.HybridCompute/machines/runCommand/action"
+                    ],
+                    "notActions": [],
+                    "dataActions": [],
+                    "notDataActions": []
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "name": "[guid(resourceGroup().id, parameters('principalId'), 'runcommand-remediation-assignment')]",
+              "properties": {
+                "roleDefinitionId": "[resourceId('Microsoft.Authorization/roleDefinitions', guid(resourceGroup().id, 'runcommand-remediation-role'))]",
+                "principalId": "[parameters('principalId')]",
+                "principalType": "ServicePrincipal"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Authorization/roleDefinitions', guid(resourceGroup().id, 'runcommand-remediation-role'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "roleDefinitionId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Authorization/roleDefinitions', guid(resourceGroup().id, 'runcommand-remediation-role'))]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('backendName'))]"
+      ]
     }
   ],
   "outputs": {
-    "cloudEnvironment": { "type": "string", "value": "[parameters('cloudEnvironment')]" },
-    "backendUrl":  { "type": "string", "value": "[concat('https://', variables('backendName'), '.', variables('appHostSuffix'))]" },
-    "frontendUrl": { "type": "string", "value": "[concat('https://', variables('frontendName'), '.', variables('appHostSuffix'))]" },
+    "cloudEnvironment": {
+      "type": "string",
+      "value": "[parameters('cloudEnvironment')]"
+    },
+    "backendUrl": {
+      "type": "string",
+      "value": "[format('https://{0}', reference(resourceId('Microsoft.Web/sites', variables('backendName')), '2023-01-01').defaultHostName)]"
+    },
+    "frontendUrl": {
+      "type": "string",
+      "value": "[format('https://{0}', reference(resourceId('Microsoft.Web/sites', variables('frontendName')), '2023-01-01').defaultHostName)]"
+    },
     "redirectUriToConfigure": {
       "type": "string",
-      "value": "[concat('https://', variables('frontendName'), '.', variables('appHostSuffix'))]"
+      "value": "[format('https://{0}', reference(resourceId('Microsoft.Web/sites', variables('frontendName')), '2023-01-01').defaultHostName)]"
+    },
+    "dbServerFqdn": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('dbServerName')), '2023-06-01-preview').fullyQualifiedDomainName]"
+    },
+    "aiKey": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Insights/components', variables('aiName')), '2020-02-02').InstrumentationKey]"
     },
     "backendPrincipalId": {
       "type": "string",
-      "value": "[reference(resourceId('Microsoft.Web/sites', variables('backendName')), '2023-01-01', 'Full').identity.principalId]"
+      "value": "[reference(resourceId('Microsoft.Web/sites', variables('backendName')), '2023-01-01', 'full').identity.principalId]"
+    },
+    "functionAppName": {
+      "type": "string",
+      "value": "[if(variables('effectiveEnableScheduler'), variables('funcName'), '')]"
+    },
+    "functionPrincipalId": {
+      "type": "string",
+      "value": "[if(variables('effectiveEnableScheduler'), reference(resourceId('Microsoft.Web/sites', variables('funcName')), '2023-01-01', 'full').identity.principalId, '')]"
+    },
+    "logAnalyticsWorkspaceId": {
+      "type": "string",
+      "value": "[if(variables('effectiveEnableDiagnostics'), resourceId('Microsoft.OperationalInsights/workspaces', variables('lawName')), '')]"
+    },
+    "effectiveAppServiceSku": {
+      "type": "string",
+      "value": "[variables('effectiveAppServiceSku')]"
+    },
+    "effectiveEnableScheduler": {
+      "type": "bool",
+      "value": "[variables('effectiveEnableScheduler')]"
+    },
+    "effectiveEnableDiagnostics": {
+      "type": "bool",
+      "value": "[variables('effectiveEnableDiagnostics')]"
     }
   }
 }

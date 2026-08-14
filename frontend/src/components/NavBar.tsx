@@ -9,7 +9,10 @@ import { useState, useRef } from 'react';
 import { usePermissions } from '../auth/AuthzProvider';
 
 export default function NavBar() {
-  const navigate = useNavigate();
+  const rrNavigate = useNavigate();
+  // React Router v7's navigate() returns `void | Promise<void>`; wrap it so the
+  // Fluent UI onClick handlers below stay strictly void-returning.
+  const navigate = (path: string): void => { void rrNavigate(path); };
   const location = useLocation();
   const { instance, accounts } = useMsal();
   const { has } = usePermissions();

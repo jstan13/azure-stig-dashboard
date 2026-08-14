@@ -55,6 +55,39 @@ jobs:
         run: npm test -- --passWithNoTests
 
   # ────────────────────────────────────────────────────────────────────────────
+  # Infrastructure — compile main.bicep and prove the checked-in ARM template
+  # (shipped to end users by the Deploy-to-Azure button) is byte-for-byte what
+  # main.bicep produces. Without this, security fixes made in Bicep can silently
+  # fail to reach the template people actually deploy.
+  # ────────────────────────────────────────────────────────────────────────────
+  infra:
+    name: Bicep build & ARM template drift check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bicep
+        run: az bicep install
+
+      - name: Build main.bicep
+        run: az bicep build --file infra/main.bicep --outfile "$RUNNER_TEMP/azuredeploy.json"
+
+      - name: Verify infra/azuredeploy.json is in sync
+        run: |
+          # Ignore the _generator metadata block, which embeds the Bicep CLI
+          # version and differs between local and CI toolchains.
+          jq 'del(.metadata._generator)' "$RUNNER_TEMP/azuredeploy.json" > "$RUNNER_TEMP/expected.json"
+          jq 'del(.metadata._generator)' infra/azuredeploy.json          > "$RUNNER_TEMP/actual.json"
+          if ! diff -q "$RUNNER_TEMP/expected.json" "$RUNNER_TEMP/actual.json" >/dev/null; then
+            echo "::error::infra/azuredeploy.json is out of sync with infra/main.bicep."
+            echo "Regenerate it with: az bicep build --file infra/main.bicep --outfile infra/azuredeploy.json"
+            diff -u "$RUNNER_TEMP/actual.json" "$RUNNER_TEMP/expected.json" | head -60
+            exit 1
+          fi
+          echo "infra/azuredeploy.json is in sync with infra/main.bicep"
+
+  # ────────────────────────────────────────────────────────────────────────────
   # Image build smoke test — proves the release workflow can produce images,
   # without publishing them. Runs on every push so a broken Dockerfile never
   # reaches a tagged release.

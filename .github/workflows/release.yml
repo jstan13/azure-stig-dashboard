@@ -126,6 +126,20 @@ jobs:
         run: cosign sign --yes "${FRONTEND_IMAGE}@${DIGEST}"
 
       # ── Bake digests into a release-specific azuredeploy.json ───────────
+      - name: Verify ARM template matches main.bicep
+        run: |
+          az bicep install
+          az bicep build --file infra/main.bicep --outfile "$RUNNER_TEMP/azuredeploy.json"
+          # Ignore the _generator metadata block (embeds the Bicep CLI version).
+          jq 'del(.metadata._generator)' "$RUNNER_TEMP/azuredeploy.json" > "$RUNNER_TEMP/expected.json"
+          jq 'del(.metadata._generator)' infra/azuredeploy.json          > "$RUNNER_TEMP/actual.json"
+          if ! diff -q "$RUNNER_TEMP/expected.json" "$RUNNER_TEMP/actual.json" >/dev/null; then
+            echo "::error::Refusing to release: infra/azuredeploy.json does not match infra/main.bicep."
+            diff -u "$RUNNER_TEMP/actual.json" "$RUNNER_TEMP/expected.json" | head -60
+            exit 1
+          fi
+          echo "ARM template verified against main.bicep"
+
       - name: Generate release ARM template
         id: gen_arm
         env:

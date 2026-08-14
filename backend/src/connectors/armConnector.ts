@@ -125,7 +125,7 @@ export class ARMConnector extends BaseConnector {
           const rgName = vm.id?.split('/resourceGroups/')[1]?.split('/')[0] || '';
 
           // Optionally fetch extensions
-          let extensions: VMExtension[] = [];
+          const extensions: VMExtension[] = [];
           try {
             const extList: any = await (client.virtualMachineExtensions.list(rgName, vm.name || '') as any);
             for (const ext of (extList?.value ?? extList ?? [])) {
@@ -169,7 +169,7 @@ export class ARMConnector extends BaseConnector {
           for await (const machine of arcIterator) {
             const rgName = machine.id?.split('/resourceGroups/')[1]?.split('/')[0] || '';
 
-            let extensions: VMExtension[] = [];
+            const extensions: VMExtension[] = [];
             try {
               for await (const ext of hybridClient.machineExtensions.list(rgName, machine.name || '')) {
                 const e: any = ext;

@@ -37,7 +37,10 @@ function statusBadge(status: string) {
 
 export default function MachinePage() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
+  const rrNavigate = useNavigate();
+  // React Router v7's navigate() returns `void | Promise<void>`; wrap it so the
+  // Fluent UI command-bar handlers stay strictly void-returning.
+  const navigate = (path: string): void => { void rrNavigate(path); };
   const { has } = usePermissions();
   const [machine, setMachine] = useState<MachineDetail | null>(null);
   const [loading, setLoading] = useState(true);

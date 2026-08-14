@@ -32,7 +32,10 @@ const isMockMode = process.env.MOCK_MODE === 'true';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
-  url: process.env.DATABASE_URL,
+  // A blank DATABASE_URL is treated as unset so the discrete DB_* settings are
+  // used instead (the deployment template supplies host/user/password
+  // separately and never materialises a connection string containing secrets).
+  url: process.env.DATABASE_URL || undefined,
   host: !isMockMode ? (process.env.DB_HOST || 'localhost') : undefined,
   port: !isMockMode ? parseInt(process.env.DB_PORT || '5432') : undefined,
   username: !isMockMode ? process.env.DB_USER : undefined,

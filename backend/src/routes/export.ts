@@ -20,7 +20,7 @@ import { createError } from '../middleware/errorHandler';
 import { requirePermission, scopeByMachineBody } from '../middleware/authz';
 import { recordAudit } from '../auth';
 import type { AuditRequest } from '../auth';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'crypto';
 
 const router = Router();
 const MOCK_MODE = () => process.env.MOCK_MODE === 'true';

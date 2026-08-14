@@ -25,7 +25,7 @@ import { recordAudit } from '../auth';
 import { createError } from '../middleware/errorHandler';
 import { parsePage, parsePageSize } from '../utils/paging';
 import { logger } from '../utils/logger';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'crypto';
 import { generatePoamCsv } from '../exporters/poamExporter';
 
 const router = Router();
@@ -115,7 +115,7 @@ router.get('/export', requirePermission('export:generate'), async (req, res, nex
     const { format = 'csv', status = 'open' } = req.query as Record<string, string>;
     const MOCK = process.env.MOCK_MODE === 'true';
 
-    let items: any[] = MOCK
+    const items: any[] = MOCK
       ? (mockStore.poams ?? []).filter((x: any) => !status || x.status === status)
       : await AppDataSource.getRepository(PoamEntity).find({ where: status ? { status: status as any } : {} });
 
