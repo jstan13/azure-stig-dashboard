@@ -125,6 +125,43 @@ jobs:
           COSIGN_EXPERIMENTAL: '1'
         run: cosign sign --yes "${FRONTEND_IMAGE}@${DIGEST}"
 
+      # App Service pulls these anonymously, so a private package breaks the
+      # Deploy-to-Azure button. Fail the release rather than ship a dead button.
+      - name: Verify images are anonymously pullable
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          for repo in stig-backend stig-frontend; do
+            TOKEN=$(curl -sf "https://ghcr.io/token?scope=repository:${OWNER}/${repo}:pull&service=ghcr.io" | jq -r .token)
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' \
+              -H "Authorization: Bearer ${TOKEN}" \
+              -H 'Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json' \
+              "https://ghcr.io/v2/${OWNER}/${repo}/manifests/${TAG}")
+            if [ "$CODE" != "200" ]; then
+              echo "::error::ghcr.io/${OWNER}/${repo} is not publicly pullable (HTTP ${CODE}). Set the package visibility to Public at https://github.com/users/${OWNER}/packages/container/${repo}/settings"
+              exit 1
+            fi
+            echo "${repo}: public pull OK"
+          done
+
+      # ── Scheduler Function package (WEBSITE_RUN_FROM_PACKAGE) ──────────
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build scheduler function package
+        run: |
+          npm install --workspace=functions
+          npm run build --workspace=functions
+          mkdir -p func-pkg release-assets
+          cp functions/host.json functions/package.json func-pkg/
+          cp -r functions/dist func-pkg/dist
+          # Self-contained node_modules: run-from-package does no build on deploy.
+          (cd func-pkg && npm install --omit=dev --ignore-scripts)
+          (cd func-pkg && zip -qr ../release-assets/scheduler.zip .)
+
       # ── Bake digests into a release-specific azuredeploy.json ───────────
       - name: Verify ARM template matches main.bicep
         run: |
@@ -153,18 +190,27 @@ jobs:
           mkdir -p release-assets
           BACKEND_REF="${BACKEND_IMAGE}@${BACKEND_DIGEST}"
           FRONTEND_REF="${FRONTEND_IMAGE}@${FRONTEND_DIGEST}"
+          SCHEDULER_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/scheduler.zip"
           echo "Backend  ref: $BACKEND_REF"
           echo "Frontend ref: $FRONTEND_REF"
 
           jq \
-            --arg backend  "$BACKEND_REF" \
-            --arg frontend "$FRONTEND_REF" \
-            --arg tag      "$TAG" \
+            --arg backend   "$BACKEND_REF" \
+            --arg frontend  "$FRONTEND_REF" \
+            --arg scheduler "$SCHEDULER_URL" \
+            --arg tag       "$TAG" \
             '
-              .parameters.backendImage.defaultValue  = $backend |
-              .parameters.frontendImage.defaultValue = $frontend |
-              .metadata.releaseTag                   = $tag
+              .parameters.backendImage.defaultValue        = $backend |
+              .parameters.frontendImage.defaultValue       = $frontend |
+              .parameters.schedulerPackageUrl.defaultValue = $scheduler |
+              .metadata.releaseTag                         = $tag
             ' infra/azuredeploy.json > release-assets/azuredeploy.json
+
+          # Fail fast if the template ever loses these parameter declarations.
+          for p in backendImage frontendImage schedulerPackageUrl; do
+            jq -e --arg p "$p" '.parameters[$p].type == "string"' release-assets/azuredeploy.json >/dev/null \
+              || { echo "::error::Parameter $p is missing or untyped in azuredeploy.json"; exit 1; }
+          done
 
           cp infra/createUiDefinition.json release-assets/createUiDefinition.json
           cp docs/verifying-releases.md     release-assets/VERIFYING.md
@@ -226,4 +272,5 @@ jobs:
           files: |
             release-assets/azuredeploy.json
             release-assets/createUiDefinition.json
+            release-assets/scheduler.zip
             release-assets/VERIFYING.md

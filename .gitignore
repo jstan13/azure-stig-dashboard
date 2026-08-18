@@ -5,6 +5,7 @@ node_modules/
 # Build outputs
 backend/dist/
 frontend/dist/
+functions/dist/
 e2e/test-results/
 e2e/playwright-report/
 

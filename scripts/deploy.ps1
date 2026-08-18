@@ -124,7 +124,10 @@ azd env set APP_SERVICE_SKU      $AppServiceSku      | Out-Null
 azd env set AUTO_SIZE_BY_TRACKED_HOSTS ($AutoSizeByTrackedHosts.ToString().ToLowerInvariant()) | Out-Null
 azd env set TRACKED_HOST_COUNT   $TrackedHostCount   | Out-Null
 azd env set ORG_NAME             $OrgName            | Out-Null
+# Must match the hostname create-app-registration.ps1 used for the redirect URI.
+azd env set AZURE_BASE_NAME      "$OrgName-stig"     | Out-Null
 azd env set CLOUD_ENVIRONMENT    $CloudEnvironment   | Out-Null
+azd env set AZURE_CLOUD_ENVIRONMENT $CloudEnvironment | Out-Null
 azd env set ENABLE_SCHEDULER     ($EnableScheduler.ToString().ToLowerInvariant()) | Out-Null
 azd env set ENABLE_DIAGNOSTICS   ($EnableDiagnostics.ToString().ToLowerInvariant()) | Out-Null
 azd env set BUSINESS_HOURS_MODE  ($BusinessHoursMode.ToString().ToLowerInvariant()) | Out-Null

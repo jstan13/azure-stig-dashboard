@@ -27,6 +27,10 @@ Prefer clicking a button? Use these. They run the same Bicep template but ask yo
 
 > The buttons resolve to the **latest GitHub Release** of this repo. Each release ships a fresh `azuredeploy.json` whose container image parameters are pinned to immutable `@sha256:<digest>` references built by GitHub Actions and signed via Sigstore cosign (keyless OIDC). Deployers can independently verify the signatures before deploying — see [docs/verifying-releases.md](docs/verifying-releases.md).
 
+> The portal path runs the app **from those container images** (App Service pulls them straight from `ghcr.io`) and the scheduler Function from the `scheduler.zip` asset attached to the release — no source build, no `azd` required. The `azd` path leaves the image parameters empty and deploys from source instead.
+
+> **Repo owners / forkers:** the `stig-backend` and `stig-frontend` GHCR packages must be set to **Public** (repo → Packages → package → *Package settings* → *Change visibility*). App Service pulls them anonymously, so a private package leaves both Web Apps stuck on image-pull errors. The release workflow verifies this and fails the release if either package is private.
+
 > The two buttons load the **same** template + UI definition; the difference is which sovereign portal hosts the deployment blade. Choose the one matching the cloud your tenant lives in. Inside the wizard you can still pick `AzureCloud`, `AzureUSGovernment`, or `AzureUSGovernmentDoD` — the template will adjust App Service hostnames (`.azurewebsites.net` vs `.azurewebsites.us`), the PostgreSQL DNS zone, and the Microsoft Entra authority (`login.microsoftonline.com` vs `login.microsoftonline.us`) accordingly.
 
 > If you forked this repo, replace `jstan13/azure-stig-dashboard` in the URLs above with `<your-org>/<your-repo>` and cut your own tagged release (`git tag v1.0.0 && git push origin v1.0.0`). The release workflow does the rest.

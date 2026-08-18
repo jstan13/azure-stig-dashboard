@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "5677766461303376249"
+      "templateHash": "9579522848771684494"
     }
   },
   "parameters": {
@@ -213,6 +213,27 @@
       "metadata": {
         "description": "CAT I open finding threshold for drift alerts (0 = alert on any open CAT I)"
       }
+    },
+    "backendImage": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Backend container image, e.g. ghcr.io/org/stig-backend@sha256:... Leave empty to deploy code from source (azd)."
+      }
+    },
+    "frontendImage": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Frontend container image, e.g. ghcr.io/org/stig-frontend@sha256:... Leave empty to deploy code from source (azd)."
+      }
+    },
+    "schedulerPackageUrl": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Public URL of the scheduler Function zip package. Leave empty to deploy code from source (azd)."
+      }
     }
   },
   "variables": {
@@ -222,7 +243,6 @@
     "dbServerName": "[format('{0}-pg', parameters('baseName'))]",
     "dbName": "stigdashboard",
     "aiName": "[format('{0}-ai', parameters('baseName'))]",
-    "registryName": "[replace(format('{0}acr', parameters('baseName')), '-', '')]",
     "lawName": "[format('{0}-law', parameters('baseName'))]",
     "funcName": "[format('{0}-func', parameters('baseName'))]",
     "funcStorageName": "[take(replace(format('{0}funcsa', parameters('baseName')), '-', ''), 24)]",
@@ -233,6 +253,10 @@
     "authorityHost": "[if(variables('isGov'), 'https://login.microsoftonline.us', 'https://login.microsoftonline.com')]",
     "graphHost": "[if(variables('isGov'), 'https://graph.microsoft.us', 'https://graph.microsoft.com')]",
     "armHost": "[if(variables('isGov'), 'https://management.usgovcloudapi.net', 'https://management.azure.com')]",
+    "backendLinuxFxVersion": "[if(empty(parameters('backendImage')), 'NODE|20-lts', format('DOCKER|{0}', parameters('backendImage')))]",
+    "frontendLinuxFxVersion": "[if(empty(parameters('frontendImage')), 'NODE|20-lts', format('DOCKER|{0}', parameters('frontendImage')))]",
+    "backendRegistryUrl": "[format('https://{0}', first(split(parameters('backendImage'), '/')))]",
+    "frontendRegistryUrl": "[format('https://{0}', first(split(parameters('frontendImage'), '/')))]",
     "autoAppServiceSku": "[if(lessOrEquals(parameters('trackedHostCount'), 150), 'B1', 'S1')]",
     "autoEnableScheduler": "[greater(parameters('trackedHostCount'), 25)]",
     "autoEnableDiagnostics": "[greater(parameters('trackedHostCount'), 150)]",
@@ -397,100 +421,28 @@
               }
             }
           ],
-          "linuxFxVersion": "NODE|20-lts",
+          "linuxFxVersion": "[variables('backendLinuxFxVersion')]",
           "alwaysOn": "[not(equals(variables('effectiveAppServiceSku'), 'F1'))]",
           "http20Enabled": true,
           "minTlsVersion": "1.2",
           "ftpsState": "Disabled",
           "ipSecurityRestrictionsDefaultAction": "[if(parameters('lockdownNetworking'), 'Deny', 'Allow')]",
-          "scmIpSecurityRestrictionsDefaultAction": "[if(parameters('lockdownNetworking'), 'Deny', 'Allow')]",
-          "appSettings": [
-            {
-              "name": "NODE_ENV",
-              "value": "production"
-            },
-            {
-              "name": "MOCK_MODE",
-              "value": "[if(parameters('mockMode'), 'true', 'false')]"
-            },
-            {
-              "name": "STRICT_TRACEABILITY",
-              "value": "[if(parameters('strictTraceability'), 'true', 'false')]"
-            },
-            {
-              "name": "AZURE_CLOUD",
-              "value": "[parameters('cloudEnvironment')]"
-            },
-            {
-              "name": "AZURE_AUTHORITY_HOST",
-              "value": "[variables('authorityHost')]"
-            },
-            {
-              "name": "AZURE_GRAPH_ENDPOINT",
-              "value": "[variables('graphHost')]"
-            },
-            {
-              "name": "AZURE_ARM_ENDPOINT",
-              "value": "[variables('armHost')]"
-            },
-            {
-              "name": "AZURE_TENANT_ID",
-              "value": "[parameters('azureTenantId')]"
-            },
-            {
-              "name": "AZURE_CLIENT_ID",
-              "value": "[parameters('azureClientId')]"
-            },
-            {
-              "name": "AZURE_CLIENT_SECRET",
-              "value": "[format('@Microsoft.KeyVault(SecretUri={0})', reference(resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'AZURE-CLIENT-SECRET'), '2023-07-01').secretUri)]"
-            },
-            {
-              "name": "DB_HOST",
-              "value": "[reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('dbServerName')), '2023-06-01-preview').fullyQualifiedDomainName]"
-            },
-            {
-              "name": "DB_PORT",
-              "value": "5432"
-            },
-            {
-              "name": "DB_NAME",
-              "value": "[variables('dbName')]"
-            },
-            {
-              "name": "DB_USER",
-              "value": "[parameters('dbAdminLogin')]"
-            },
-            {
-              "name": "DB_PASSWORD",
-              "value": "[format('@Microsoft.KeyVault(SecretUri={0})', reference(resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'DB-PASSWORD'), '2023-07-01').secretUri)]"
-            },
-            {
-              "name": "DB_SSL",
-              "value": "true"
-            },
-            {
-              "name": "APPINSIGHTS_INSTRUMENTATIONKEY",
-              "value": "[reference(resourceId('Microsoft.Insights/components', variables('aiName')), '2020-02-02').InstrumentationKey]"
-            },
-            {
-              "name": "FRONTEND_URL",
-              "value": "[format('https://{0}.{1}', variables('frontendName'), variables('appHostSuffix'))]"
-            },
-            {
-              "name": "WEBSITE_NODE_DEFAULT_VERSION",
-              "value": "~20"
-            },
-            {
-              "name": "SCM_DO_BUILD_DURING_DEPLOYMENT",
-              "value": "true"
-            }
-          ]
+          "scmIpSecurityRestrictionsDefaultAction": "[if(parameters('lockdownNetworking'), 'Deny', 'Allow')]"
         }
       },
       "dependsOn": [
+        "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/sites/config",
+      "apiVersion": "2023-01-01",
+      "name": "[format('{0}/{1}', variables('backendName'), 'appsettings')]",
+      "properties": "[toObject(concat(createArray(createObject('name', 'NODE_ENV', 'value', 'production'), createObject('name', 'MOCK_MODE', 'value', if(parameters('mockMode'), 'true', 'false')), createObject('name', 'STRICT_TRACEABILITY', 'value', if(parameters('strictTraceability'), 'true', 'false')), createObject('name', 'AZURE_CLOUD', 'value', parameters('cloudEnvironment')), createObject('name', 'AZURE_AUTHORITY_HOST', 'value', variables('authorityHost')), createObject('name', 'AZURE_GRAPH_ENDPOINT', 'value', variables('graphHost')), createObject('name', 'AZURE_ARM_ENDPOINT', 'value', variables('armHost')), createObject('name', 'AZURE_TENANT_ID', 'value', parameters('azureTenantId')), createObject('name', 'AZURE_CLIENT_ID', 'value', parameters('azureClientId')), createObject('name', 'AZURE_CLIENT_SECRET', 'value', format('@Microsoft.KeyVault(SecretUri={0})', reference(resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'AZURE-CLIENT-SECRET'), '2023-07-01').secretUri)), createObject('name', 'DB_HOST', 'value', reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('dbServerName')), '2023-06-01-preview').fullyQualifiedDomainName), createObject('name', 'DB_PORT', 'value', '5432'), createObject('name', 'DB_NAME', 'value', variables('dbName')), createObject('name', 'DB_USER', 'value', parameters('dbAdminLogin')), createObject('name', 'DB_PASSWORD', 'value', format('@Microsoft.KeyVault(SecretUri={0})', reference(resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'DB-PASSWORD'), '2023-07-01').secretUri)), createObject('name', 'DB_SSL', 'value', 'true'), createObject('name', 'APPINSIGHTS_INSTRUMENTATIONKEY', 'value', reference(resourceId('Microsoft.Insights/components', variables('aiName')), '2020-02-02').InstrumentationKey), createObject('name', 'FRONTEND_URL', 'value', format('https://{0}.{1}', variables('frontendName'), variables('appHostSuffix')))), if(empty(parameters('backendImage')), createArray(createObject('name', 'WEBSITE_NODE_DEFAULT_VERSION', 'value', '~20'), createObject('name', 'SCM_DO_BUILD_DURING_DEPLOYMENT', 'value', 'true')), createArray(createObject('name', 'WEBSITES_PORT', 'value', '3001'), createObject('name', 'DOCKER_REGISTRY_SERVER_URL', 'value', variables('backendRegistryUrl')), createObject('name', 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', 'value', 'false')))), lambda('s', lambdaVariables('s').name), lambda('s', lambdaVariables('s').value))]",
+      "dependsOn": [
         "[resourceId('Microsoft.Insights/components', variables('aiName'))]",
-        "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]",
+        "[resourceId('Microsoft.Web/sites', variables('backendName'))]",
+        "[extensionResourceId(resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName')), resourceId('Microsoft.Web/sites', variables('backendName')), variables('kvSecretsUserRoleId')))]",
         "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'AZURE-CLIENT-SECRET')]",
         "[resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'DB-PASSWORD')]",
         "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('dbServerName'))]"
@@ -532,47 +484,14 @@
               }
             }
           ],
-          "linuxFxVersion": "NODE|20-lts",
-          "appCommandLine": "npm start",
+          "linuxFxVersion": "[variables('frontendLinuxFxVersion')]",
+          "appCommandLine": "[if(empty(parameters('frontendImage')), 'npm start', '')]",
           "http20Enabled": true,
           "minTlsVersion": "1.2",
           "ftpsState": "Disabled",
           "ipSecurityRestrictionsDefaultAction": "[if(parameters('lockdownNetworking'), 'Deny', 'Allow')]",
           "scmIpSecurityRestrictionsDefaultAction": "[if(parameters('lockdownNetworking'), 'Deny', 'Allow')]",
-          "appSettings": [
-            {
-              "name": "VITE_AZURE_CLIENT_ID",
-              "value": "[parameters('azureClientId')]"
-            },
-            {
-              "name": "VITE_AZURE_TENANT_ID",
-              "value": "[parameters('azureTenantId')]"
-            },
-            {
-              "name": "VITE_AZURE_CLOUD",
-              "value": "[parameters('cloudEnvironment')]"
-            },
-            {
-              "name": "VITE_AZURE_AUTHORITY_HOST",
-              "value": "[variables('authorityHost')]"
-            },
-            {
-              "name": "VITE_API_URL",
-              "value": "[format('https://{0}.{1}/api', variables('backendName'), variables('appHostSuffix'))]"
-            },
-            {
-              "name": "VITE_MOCK_MODE",
-              "value": "[if(parameters('mockMode'), 'true', 'false')]"
-            },
-            {
-              "name": "WEBSITES_PORT",
-              "value": "8080"
-            },
-            {
-              "name": "SCM_DO_BUILD_DURING_DEPLOYMENT",
-              "value": "false"
-            }
-          ]
+          "appSettings": "[concat(createArray(createObject('name', 'AZURE_CLIENT_ID', 'value', parameters('azureClientId')), createObject('name', 'AZURE_TENANT_ID', 'value', parameters('azureTenantId')), createObject('name', 'AZURE_CLOUD', 'value', parameters('cloudEnvironment')), createObject('name', 'AZURE_AUTHORITY_HOST', 'value', variables('authorityHost')), createObject('name', 'API_URL', 'value', format('https://{0}.{1}/api', variables('backendName'), variables('appHostSuffix'))), createObject('name', 'API_SCOPE', 'value', format('api://{0}/access_as_user', parameters('azureClientId'))), createObject('name', 'MOCK_MODE', 'value', if(parameters('mockMode'), 'true', 'false')), createObject('name', 'WEBSITES_PORT', 'value', '8080')), if(empty(parameters('frontendImage')), createArray(createObject('name', 'SCM_DO_BUILD_DURING_DEPLOYMENT', 'value', 'false')), createArray(createObject('name', 'DOCKER_REGISTRY_SERVER_URL', 'value', variables('frontendRegistryUrl')), createObject('name', 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', 'value', 'false'))))]"
         }
       },
       "dependsOn": [
@@ -753,88 +672,7 @@
           "linuxFxVersion": "NODE|20",
           "minTlsVersion": "1.2",
           "ftpsState": "Disabled",
-          "appSettings": [
-            {
-              "name": "AzureWebJobsStorage",
-              "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix={2}', variables('funcStorageName'), listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('funcStorageName')), '2023-01-01').keys[0].value, environment().suffixes.storage)]"
-            },
-            {
-              "name": "FUNCTIONS_EXTENSION_VERSION",
-              "value": "~4"
-            },
-            {
-              "name": "FUNCTIONS_WORKER_RUNTIME",
-              "value": "node"
-            },
-            {
-              "name": "WEBSITE_NODE_DEFAULT_VERSION",
-              "value": "~20"
-            },
-            {
-              "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
-              "value": "[reference(resourceId('Microsoft.Insights/components', variables('aiName')), '2020-02-02').ConnectionString]"
-            },
-            {
-              "name": "BACKEND_BASE_URL",
-              "value": "[format('https://{0}', reference(resourceId('Microsoft.Web/sites', variables('backendName')), '2023-01-01').defaultHostName)]"
-            },
-            {
-              "name": "BACKEND_API_AUDIENCE",
-              "value": "[format('api://{0}', parameters('azureClientId'))]"
-            },
-            {
-              "name": "TEAMS_WEBHOOK_URL",
-              "value": "[parameters('teamsWebhookUrl')]"
-            },
-            {
-              "name": "DRIFT_CAT1_THRESHOLD",
-              "value": "[string(parameters('driftCat1Threshold'))]"
-            },
-            {
-              "name": "BUSINESS_HOURS_MODE",
-              "value": "[if(parameters('businessHoursMode'), 'true', 'false')]"
-            },
-            {
-              "name": "BUSINESS_HOURS_TIME_ZONE",
-              "value": "[parameters('businessHoursTimeZone')]"
-            },
-            {
-              "name": "BUSINESS_HOURS_START_HOUR",
-              "value": "[string(parameters('businessHoursStartHour'))]"
-            },
-            {
-              "name": "BUSINESS_HOURS_END_HOUR",
-              "value": "[string(parameters('businessHoursEndHour'))]"
-            },
-            {
-              "name": "BUSINESS_HOURS_AUTO_SHUTDOWN",
-              "value": "[if(parameters('autoShutdownOutsideBusinessHours'), 'true', 'false')]"
-            },
-            {
-              "name": "BUSINESS_HOURS_START_CRON",
-              "value": "[parameters('businessHoursStartCron')]"
-            },
-            {
-              "name": "BUSINESS_HOURS_STOP_CRON",
-              "value": "[parameters('businessHoursStopCron')]"
-            },
-            {
-              "name": "AZURE_ARM_ENDPOINT",
-              "value": "[variables('armHost')]"
-            },
-            {
-              "name": "BACKEND_APP_RESOURCE_ID",
-              "value": "[resourceId('Microsoft.Web/sites', variables('backendName'))]"
-            },
-            {
-              "name": "FRONTEND_APP_RESOURCE_ID",
-              "value": "[resourceId('Microsoft.Web/sites', variables('frontendName'))]"
-            },
-            {
-              "name": "POSTGRES_SERVER_RESOURCE_ID",
-              "value": "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('dbServerName'))]"
-            }
-          ]
+          "appSettings": "[concat(if(empty(parameters('schedulerPackageUrl')), createArray(), createArray(createObject('name', 'WEBSITE_RUN_FROM_PACKAGE', 'value', parameters('schedulerPackageUrl')))), createArray(createObject('name', 'AzureWebJobsStorage', 'value', format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix={2}', variables('funcStorageName'), listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('funcStorageName')), '2023-01-01').keys[0].value, environment().suffixes.storage)), createObject('name', 'FUNCTIONS_EXTENSION_VERSION', 'value', '~4'), createObject('name', 'FUNCTIONS_WORKER_RUNTIME', 'value', 'node'), createObject('name', 'WEBSITE_NODE_DEFAULT_VERSION', 'value', '~20'), createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', reference(resourceId('Microsoft.Insights/components', variables('aiName')), '2020-02-02').ConnectionString), createObject('name', 'BACKEND_BASE_URL', 'value', format('https://{0}', reference(resourceId('Microsoft.Web/sites', variables('backendName')), '2023-01-01').defaultHostName)), createObject('name', 'BACKEND_API_AUDIENCE', 'value', format('api://{0}', parameters('azureClientId'))), createObject('name', 'TEAMS_WEBHOOK_URL', 'value', parameters('teamsWebhookUrl')), createObject('name', 'DRIFT_CAT1_THRESHOLD', 'value', string(parameters('driftCat1Threshold'))), createObject('name', 'BUSINESS_HOURS_MODE', 'value', if(parameters('businessHoursMode'), 'true', 'false')), createObject('name', 'BUSINESS_HOURS_TIME_ZONE', 'value', parameters('businessHoursTimeZone')), createObject('name', 'BUSINESS_HOURS_START_HOUR', 'value', string(parameters('businessHoursStartHour'))), createObject('name', 'BUSINESS_HOURS_END_HOUR', 'value', string(parameters('businessHoursEndHour'))), createObject('name', 'BUSINESS_HOURS_AUTO_SHUTDOWN', 'value', if(parameters('autoShutdownOutsideBusinessHours'), 'true', 'false')), createObject('name', 'BUSINESS_HOURS_START_CRON', 'value', parameters('businessHoursStartCron')), createObject('name', 'BUSINESS_HOURS_STOP_CRON', 'value', parameters('businessHoursStopCron')), createObject('name', 'AZURE_ARM_ENDPOINT', 'value', variables('armHost')), createObject('name', 'BACKEND_APP_RESOURCE_ID', 'value', resourceId('Microsoft.Web/sites', variables('backendName'))), createObject('name', 'FRONTEND_APP_RESOURCE_ID', 'value', resourceId('Microsoft.Web/sites', variables('frontendName'))), createObject('name', 'POSTGRES_SERVER_RESOURCE_ID', 'value', resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('dbServerName')))))]"
         }
       },
       "dependsOn": [

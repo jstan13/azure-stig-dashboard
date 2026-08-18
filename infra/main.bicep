@@ -94,6 +94,17 @@ param teamsWebhookUrl string = ''
 @description('CAT I open finding threshold for drift alerts (0 = alert on any open CAT I)')
 param driftCat1Threshold int = 0
 
+// Release builds pin these to signed, immutable digests; azd leaves them empty
+// and deploys the app code from source instead.
+@description('Backend container image, e.g. ghcr.io/org/stig-backend@sha256:... Leave empty to deploy code from source (azd).')
+param backendImage string = ''
+
+@description('Frontend container image, e.g. ghcr.io/org/stig-frontend@sha256:... Leave empty to deploy code from source (azd).')
+param frontendImage string = ''
+
+@description('Public URL of the scheduler Function zip package. Leave empty to deploy code from source (azd).')
+param schedulerPackageUrl string = ''
+
 // ── Variables ─────────────────────────────────────────────────────────────────
 var planName     = '${baseName}-plan'
 var backendName  = '${baseName}-api'
@@ -101,7 +112,6 @@ var frontendName = '${baseName}-web'
 var dbServerName = '${baseName}-pg'
 var dbName       = 'stigdashboard'
 var aiName       = '${baseName}-ai'
-var registryName = replace('${baseName}acr', '-', '')
 var lawName      = '${baseName}-law'
 var funcName     = '${baseName}-func'
 var funcStorageName = take(replace('${baseName}funcsa', '-', ''), 24)
@@ -113,6 +123,10 @@ var appHostSuffix = isGov ? 'azurewebsites.us' : 'azurewebsites.net'
 var authorityHost = isGov ? 'https://login.microsoftonline.us' : 'https://login.microsoftonline.com'
 var graphHost = isGov ? 'https://graph.microsoft.us' : 'https://graph.microsoft.com'
 var armHost = isGov ? 'https://management.usgovcloudapi.net' : 'https://management.azure.com'
+var backendLinuxFxVersion  = empty(backendImage)  ? 'NODE|20-lts' : 'DOCKER|${backendImage}'
+var frontendLinuxFxVersion = empty(frontendImage) ? 'NODE|20-lts' : 'DOCKER|${frontendImage}'
+var backendRegistryUrl  = 'https://${first(split(backendImage, '/'))}'
+var frontendRegistryUrl = 'https://${first(split(frontendImage, '/'))}'
 var autoAppServiceSku = trackedHostCount <= 150 ? 'B1' : 'S1'
 var autoEnableScheduler = trackedHostCount > 25
 var autoEnableDiagnostics = trackedHostCount > 150
@@ -236,6 +250,34 @@ resource pgFirewallAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRule
 }
 
 // ── Backend App Service (API) ─────────────────────────────────────────────────
+var backendAppSettings = concat([
+  { name: 'NODE_ENV',                       value: 'production'                                    }
+  { name: 'MOCK_MODE',                      value: mockMode ? 'true' : 'false'                    }
+  { name: 'STRICT_TRACEABILITY',            value: strictTraceability ? 'true' : 'false'           }
+  { name: 'AZURE_CLOUD',                    value: cloudEnvironment                                }
+  { name: 'AZURE_AUTHORITY_HOST',           value: authorityHost                                   }
+  { name: 'AZURE_GRAPH_ENDPOINT',           value: graphHost                                       }
+  { name: 'AZURE_ARM_ENDPOINT',             value: armHost                                         }
+  { name: 'AZURE_TENANT_ID',                value: azureTenantId                                  }
+  { name: 'AZURE_CLIENT_ID',                value: azureClientId                                  }
+  { name: 'AZURE_CLIENT_SECRET',            value: '@Microsoft.KeyVault(SecretUri=${kvSecretClientSecret.properties.secretUri})' }
+  { name: 'DB_HOST',                        value: pgServer.properties.fullyQualifiedDomainName    }
+  { name: 'DB_PORT',                        value: '5432'                                         }
+  { name: 'DB_NAME',                        value: dbName                                         }
+  { name: 'DB_USER',                        value: dbAdminLogin                                   }
+  { name: 'DB_PASSWORD',                    value: '@Microsoft.KeyVault(SecretUri=${kvSecretDbPassword.properties.secretUri})' }
+  { name: 'DB_SSL',                         value: 'true'                                         }
+  { name: 'APPINSIGHTS_INSTRUMENTATIONKEY', value: appInsights.properties.InstrumentationKey      }
+  { name: 'FRONTEND_URL',                   value: 'https://${frontendName}.${appHostSuffix}'     }
+], empty(backendImage) ? [
+  { name: 'WEBSITE_NODE_DEFAULT_VERSION',   value: '~20'                                          }
+  { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT', value: 'true'                                         }
+] : [
+  { name: 'WEBSITES_PORT',                  value: '3001'                                         }
+  { name: 'DOCKER_REGISTRY_SERVER_URL',     value: backendRegistryUrl                             }
+  { name: 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', value: 'false'                                   }
+])
+
 resource backendApp 'Microsoft.Web/sites@2023-01-01' = {
   name: backendName
   location: location
@@ -246,7 +288,7 @@ resource backendApp 'Microsoft.Web/sites@2023-01-01' = {
     serverFarmId: appServicePlan.id
     httpsOnly: true
     siteConfig: {
-      linuxFxVersion: 'NODE|20-lts'
+      linuxFxVersion: backendLinuxFxVersion
       alwaysOn: effectiveAppServiceSku != 'F1'
       http20Enabled: true
       minTlsVersion: '1.2'
@@ -259,30 +301,19 @@ resource backendApp 'Microsoft.Web/sites@2023-01-01' = {
         priority: 100 + i
         name: 'allow-${i}'
       }]
-      appSettings: [
-        { name: 'NODE_ENV',                       value: 'production'                                    }
-        { name: 'MOCK_MODE',                      value: mockMode ? 'true' : 'false'                    }
-        { name: 'STRICT_TRACEABILITY',            value: strictTraceability ? 'true' : 'false'           }
-        { name: 'AZURE_CLOUD',                    value: cloudEnvironment                                }
-        { name: 'AZURE_AUTHORITY_HOST',           value: authorityHost                                   }
-        { name: 'AZURE_GRAPH_ENDPOINT',           value: graphHost                                       }
-        { name: 'AZURE_ARM_ENDPOINT',             value: armHost                                         }
-        { name: 'AZURE_TENANT_ID',                value: azureTenantId                                  }
-        { name: 'AZURE_CLIENT_ID',                value: azureClientId                                  }
-        { name: 'AZURE_CLIENT_SECRET',            value: '@Microsoft.KeyVault(SecretUri=${kvSecretClientSecret.properties.secretUri})' }
-        { name: 'DB_HOST',                        value: pgServer.properties.fullyQualifiedDomainName    }
-        { name: 'DB_PORT',                        value: '5432'                                         }
-        { name: 'DB_NAME',                        value: dbName                                         }
-        { name: 'DB_USER',                        value: dbAdminLogin                                   }
-        { name: 'DB_PASSWORD',                    value: '@Microsoft.KeyVault(SecretUri=${kvSecretDbPassword.properties.secretUri})' }
-        { name: 'DB_SSL',                         value: 'true'                                         }
-        { name: 'APPINSIGHTS_INSTRUMENTATIONKEY', value: appInsights.properties.InstrumentationKey      }
-        { name: 'FRONTEND_URL',                   value: 'https://${frontendName}.${appHostSuffix}'     }
-        { name: 'WEBSITE_NODE_DEFAULT_VERSION',   value: '~20'                                          }
-        { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT', value: 'true'                                         }
-      ]
     }
   }
+}
+
+// Applied after the Key Vault RBAC grant so the @Microsoft.KeyVault references
+// resolve on first boot instead of leaving the API without DB credentials.
+resource backendAppConfig 'Microsoft.Web/sites/config@2023-01-01' = {
+  parent: backendApp
+  name: 'appsettings'
+  properties: toObject(backendAppSettings, s => s.name, s => s.value)
+  dependsOn: [
+    kvRoleAssignment
+  ]
 }
 
 // Grant the backend's system-assigned managed identity permission to read
@@ -317,8 +348,8 @@ resource frontendApp 'Microsoft.Web/sites@2023-01-01' = {
     serverFarmId: appServicePlan.id
     httpsOnly: true
     siteConfig: {
-      linuxFxVersion: 'NODE|20-lts'
-      appCommandLine: 'npm start'
+      linuxFxVersion: frontendLinuxFxVersion
+      appCommandLine: empty(frontendImage) ? 'npm start' : ''
       http20Enabled: true
       minTlsVersion: '1.2'
       ftpsState: 'Disabled'
@@ -330,16 +361,22 @@ resource frontendApp 'Microsoft.Web/sites@2023-01-01' = {
         priority: 100 + i
         name: 'allow-${i}'
       }]
-      appSettings: [
-        { name: 'VITE_AZURE_CLIENT_ID',      value: azureClientId   }
-        { name: 'VITE_AZURE_TENANT_ID',      value: azureTenantId   }
-        { name: 'VITE_AZURE_CLOUD',          value: cloudEnvironment }
-        { name: 'VITE_AZURE_AUTHORITY_HOST', value: authorityHost   }
-        { name: 'VITE_API_URL',              value: 'https://${backendName}.${appHostSuffix}/api' }
-        { name: 'VITE_MOCK_MODE',            value: mockMode ? 'true' : 'false' }
+      appSettings: concat([
+        // Names consumed by the frontend container entrypoint to render runtime-config.js.
+        { name: 'AZURE_CLIENT_ID',           value: azureClientId   }
+        { name: 'AZURE_TENANT_ID',           value: azureTenantId   }
+        { name: 'AZURE_CLOUD',               value: cloudEnvironment }
+        { name: 'AZURE_AUTHORITY_HOST',      value: authorityHost   }
+        { name: 'API_URL',                   value: 'https://${backendName}.${appHostSuffix}/api' }
+        { name: 'API_SCOPE',                 value: 'api://${azureClientId}/access_as_user' }
+        { name: 'MOCK_MODE',                 value: mockMode ? 'true' : 'false' }
         { name: 'WEBSITES_PORT',             value: '8080' }
+      ], empty(frontendImage) ? [
         { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT', value: 'false' }
-      ]
+      ] : [
+        { name: 'DOCKER_REGISTRY_SERVER_URL', value: frontendRegistryUrl }
+        { name: 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', value: 'false' }
+      ])
     }
   }
 }
@@ -434,7 +471,9 @@ resource funcApp 'Microsoft.Web/sites@2023-01-01' = if (effectiveEnableScheduler
       linuxFxVersion: 'NODE|20'
       minTlsVersion: '1.2'
       ftpsState: 'Disabled'
-      appSettings: [
+      appSettings: concat(empty(schedulerPackageUrl) ? [] : [
+        { name: 'WEBSITE_RUN_FROM_PACKAGE',            value: schedulerPackageUrl }
+      ], [
         { name: 'AzureWebJobsStorage',                 value: 'DefaultEndpointsProtocol=https;AccountName=${funcStorage.name};AccountKey=${funcStorage.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}' }
         { name: 'FUNCTIONS_EXTENSION_VERSION',         value: '~4' }
         { name: 'FUNCTIONS_WORKER_RUNTIME',            value: 'node' }
@@ -455,7 +494,7 @@ resource funcApp 'Microsoft.Web/sites@2023-01-01' = if (effectiveEnableScheduler
         { name: 'BACKEND_APP_RESOURCE_ID',             value: backendApp.id }
         { name: 'FRONTEND_APP_RESOURCE_ID',            value: frontendApp.id }
         { name: 'POSTGRES_SERVER_RESOURCE_ID',         value: pgServer.id }
-      ]
+      ])
     }
   }
 }

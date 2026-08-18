@@ -287,7 +287,7 @@
       }
     ],
     "outputs": {
-      "baseName":          "[basics('organizationName')]",
+      "baseName":          "[concat(basics('organizationName'), '-stig')]",
       "location":          "[location()]",
       "cloudEnvironment":  "[basics('cloudEnvironment')]",
       "appServiceSku":     "[basics('appServiceSku')]",
