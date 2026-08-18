@@ -56,7 +56,8 @@ Prefer clicking a button? Use these. They run the same Bicep template but ask yo
 15. [API reference](#api-reference)
 16. [Export formats](#export-formats)
 17. [Contributing](#contributing)
-18. [License](#license)
+18. [Security](#security)
+19. [License](#license)
 
 ---
 
@@ -889,6 +890,17 @@ Same endpoint with `"format": "json"` or `"format": "csv"`. Returns all findings
 2. `npm install` at the repo root to install all workspace dependencies.
 3. Run `MOCK_MODE=true npm test` in `backend/` to verify all tests pass.
 4. Open a pull request — the GitHub Actions workflow will run lint + tests automatically.
+
+---
+
+## Security
+
+Found a vulnerability? **Do not open a public issue** — use
+[private vulnerability reporting](https://github.com/jstan13/azure-stig-dashboard/security/advisories/new).
+Full policy, scope, and safe-harbour terms: [SECURITY.md](SECURITY.md).
+
+To verify release signatures and provenance before deploying, see
+[docs/verifying-releases.md](docs/verifying-releases.md).
 
 ---
 
