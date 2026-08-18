@@ -2,7 +2,7 @@
 # The published image is identical for every deployer. Per-tenant config
 # (client id, tenant id, API URL, etc.) is injected at container START via
 # /runtime-config.js + envsubst, NOT baked into the bundle.
-FROM node:20-alpine AS builder
+FROM node:26-alpine AS builder
 
 WORKDIR /app
 
