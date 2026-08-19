@@ -10,13 +10,13 @@
  * Tests for `backend/src/auth/jwt.ts` MUST inject this fetcher rather than
  * letting the validator hit the real Microsoft JWKS endpoint.
  */
-import {
-  generateKeyPair,
-  exportJWK,
-  SignJWT,
-  type KeyLike,
-  type JWK,
-} from 'jose';
+import { generateKeyPair, exportJWK, SignJWT, type JWK } from 'jose';
+
+/**
+ * jose v6 dropped the exported `KeyLike` alias; derive the key type from
+ * `generateKeyPair` so this stays correct across jose versions.
+ */
+type KeyLike = Awaited<ReturnType<typeof generateKeyPair>>['privateKey'];
 
 export interface TestJwtClaims {
   sub?: string;
