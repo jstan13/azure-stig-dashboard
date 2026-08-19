@@ -41,13 +41,18 @@ updates:
       github-actions:
         patterns: ['*']
 
-  # Base images for the published containers.
+  # Base images for the published containers. Majors are pinned out: the whole
+  # stack targets Node 20 (App Service linuxFxVersion, WEBSITE_NODE_DEFAULT_VERSION,
+  # CI setup-node), so a base-image major has to be a deliberate coordinated change.
   - package-ecosystem: docker
     directory: /backend
     schedule:
       interval: weekly
       day: monday
     labels: [dependencies, docker]
+    ignore:
+      - dependency-name: node
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: docker
     directory: /frontend
@@ -55,3 +60,6 @@ updates:
       interval: weekly
       day: monday
     labels: [dependencies, docker]
+    ignore:
+      - dependency-name: node
+        update-types: [version-update:semver-major]
