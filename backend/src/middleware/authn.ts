@@ -80,8 +80,13 @@ function toLegacyAuth(p: AuthenticatedPrincipal) {
 function bearerToken(req: Request): string | undefined {
   const header = req.headers.authorization;
   if (!header) return undefined;
-  const match = /^Bearer\s+(.+)$/i.exec(header);
-  return match ? match[1] : undefined;
+  // Split on the first whitespace run rather than matching the whole header
+  // with a regex: `/^Bearer\s+(.+)$/` backtracks quadratically (CWE-1333).
+  const sep = header.search(/\s/);
+  if (sep === -1) return undefined;
+  if (header.slice(0, sep).toLowerCase() !== 'bearer') return undefined;
+  const token = header.slice(sep).trim();
+  return token.length > 0 ? token : undefined;
 }
 
 /**
