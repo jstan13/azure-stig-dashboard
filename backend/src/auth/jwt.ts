@@ -23,13 +23,14 @@
  *     `authenticate` middleware (middleware/authn.ts) calls it on every
  *     request to populate `req.principal`.
  */
-import {
-  decodeProtectedHeader,
-  importJWK,
-  jwtVerify,
-  type JWK,
-  type KeyLike,
-} from 'jose';
+import { decodeProtectedHeader, importJWK, jwtVerify, type JWK } from 'jose';
+
+/**
+ * jose v6 dropped the exported `KeyLike` alias in favour of the WebCrypto
+ * `CryptoKey` global. Deriving the type from `importJWK` keeps this correct
+ * across jose versions without depending on a DOM lib being present.
+ */
+type PublicKey = Awaited<ReturnType<typeof importJWK>>;
 
 export type JwtFailureReason =
   | 'expired'
@@ -97,7 +98,7 @@ export interface JwtValidatorConfig {
 
 interface JwksCacheEntry {
   fetchedAt: number;
-  keysByKid: Map<string, KeyLike>;
+  keysByKid: Map<string, PublicKey>;
 }
 
 export class JwtValidator {
@@ -150,7 +151,7 @@ export class JwtValidator {
     return toPrincipal(payload);
   }
 
-  private async resolveKey(kid: string): Promise<KeyLike> {
+  private async resolveKey(kid: string): Promise<PublicKey> {
     const now = this.cfg.now ? this.cfg.now() : Date.now();
     if (
       !this.cache ||
@@ -180,10 +181,10 @@ export class JwtValidator {
         err,
       );
     }
-    const keysByKid = new Map<string, KeyLike>();
+    const keysByKid = new Map<string, PublicKey>();
     for (const jwk of jwks.keys) {
       if (typeof jwk.kid !== 'string') continue;
-      const key = (await importJWK(jwk, jwk.alg ?? 'RS256')) as KeyLike;
+      const key = await importJWK(jwk, jwk.alg ?? 'RS256');
       keysByKid.set(jwk.kid, key);
     }
     this.cache = { fetchedAt: now, keysByKid };
