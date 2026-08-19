@@ -11,6 +11,7 @@
 import { PolicyClient } from '@azure/arm-policy';
 import { DefaultAzureCredential } from '@azure/identity';
 import { BaseConnector, ConnectorResult, ScanOptions } from './baseConnector';
+import { azureClientOptions } from './azureClientOptions';
 import { logger } from '../utils/logger';
 import { mockStore } from '../database/dataSource';
 
@@ -32,7 +33,7 @@ export class PolicyConnector extends BaseConnector {
     if (!this.clients.has(subscriptionId)) {
       this.clients.set(
         subscriptionId,
-        new PolicyClient(new DefaultAzureCredential(), subscriptionId, require('./azureClientOptions').azureClientOptions()),
+        new PolicyClient(new DefaultAzureCredential(), subscriptionId, azureClientOptions()),
       );
     }
     return this.clients.get(subscriptionId)!;

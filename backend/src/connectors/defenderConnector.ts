@@ -10,6 +10,7 @@
 import { SecurityCenter } from '@azure/arm-security';
 import { DefaultAzureCredential } from '@azure/identity';
 import { BaseConnector, ConnectorResult, ScanOptions } from './baseConnector';
+import { azureClientOptions } from './azureClientOptions';
 import { logger } from '../utils/logger';
 import { mockStore } from '../database/dataSource';
 
@@ -33,7 +34,7 @@ export class DefenderConnector extends BaseConnector {
     if (!this.clients.has(subscriptionId)) {
       this.clients.set(
         subscriptionId,
-        new SecurityCenter(new DefaultAzureCredential(), subscriptionId, require('./azureClientOptions').azureClientOptions()),
+        new SecurityCenter(new DefaultAzureCredential(), subscriptionId, azureClientOptions()),
       );
     }
     return this.clients.get(subscriptionId)!;
