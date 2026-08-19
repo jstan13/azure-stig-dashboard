@@ -14,6 +14,7 @@
 import { ResourceGraphClient } from '@azure/arm-resourcegraph';
 import { DefaultAzureCredential } from '@azure/identity';
 import { BaseConnector, ConnectorResult, ScanOptions } from './baseConnector';
+import { azureClientOptions } from './azureClientOptions';
 import { logger } from '../utils/logger';
 import { mockStore } from '../database/dataSource';
 
@@ -61,7 +62,6 @@ export class ResourceGraphConnector extends BaseConnector {
 
   private getClient(): ResourceGraphClient {
     if (!this.client) {
-      const { azureClientOptions } = require('./azureClientOptions');
       this.client = new ResourceGraphClient(new DefaultAzureCredential(), azureClientOptions());
     }
     return this.client;

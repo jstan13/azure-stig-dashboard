@@ -161,6 +161,8 @@ app.use('/api', auditMiddleware({ auditor }));
 
 // Swagger / OpenAPI — mounted after auth so it requires a valid token
 try {
+  // Required lazily so a missing yamljs degrades to "no /api/docs" instead of failing boot.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const YAML = require('yamljs');
   const swaggerDocument = YAML.load(path.join(__dirname, '../openapi.yaml'));
   // Swagger UI ships inline bootstrap script/styles, so it needs a relaxed CSP.
