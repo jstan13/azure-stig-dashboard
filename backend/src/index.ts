@@ -1,6 +1,8 @@
 import 'reflect-metadata';
 import dotenv from 'dotenv';
-dotenv.config();
+// `quiet` suppresses the banner dotenv 17 prints on load, which would otherwise
+// be the first line of every container's stdout and confuse log ingestion.
+dotenv.config({ quiet: true });
 
 import express from 'express';
 import cors from 'cors';
