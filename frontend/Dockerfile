@@ -17,7 +17,7 @@ COPY frontend/ ./frontend/
 RUN VITE_MOCK_MODE=false npm run build --workspace=frontend
 
 # ── Stage 2: Production nginx ─────────────────────────────────────────────────
-FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
+FROM nginxinc/nginx-unprivileged:1.30-alpine AS runtime
 
 # This base image defaults to uid 101; apk and the chmod/chown below need root.
 USER root
