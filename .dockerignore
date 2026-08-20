@@ -1,0 +1,25 @@
+# `COPY backend/ ./backend/` would otherwise overwrite the image's installed
+# dependencies with whatever happens to be on the developer's machine.
+node_modules
+**/node_modules
+
+.git
+.github
+.env
+.env.*
+!sample.env
+
+dist
+build
+coverage
+**/dist
+**/coverage
+**/playwright-report
+**/test-results
+
+e2e
+docs
+specs
+scripts
+*.md
+!README.md
