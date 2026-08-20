@@ -153,13 +153,20 @@ jobs:
 
       - name: Build scheduler function package
         run: |
-          npm install --workspace=functions
+          npm ci --workspace=functions
           npm run build --workspace=functions
           mkdir -p func-pkg release-assets
           cp functions/host.json functions/package.json func-pkg/
           cp -r functions/dist func-pkg/dist
-          # Self-contained node_modules: run-from-package does no build on deploy.
-          (cd func-pkg && npm install --omit=dev --ignore-scripts)
+          # Self-contained node_modules: run-from-package does no build on
+          # deploy. Re-resolved from the lockfile so the published zip matches
+          # what CI tested, then lifted wholesale into the package.
+          npm ci --omit=dev --ignore-scripts --workspace=functions
+          cp -a node_modules func-pkg/node_modules
+          # npm links each workspace into node_modules; those symlinks point
+          # outside the package and would dangle in the zip.
+          find func-pkg/node_modules -maxdepth 2 -type l -not -path '*/.bin/*' -delete
+          test -d func-pkg/node_modules/@azure/functions
           (cd func-pkg && zip -qr ../release-assets/scheduler.zip .)
 
       # ── Bake digests into a release-specific azuredeploy.json ───────────
