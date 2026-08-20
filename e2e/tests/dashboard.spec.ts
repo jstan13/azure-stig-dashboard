@@ -100,7 +100,10 @@ test.describe('Authenticated UI', () => {
 
   test('inventory page shows machine list', async ({ page }) => {
     await page.goto('/inventory');
-    await expect(page.getByText('Machine Inventory')).toBeVisible({ timeout: 10_000 });
+    // Scoped to <main>: the side rail carries the same label.
+    await expect(page.getByRole('main').getByText('Machine Inventory')).toBeVisible({
+      timeout: 10_000,
+    });
     // Should show at least one machine name
     await expect(page.getByText('WIN10-WORKSTATION-01')).toBeVisible();
   });
@@ -127,7 +130,9 @@ test.describe('Authenticated UI', () => {
 
   test('audit page shows event timeline', async ({ page }) => {
     await page.goto('/audit');
-    await expect(page.getByText('Audit & History')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('main').getByText('Audit & History')).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
   test('groups page shows resource group list', async ({ page }) => {
