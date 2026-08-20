@@ -13,6 +13,15 @@ import { test, expect } from '@playwright/test';
 /** The backend is reached directly; nginx only proxies /api/, not /health. */
 const API_URL = process.env.E2E_API_URL || 'http://localhost:3001';
 
+// A blank page in CI is otherwise impossible to diagnose from the runner log.
+test.beforeEach(({ page }) => {
+  page.on('pageerror', (err) => console.log(`[pageerror] ${err.message}`));
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') console.log(`[console.error] ${msg.text()}`);
+  });
+  page.on('requestfailed', (req) => console.log(`[requestfailed] ${req.url()}`));
+});
+
 // ── API surface (reachable without signing in — MOCK_MODE injects a principal) ─
 
 test.describe('API', () => {
@@ -83,9 +92,10 @@ test.describe('SPA shell', () => {
 test.describe('Authenticated UI', () => {
   test('dashboard page loads and shows overview', async ({ page }) => {
     await page.goto('/dashboard');
-    // The page should show KPI cards
-    await expect(page.getByText('Total Machines')).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText('Avg Compliance')).toBeVisible();
+    await expect(page.getByText('Compliance Overview')).toBeVisible({ timeout: 10_000 });
+    // KPI strip — proves /api/hierarchy/kpis resolved, not just that the shell rendered.
+    await expect(page.getByText('Avg compliance')).toBeVisible();
+    await expect(page.getByText('CAT I open')).toBeVisible();
   });
 
   test('inventory page shows machine list', async ({ page }) => {

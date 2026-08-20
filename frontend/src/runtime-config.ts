@@ -38,7 +38,9 @@ export const RUNTIME_CONFIG = {
   AZURE_TENANT_ID:      pick('AZURE_TENANT_ID',      import.meta.env.VITE_AZURE_TENANT_ID),
   AZURE_CLOUD:          pick('AZURE_CLOUD',          import.meta.env.VITE_AZURE_CLOUD),
   AZURE_AUTHORITY_HOST: pick('AZURE_AUTHORITY_HOST', import.meta.env.VITE_AZURE_AUTHORITY_HOST),
-  API_URL:              pick('API_URL',              import.meta.env.VITE_API_URL) || '/api',
+  // An origin, not a path: every call site already asks for `/api/...`. Empty
+  // means same-origin, which is what the nginx `/api/` proxy expects.
+  API_URL:              pick('API_URL',              import.meta.env.VITE_API_URL),
   API_SCOPE:            pick('API_SCOPE',            import.meta.env.VITE_API_SCOPE),
   MOCK_MODE:            pick('MOCK_MODE',            import.meta.env.VITE_MOCK_MODE) === 'true',
 };

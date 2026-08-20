@@ -13,7 +13,8 @@ TEMPLATE="/usr/share/nginx/html/runtime-config.js"
 : "${AZURE_TENANT_ID:=}"
 : "${AZURE_CLOUD:=AzureCloud}"
 : "${AZURE_AUTHORITY_HOST:=https://login.microsoftonline.com}"
-: "${API_URL:=/api}"
+# An origin, not a path. Empty means same-origin, i.e. the nginx /api/ proxy.
+: "${API_URL:=}"
 : "${API_SCOPE:=}"
 : "${MOCK_MODE:=false}"
 
