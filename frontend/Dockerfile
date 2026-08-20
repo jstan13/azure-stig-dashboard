@@ -31,10 +31,10 @@ USER root
 RUN apk add --no-cache gettext
 
 COPY --from=builder /app/frontend/dist /usr/share/nginx/html
-COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
+COPY frontend/nginx.conf /etc/nginx/templates/default.conf.template
 COPY frontend/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
-RUN chown -R 101:101 /usr/share/nginx/html
+RUN chown -R 101:101 /usr/share/nginx/html /etc/nginx/conf.d
 
 # Drop back to the unprivileged nginx user for runtime.
 USER 101

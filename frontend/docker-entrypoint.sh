@@ -17,6 +17,9 @@ TEMPLATE="/usr/share/nginx/html/runtime-config.js"
 : "${API_URL:=}"
 : "${API_SCOPE:=}"
 : "${MOCK_MODE:=false}"
+# Upstream for the nginx /api/ proxy. The compose default only resolves on the
+# compose network; App Service supplies the backend's public origin.
+: "${BACKEND_ORIGIN:=http://backend:3001}"
 
 export AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_CLOUD AZURE_AUTHORITY_HOST API_URL API_SCOPE MOCK_MODE
 
@@ -25,5 +28,11 @@ TMP=$(mktemp)
 envsubst '${AZURE_CLIENT_ID} ${AZURE_TENANT_ID} ${AZURE_CLOUD} ${AZURE_AUTHORITY_HOST} ${API_URL} ${API_SCOPE} ${MOCK_MODE}' \
   < "$TEMPLATE" > "$TMP"
 mv "$TMP" "$TEMPLATE"
+
+# Only ${BACKEND_ORIGIN} is listed, so nginx's own $host, $remote_addr and
+# friends survive untouched.
+BACKEND_ORIGIN="$BACKEND_ORIGIN" envsubst '${BACKEND_ORIGIN}' \
+  < /etc/nginx/templates/default.conf.template \
+  > /etc/nginx/conf.d/default.conf
 
 exec "$@"

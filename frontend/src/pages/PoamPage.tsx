@@ -18,8 +18,9 @@ import {
   Dropdown, IDropdownOption, SearchBox, mergeStyleSets, Icon,
 } from '@fluentui/react';
 import { api } from '../hooks/useApi';
+import { RUNTIME_CONFIG } from '../runtime-config';
 
-const BASE = import.meta.env.VITE_API_URL || '';
+const BASE = RUNTIME_CONFIG.API_URL;
 
 const classes = mergeStyleSets({
   overdue: { background: '#fde7e9 !important' },
