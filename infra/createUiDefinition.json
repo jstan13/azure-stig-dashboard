@@ -181,9 +181,9 @@
       {
         "name": "mockMode",
         "type": "Microsoft.Common.OptionsGroup",
-        "label": "Run in MOCK mode (no real Azure subscription data)",
+        "label": "Run in demo mode (seeded sample data, sign-in disabled)",
         "defaultValue": "No",
-        "toolTip": "MOCK mode is great for demos. Leave at 'No' for production deployments.",
+        "toolTip": "Demo mode serves sample data, skips sign-in and accepts every API request unauthenticated. Use it to try the app out; leave at 'No' for anything holding real data.",
         "constraints": {
           "allowedValues": [
             { "label": "No",  "value": false },

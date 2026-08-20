@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "9579522848771684494"
+      "templateHash": "15895715557301224502"
     }
   },
   "parameters": {
@@ -90,7 +90,7 @@
       "type": "bool",
       "defaultValue": false,
       "metadata": {
-        "description": "Enable mock mode — no real Azure subscription required"
+        "description": "Demo mode — serves seeded sample data, disables sign-in and accepts every API request unauthenticated. Never enable for a deployment holding real data."
       }
     },
     "cloudEnvironment": {
@@ -491,7 +491,7 @@
           "ftpsState": "Disabled",
           "ipSecurityRestrictionsDefaultAction": "[if(parameters('lockdownNetworking'), 'Deny', 'Allow')]",
           "scmIpSecurityRestrictionsDefaultAction": "[if(parameters('lockdownNetworking'), 'Deny', 'Allow')]",
-          "appSettings": "[concat(createArray(createObject('name', 'AZURE_CLIENT_ID', 'value', parameters('azureClientId')), createObject('name', 'AZURE_TENANT_ID', 'value', parameters('azureTenantId')), createObject('name', 'AZURE_CLOUD', 'value', parameters('cloudEnvironment')), createObject('name', 'AZURE_AUTHORITY_HOST', 'value', variables('authorityHost')), createObject('name', 'API_URL', 'value', format('https://{0}.{1}/api', variables('backendName'), variables('appHostSuffix'))), createObject('name', 'API_SCOPE', 'value', format('api://{0}/access_as_user', parameters('azureClientId'))), createObject('name', 'MOCK_MODE', 'value', if(parameters('mockMode'), 'true', 'false')), createObject('name', 'WEBSITES_PORT', 'value', '8080')), if(empty(parameters('frontendImage')), createArray(createObject('name', 'SCM_DO_BUILD_DURING_DEPLOYMENT', 'value', 'false')), createArray(createObject('name', 'DOCKER_REGISTRY_SERVER_URL', 'value', variables('frontendRegistryUrl')), createObject('name', 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', 'value', 'false'))))]"
+          "appSettings": "[concat(createArray(createObject('name', 'AZURE_CLIENT_ID', 'value', parameters('azureClientId')), createObject('name', 'AZURE_TENANT_ID', 'value', parameters('azureTenantId')), createObject('name', 'AZURE_CLOUD', 'value', parameters('cloudEnvironment')), createObject('name', 'AZURE_AUTHORITY_HOST', 'value', variables('authorityHost')), createObject('name', 'API_URL', 'value', format('https://{0}.{1}', variables('backendName'), variables('appHostSuffix'))), createObject('name', 'API_SCOPE', 'value', format('api://{0}/access_as_user', parameters('azureClientId'))), createObject('name', 'MOCK_MODE', 'value', if(parameters('mockMode'), 'true', 'false')), createObject('name', 'WEBSITES_PORT', 'value', '8080')), if(empty(parameters('frontendImage')), createArray(createObject('name', 'SCM_DO_BUILD_DURING_DEPLOYMENT', 'value', 'false')), createArray(createObject('name', 'DOCKER_REGISTRY_SERVER_URL', 'value', variables('frontendRegistryUrl')), createObject('name', 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', 'value', 'false'))))]"
         }
       },
       "dependsOn": [

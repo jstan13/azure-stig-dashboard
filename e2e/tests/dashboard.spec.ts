@@ -8,10 +8,19 @@
  *   cd e2e && npm test
  */
 
-import { test, expect, Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 
 /** The backend is reached directly; nginx only proxies /api/, not /health. */
 const API_URL = process.env.E2E_API_URL || 'http://localhost:3001';
+
+// A blank page in CI is otherwise impossible to diagnose from the runner log.
+test.beforeEach(({ page }) => {
+  page.on('pageerror', (err) => console.log(`[pageerror] ${err.message}`));
+  page.on('console', (msg) => {
+    if (msg.type() === 'error') console.log(`[console.error] ${msg.text()}`);
+  });
+  page.on('requestfailed', (req) => console.log(`[requestfailed] ${req.url()}`));
+});
 
 // ── API surface (reachable without signing in — MOCK_MODE injects a principal) ─
 
@@ -54,9 +63,10 @@ test.describe('API', () => {
 // ── Unauthenticated shell ────────────────────────────────────────────────────
 
 test.describe('SPA shell', () => {
-  test('serves the login page at the root', async ({ page }) => {
+  test('boots straight into the app in demo mode, with the demo warning shown', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByText('Sign in with Azure AD')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('mock-mode-banner')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Sign in with Azure AD')).toHaveCount(0);
   });
 
   test('unknown routes fall back to the SPA rather than 404ing', async ({ request }) => {
@@ -76,41 +86,29 @@ test.describe('SPA shell', () => {
 });
 
 // ── Authenticated UI ─────────────────────────────────────────────────────────
-// App.tsx renders LoginPage for every route until MSAL reports a session, and
-// MOCK_MODE does not bypass that. See issue #32.
+// Reachable because MOCK_MODE skips the MSAL gate, matching the backend, which
+// injects a synthetic principal in the same mode.
 
 test.describe('Authenticated UI', () => {
-  test.skip(true, 'Needs a real Entra sign-in to get past AuthenticatedTemplate — see issue #32');
-
-  /** In mock mode the login page has a mock bypass notice; we still click sign-in. */
-  async function loginMock(page: Page) {
-    await page.goto('/');
-    // In MOCK_MODE the app may already be authenticated server-side, or we see the login page.
-    // If the login page is shown, click the sign-in button (MSAL redirect will return immediately
-    // in a test environment with mock tokens — for full MSAL testing use a dedicated test tenant).
-    if (await page.getByText('Sign in with Azure AD').isVisible()) {
-      // Skip real MSAL flow in E2E — navigate directly to dashboard (app is in mock mode)
-      await page.goto('/dashboard');
-    }
-  }
-
   test('dashboard page loads and shows overview', async ({ page }) => {
-    await loginMock(page);
-    // The page should show KPI cards
-    await expect(page.getByText('Total Machines')).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText('Avg Compliance')).toBeVisible();
+    await page.goto('/dashboard');
+    await expect(page.getByText('Compliance Overview')).toBeVisible({ timeout: 10_000 });
+    // KPI strip — proves /api/hierarchy/kpis resolved, not just that the shell rendered.
+    await expect(page.getByText('Avg compliance')).toBeVisible();
+    await expect(page.getByText('CAT I open')).toBeVisible();
   });
 
   test('inventory page shows machine list', async ({ page }) => {
-    await loginMock(page);
     await page.goto('/inventory');
-    await expect(page.getByText('Machine Inventory')).toBeVisible({ timeout: 10_000 });
+    // Scoped to <main>: the side rail carries the same label.
+    await expect(page.getByRole('main').getByText('Machine Inventory')).toBeVisible({
+      timeout: 10_000,
+    });
     // Should show at least one machine name
     await expect(page.getByText('WIN10-WORKSTATION-01')).toBeVisible();
   });
 
   test('inventory search filters machines', async ({ page }) => {
-    await loginMock(page);
     await page.goto('/inventory');
     const searchBox = page.getByPlaceholder('Search name or resource group…');
     await searchBox.fill('WORKSTATION-01');
@@ -121,7 +119,6 @@ test.describe('Authenticated UI', () => {
   });
 
   test('machine detail page shows findings', async ({ page }) => {
-    await loginMock(page);
     await page.goto('/inventory');
     // Click the first machine link
     await page.getByText('WIN10-WORKSTATION-01').first().click();
@@ -132,19 +129,18 @@ test.describe('Authenticated UI', () => {
   });
 
   test('audit page shows event timeline', async ({ page }) => {
-    await loginMock(page);
     await page.goto('/audit');
-    await expect(page.getByText('Audit & History')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('main').getByText('Audit & History')).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
   test('groups page shows resource group list', async ({ page }) => {
-    await loginMock(page);
     await page.goto('/groups/all');
     await expect(page.getByText('All Resource Groups')).toBeVisible({ timeout: 10_000 });
   });
 
   test('group detail page shows compliance rollup', async ({ page }) => {
-    await loginMock(page);
     await page.goto('/groups/rg-demo');
     await expect(page.getByText('Group: rg-demo')).toBeVisible({ timeout: 10_000 });
   });

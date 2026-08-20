@@ -34,7 +34,7 @@ param dbAdminLogin string = 'stigadmin'
 @secure()
 param dbAdminPassword string
 
-@description('Enable mock mode — no real Azure subscription required')
+@description('Demo mode — serves seeded sample data, disables sign-in and accepts every API request unauthenticated. Never enable for a deployment holding real data.')
 param mockMode bool = false
 
 @description('Target Azure cloud environment')
@@ -367,7 +367,7 @@ resource frontendApp 'Microsoft.Web/sites@2023-01-01' = {
         { name: 'AZURE_TENANT_ID',           value: azureTenantId   }
         { name: 'AZURE_CLOUD',               value: cloudEnvironment }
         { name: 'AZURE_AUTHORITY_HOST',      value: authorityHost   }
-        { name: 'API_URL',                   value: 'https://${backendName}.${appHostSuffix}/api' }
+        { name: 'API_URL',                   value: 'https://${backendName}.${appHostSuffix}' }
         { name: 'API_SCOPE',                 value: 'api://${azureClientId}/access_as_user' }
         { name: 'MOCK_MODE',                 value: mockMode ? 'true' : 'false' }
         { name: 'WEBSITES_PORT',             value: '8080' }

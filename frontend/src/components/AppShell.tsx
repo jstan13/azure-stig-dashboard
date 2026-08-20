@@ -17,6 +17,7 @@ import {
   Stack, IconButton, Persona, PersonaSize, ContextualMenu, SearchBox, Text,
 } from '@fluentui/react';
 import { useMsal } from '@azure/msal-react';
+import { RUNTIME_CONFIG } from '../runtime-config';
 
 type NavGroup = {
   label: string;
@@ -147,6 +148,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           )}
         </div>
       </header>
+
+      {RUNTIME_CONFIG.MOCK_MODE && (
+        <div
+          role="alert"
+          data-testid="mock-mode-banner"
+          style={{
+            background: '#fde7e9', color: '#7a1d24', borderBottom: '1px solid #d13438',
+            padding: '6px 16px', fontSize: 13, fontWeight: 600, textAlign: 'center',
+          }}
+        >
+          Demo mode — sign-in is disabled and the API accepts every request. Do not
+          use this deployment with real data.
+        </div>
+      )}
 
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
         {/* ─── Left side rail (Azure portal style) ─────────────────────── */}

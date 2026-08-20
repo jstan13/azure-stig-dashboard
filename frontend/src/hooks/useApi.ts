@@ -12,7 +12,7 @@ import { apiRequest } from '../auth/msalConfig';
 import { RUNTIME_CONFIG } from '../runtime-config';
 
 const MOCK_MODE = RUNTIME_CONFIG.MOCK_MODE;
-const API_BASE = RUNTIME_CONFIG.API_URL || '/api';
+const API_BASE = RUNTIME_CONFIG.API_URL;
 
 export function useApi(): AxiosInstance {
   const { instance, accounts } = useMsal();
