@@ -28,14 +28,14 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
-      args:
-        VITE_MOCK_MODE: "true"
-        VITE_AZURE_CLIENT_ID: "mock"
-        VITE_AZURE_TENANT_ID: "mock"
-        VITE_API_URL: ""
     container_name: stig-frontend
     ports:
       - "80:8080"
+    # The image is deliberately config-free; the entrypoint renders these into
+    # /runtime-config.js at container start, the same way App Service does.
+    environment:
+      MOCK_MODE: "true"
+      API_URL: /api
     depends_on:
       - backend
 
