@@ -6,10 +6,15 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-COPY package.json ./
+# Every workspace manifest is needed for `npm ci` to validate the lockfile,
+# even though only the frontend is installed.
+COPY package.json package-lock.json ./
+COPY backend/package.json ./backend/
 COPY frontend/package.json ./frontend/
+COPY functions/package.json ./functions/
+COPY packages/shared/package.json ./packages/shared/
 
-RUN npm install --workspace=frontend
+RUN npm ci --workspace=frontend
 
 COPY frontend/ ./frontend/
 

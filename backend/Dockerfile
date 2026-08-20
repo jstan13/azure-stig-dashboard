@@ -3,18 +3,24 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy workspace root and backend manifests
-COPY package.json ./
+# Every workspace manifest is needed for `npm ci` to validate the lockfile,
+# even though only the backend is installed.
+COPY package.json package-lock.json ./
 COPY backend/package.json ./backend/
+COPY frontend/package.json ./frontend/
+COPY functions/package.json ./functions/
+COPY packages/shared/package.json ./packages/shared/
 
-# Install backend dependencies
-RUN npm install --workspace=backend
+RUN npm ci --workspace=backend
 
 # Copy backend source
 COPY backend/ ./backend/
 
 # Build TypeScript
 RUN npm run build --workspace=backend
+
+# Re-resolve without dev dependencies, still pinned by the lockfile.
+RUN npm ci --omit=dev --ignore-scripts --workspace=backend
 
 # ── Stage 2: Production ───────────────────────────────────────────────────────
 FROM node:20-alpine AS runtime
@@ -26,12 +32,10 @@ ENV NODE_ENV=production
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 # Copy built artifacts and minimal packages
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/backend/dist ./dist
 COPY --from=builder /app/backend/package.json ./
 COPY --from=builder /app/backend/openapi.yaml ./
-
-# Install production-only deps
-RUN npm install --omit=dev --ignore-scripts && npm cache clean --force
 
 RUN chown -R appuser:appgroup /app
 USER appuser
