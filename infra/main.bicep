@@ -34,7 +34,7 @@ param dbAdminLogin string = 'stigadmin'
 @secure()
 param dbAdminPassword string
 
-@description('Enable mock mode — no real Azure subscription required')
+@description('Demo mode — serves seeded sample data, disables sign-in and accepts every API request unauthenticated. Never enable for a deployment holding real data.')
 param mockMode bool = false
 
 @description('Target Azure cloud environment')

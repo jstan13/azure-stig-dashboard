@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "9579522848771684494"
+      "templateHash": "15899706297398472349"
     }
   },
   "parameters": {
@@ -90,7 +90,7 @@
       "type": "bool",
       "defaultValue": false,
       "metadata": {
-        "description": "Enable mock mode — no real Azure subscription required"
+        "description": "Demo mode — serves seeded sample data, disables sign-in and accepts every API request unauthenticated. Never enable for a deployment holding real data."
       }
     },
     "cloudEnvironment": {
