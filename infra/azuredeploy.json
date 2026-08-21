@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "12055185432128304255"
+      "templateHash": "11929784981093563600"
     }
   },
   "parameters": {
@@ -57,18 +57,21 @@
     },
     "azureTenantId": {
       "type": "string",
+      "defaultValue": "[subscription().tenantId]",
       "metadata": {
         "description": "Azure AD tenant ID for OIDC auth"
       }
     },
     "azureClientId": {
       "type": "string",
+      "defaultValue": "",
       "metadata": {
-        "description": "Azure AD client ID (app registration)"
+        "description": "Azure AD client ID (app registration). Optional: demo mode has no sign-in."
       }
     },
     "azureClientSecret": {
       "type": "securestring",
+      "defaultValue": "",
       "metadata": {
         "description": "Azure AD client secret (store in Key Vault in production)"
       }
@@ -314,7 +317,7 @@
       "apiVersion": "2023-07-01",
       "name": "[format('{0}/{1}', variables('keyVaultName'), 'AZURE-CLIENT-SECRET')]",
       "properties": {
-        "value": "[parameters('azureClientSecret')]"
+        "value": "[if(empty(parameters('azureClientSecret')), 'not-configured', parameters('azureClientSecret'))]"
       },
       "dependsOn": [
         "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]"

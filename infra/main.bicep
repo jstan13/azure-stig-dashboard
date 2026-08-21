@@ -18,14 +18,14 @@ param autoSizeByTrackedHosts bool = true
 param trackedHostCount int = 25
 
 @description('Azure AD tenant ID for OIDC auth')
-param azureTenantId string
+param azureTenantId string = subscription().tenantId
 
-@description('Azure AD client ID (app registration)')
-param azureClientId string
+@description('Azure AD client ID (app registration). Optional: demo mode has no sign-in.')
+param azureClientId string = ''
 
 @description('Azure AD client secret (store in Key Vault in production)')
 @secure()
-param azureClientSecret string
+param azureClientSecret string = ''
 
 @description('PostgreSQL administrator login')
 param dbAdminLogin string = 'stigadmin'
@@ -177,7 +177,8 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
 resource kvSecretClientSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   parent: keyVault
   name: 'AZURE-CLIENT-SECRET'
-  properties: { value: azureClientSecret }
+  // Key Vault rejects an empty secret value, and demo deployments have none.
+  properties: { value: empty(azureClientSecret) ? 'not-configured' : azureClientSecret }
 }
 
 // Only the password is stored as a secret. The full connection string is

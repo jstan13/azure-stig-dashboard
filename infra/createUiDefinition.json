@@ -132,14 +132,37 @@
       },
       {
         "name": "businessHoursTimeZone",
-        "type": "Microsoft.Common.TextBox",
+        "type": "Microsoft.Common.DropDown",
         "label": "Business-hours timezone",
         "defaultValue": "UTC",
-        "toolTip": "IANA timezone name such as UTC or America/New_York.",
+        "toolTip": "Timezone the business-hours window is measured in. Only used when business-hours mode is on.",
         "constraints": {
           "required": true,
-          "regex": "^[A-Za-z_]+(?:\/[A-Za-z_]+)*$",
-          "validationMessage": "Use a valid IANA timezone name, for example UTC or America/New_York."
+          "allowedValues": [
+            { "label": "UTC",                                  "value": "UTC" },
+            { "label": "US Eastern — America/New_York",        "value": "America/New_York" },
+            { "label": "US Central — America/Chicago",         "value": "America/Chicago" },
+            { "label": "US Mountain — America/Denver",         "value": "America/Denver" },
+            { "label": "US Mountain, no DST — America/Phoenix", "value": "America/Phoenix" },
+            { "label": "US Pacific — America/Los_Angeles",     "value": "America/Los_Angeles" },
+            { "label": "Alaska — America/Anchorage",           "value": "America/Anchorage" },
+            { "label": "Hawaii — Pacific/Honolulu",            "value": "Pacific/Honolulu" },
+            { "label": "Atlantic — America/Puerto_Rico",       "value": "America/Puerto_Rico" },
+            { "label": "UK — Europe/London",                   "value": "Europe/London" },
+            { "label": "Central Europe — Europe/Berlin",       "value": "Europe/Berlin" },
+            { "label": "Central Europe — Europe/Paris",        "value": "Europe/Paris" },
+            { "label": "Eastern Europe — Europe/Athens",       "value": "Europe/Athens" },
+            { "label": "Israel — Asia/Jerusalem",              "value": "Asia/Jerusalem" },
+            { "label": "Gulf — Asia/Dubai",                    "value": "Asia/Dubai" },
+            { "label": "India — Asia/Kolkata",                 "value": "Asia/Kolkata" },
+            { "label": "Singapore — Asia/Singapore",           "value": "Asia/Singapore" },
+            { "label": "China — Asia/Shanghai",                "value": "Asia/Shanghai" },
+            { "label": "Korea — Asia/Seoul",                   "value": "Asia/Seoul" },
+            { "label": "Japan — Asia/Tokyo",                   "value": "Asia/Tokyo" },
+            { "label": "Australia East — Australia/Sydney",    "value": "Australia/Sydney" },
+            { "label": "Australia West — Australia/Perth",     "value": "Australia/Perth" },
+            { "label": "New Zealand — Pacific/Auckland",       "value": "Pacific/Auckland" }
+          ]
         }
       },
       {
@@ -200,25 +223,58 @@
         "subLabel": {
           "preValidation": "Provide your Microsoft Entra app registration",
           "postValidation": "Done"
-        },
-        "bladeTitle": "Microsoft Entra ID (Azure AD)",
+        },        "bladeTitle": "Microsoft Entra ID (Azure AD)",
         "elements": [
           {
-            "name": "azureAdInfo",
+            "name": "azureAdSkipped",
             "type": "Microsoft.Common.InfoBox",
-            "visible": true,
+            "visible": "[basics('mockMode')]",
             "options": {
               "icon": "Info",
-              "text": "**Easiest path:** clone the repo and run `./scripts/create-app-registration.ps1 -OrgName <your-org>`. It creates the app registration, exposes the API scope, defines admin/operator/auditor roles, sets the redirect URI, generates a client secret, and prints the three values you need to paste below. Otherwise create an app registration manually with the SPA redirect URI `https://<organization>-stig-web.<azurewebsites-suffix>` and an API scope `api://<client-id>/access_as_user`."
+              "text": "Demo mode is switched on, so sign-in is disabled and nothing on this page is needed. Select **Next**. To move to real sign-in later, redeploy with demo mode set to No and fill this page in."
             }
           },
           {
-            "name": "azureTenantId",
-            "type": "Microsoft.Common.TextBox",
-            "label": "Tenant ID",
-            "toolTip": "GUID of the Azure AD / Microsoft Entra tenant.",
+            "name": "azureAdInfo",
+            "type": "Microsoft.Common.InfoBox",
+            "visible": "[not(basics('mockMode'))]",
+            "options": {
+              "icon": "Info",
+              "text": "This deployment cannot create the app registration for you — app registrations live in Microsoft Entra ID, which Azure Resource Manager templates cannot write to. Create it first by cloning the repo and running `./scripts/create-app-registration.ps1 -OrgName <your-org>`; it creates the registration, exposes the API scope, defines the admin/operator/auditor roles, sets the redirect URI, generates a client secret, and prints the two values you need below. To do it by hand instead, create an app registration with the SPA redirect URI `https://<organization>-stig-web.<azurewebsites-suffix>` and an API scope `api://<client-id>/access_as_user`."
+            }
+          },
+          {
+            "name": "tenantSource",
+            "type": "Microsoft.Common.OptionsGroup",
+            "label": "Which Microsoft Entra tenant?",
+            "defaultValue": "Use the tenant this subscription belongs to",
+            "visible": "[not(basics('mockMode'))]",
+            "toolTip": "Almost always the tenant you are signed in to. Override only if the app registration lives in a different tenant.",
             "constraints": {
               "required": true,
+              "allowedValues": [
+                { "label": "Use the tenant this subscription belongs to", "value": "current" },
+                { "label": "Enter a different tenant ID",                 "value": "custom" }
+              ]
+            }
+          },
+          {
+            "name": "tenantDetected",
+            "type": "Microsoft.Common.InfoBox",
+            "visible": "[and(not(basics('mockMode')), equals(steps('azureAd').tenantSource, 'current'))]",
+            "options": {
+              "icon": "Info",
+              "text": "[concat('Detected tenant: ', subscription().tenantId)]"
+            }
+          },
+          {
+            "name": "azureTenantIdOverride",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Tenant ID",
+            "toolTip": "GUID of the Microsoft Entra tenant holding the app registration.",
+            "visible": "[and(not(basics('mockMode')), equals(steps('azureAd').tenantSource, 'custom'))]",
+            "constraints": {
+              "required": "[and(not(basics('mockMode')), equals(steps('azureAd').tenantSource, 'custom'))]",
               "regex": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
               "validationMessage": "Enter a valid GUID."
             }
@@ -228,8 +284,9 @@
             "type": "Microsoft.Common.TextBox",
             "label": "Application (client) ID",
             "toolTip": "GUID of the app registration.",
+            "visible": "[not(basics('mockMode'))]",
             "constraints": {
-              "required": true,
+              "required": "[not(basics('mockMode'))]",
               "regex": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
               "validationMessage": "Enter a valid GUID."
             }
@@ -241,9 +298,10 @@
               "password": "Client secret",
               "confirmPassword": "Confirm client secret"
             },
-            "toolTip": "App registration client secret. Will be stored as an App Service application setting (rotate to Key Vault references for production hardening).",
+            "toolTip": "App registration client secret. Stored in the deployment's Key Vault and referenced by the backend.",
+            "visible": "[not(basics('mockMode'))]",
             "constraints": {
-              "required": true,
+              "required": "[not(basics('mockMode'))]",
               "regex": "^.{8,}$",
               "validationMessage": "Client secret must be at least 8 characters."
             },
@@ -301,7 +359,7 @@
       "businessHoursEndHour": "[int(basics('businessHoursEndHour'))]",
       "autoShutdownOutsideBusinessHours": "[basics('autoShutdownOutsideBusinessHours')]",
       "mockMode":          "[basics('mockMode')]",
-      "azureTenantId":     "[steps('azureAd').azureTenantId]",
+      "azureTenantId":     "[if(equals(steps('azureAd').tenantSource, 'custom'), steps('azureAd').azureTenantIdOverride, subscription().tenantId)]",
       "azureClientId":     "[steps('azureAd').azureClientId]",
       "azureClientSecret": "[steps('azureAd').azureClientSecret]",
       "dbAdminLogin":      "[steps('database').dbAdminLogin]",
