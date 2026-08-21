@@ -228,6 +228,40 @@ jobs:
             echo "frontend_ref=$FRONTEND_REF"
           } >> "$GITHUB_OUTPUT"
 
+      # ── Serve the templates from somewhere the portal can read ─────────
+      # The Azure portal fetches both files from the deployer's browser, and
+      # release-asset downloads answer without CORS headers, so the browser
+      # blocks them. raw.githubusercontent.com sends `access-control-allow-
+      # origin: *`. The assets stay attached to the release as well, for
+      # offline inspection and for anyone deploying from a local copy.
+      - name: Publish templates to the deploy-templates branch
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          STAGE=$(mktemp -d)
+          cp release-assets/azuredeploy.json release-assets/createUiDefinition.json "$STAGE/"
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git ls-remote --exit-code --heads origin deploy-templates >/dev/null 2>&1; then
+            git fetch --no-tags origin deploy-templates
+            git checkout -B deploy-templates FETCH_HEAD
+          else
+            git checkout --orphan deploy-templates
+            git rm -rf --quiet --ignore-unmatch .
+          fi
+          mkdir -p latest "$TAG"
+          cp "$STAGE"/*.json latest/
+          cp "$STAGE"/*.json "$TAG"/
+          git add latest "$TAG"
+          if git diff --cached --quiet; then
+            echo "Templates unchanged; nothing to publish"
+          else
+            git commit -q -m "Publish $TAG deployment templates"
+            git push origin deploy-templates
+          fi
+          # Later steps still expect the release commit's tree.
+          git checkout -q -f "$GITHUB_SHA"
+
       - name: Write release notes
         id: notes
         env:
@@ -249,8 +283,8 @@ jobs:
 
           ## Deploy
 
-          [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fgithub.com%2Fjstan13%2Fazure-stig-dashboard%2Freleases%2Fdownload%2F$TAG%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fgithub.com%2Fjstan13%2Fazure-stig-dashboard%2Freleases%2Fdownload%2F$TAG%2FcreateUiDefinition.json)
-          [![Deploy to Azure US Gov](https://aka.ms/deploytoazuregovbutton)](https://portal.azure.us/#create/Microsoft.Template/uri/https%3A%2F%2Fgithub.com%2Fjstan13%2Fazure-stig-dashboard%2Freleases%2Fdownload%2F$TAG%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fgithub.com%2Fjstan13%2Fazure-stig-dashboard%2Freleases%2Fdownload%2F$TAG%2FcreateUiDefinition.json)
+          [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fjstan13%2Fazure-stig-dashboard%2Fdeploy-templates%2F$TAG%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fraw.githubusercontent.com%2Fjstan13%2Fazure-stig-dashboard%2Fdeploy-templates%2F$TAG%2FcreateUiDefinition.json)
+          [![Deploy to Azure US Gov](https://aka.ms/deploytoazuregovbutton)](https://portal.azure.us/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fjstan13%2Fazure-stig-dashboard%2Fdeploy-templates%2F$TAG%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fraw.githubusercontent.com%2Fjstan13%2Fazure-stig-dashboard%2Fdeploy-templates%2F$TAG%2FcreateUiDefinition.json)
 
           ## Verify before deploying
 
