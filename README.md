@@ -18,7 +18,7 @@ When it finishes, browse to `https://<your-org>-stig-web.azurewebsites.net` and 
 
 ### Deploy to Azure (portal wizard)
 
-Prefer clicking a button? Use these. They run the same Bicep template but ask you to paste tenant ID, client ID, and client secret. Run `./scripts/create-app-registration.ps1 -OrgName <your-org>` first — it prints the three values you need.
+Prefer clicking a button? Use these. They run the same Bicep template. The tenant is detected from the subscription you pick, so you only supply an app registration client ID and secret — run `./scripts/create-app-registration.ps1 -OrgName <your-org>` first to create one and print those values. Turning on **demo mode** in the wizard skips the sign-in page entirely.
 
 | Cloud | Button |
 |---|---|
@@ -151,10 +151,12 @@ Open http://localhost:5173. You are signed in automatically as **Demo Admin** in
 
 Click one of the buttons at the top of this README — Commercial uses `portal.azure.com`, US Gov uses `portal.azure.us`. The portal renders a four-step wizard powered by [`infra/createUiDefinition.json`](infra/createUiDefinition.json):
 
-1. **Basics** — Organization name (resource prefix), Azure cloud environment, region, App Service SKU, MOCK mode toggle.
-2. **Microsoft Entra sign-in** — Tenant ID, app registration client ID + secret.
+1. **Basics** — Organization name (resource prefix), Azure cloud environment, region, App Service SKU, demo-mode toggle.
+2. **Microsoft Entra sign-in** — app registration client ID + secret. The tenant is taken from the subscription you selected, with an override if the registration lives elsewhere. Skipped entirely when demo mode is on, because there is no sign-in to configure.
 3. **PostgreSQL** — admin login + complex password.
 4. **Review + create**.
+
+> The template cannot create the app registration for you: registrations live in Microsoft Entra ID, which ARM templates have no ability to write to. That is what `scripts/create-app-registration.ps1` is for.
 
 The ARM template provisions:
 
