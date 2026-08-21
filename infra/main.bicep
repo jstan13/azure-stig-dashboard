@@ -369,6 +369,9 @@ resource frontendApp 'Microsoft.Web/sites@2023-01-01' = {
         { name: 'AZURE_AUTHORITY_HOST',      value: authorityHost   }
         { name: 'API_URL',                   value: 'https://${backendName}.${appHostSuffix}' }
         { name: 'API_SCOPE',                 value: 'api://${azureClientId}/access_as_user' }
+        // nginx resolves its proxy upstream while loading config, so this has
+        // to name a host that exists outside the compose network.
+        { name: 'BACKEND_ORIGIN',            value: 'https://${backendName}.${appHostSuffix}' }
         { name: 'MOCK_MODE',                 value: mockMode ? 'true' : 'false' }
         { name: 'WEBSITES_PORT',             value: '8080' }
       ], empty(frontendImage) ? [
