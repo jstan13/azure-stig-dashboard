@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "11929784981093563600"
+      "templateHash": "14484808616053993967"
     }
   },
   "parameters": {
@@ -250,7 +250,7 @@
     "funcName": "[format('{0}-func', parameters('baseName'))]",
     "funcStorageName": "[take(replace(format('{0}funcsa', parameters('baseName')), '-', ''), 24)]",
     "keyVaultName": "[take(replace(format('{0}-stig-kv', parameters('baseName')), '-', ''), 24)]",
-    "kvSecretsUserRoleId": "4633458b-17de-457c-a5dd-322bbab69ee3",
+    "kvSecretsUserRoleId": "4633458b-17de-408a-b874-0445c86b69e6",
     "isGov": "[or(equals(parameters('cloudEnvironment'), 'AzureUSGovernment'), equals(parameters('cloudEnvironment'), 'AzureUSGovernmentDoD'))]",
     "appHostSuffix": "[if(variables('isGov'), 'azurewebsites.us', 'azurewebsites.net')]",
     "authorityHost": "[if(variables('isGov'), 'https://login.microsoftonline.us', 'https://login.microsoftonline.com')]",
@@ -290,9 +290,13 @@
       "kind": "web",
       "properties": {
         "Application_Type": "web",
+        "WorkspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('lawName'))]",
         "publicNetworkAccessForIngestion": "[if(parameters('lockdownNetworking'), 'Disabled', 'Enabled')]",
         "publicNetworkAccessForQuery": "[if(parameters('lockdownNetworking'), 'Disabled', 'Enabled')]"
-      }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('lawName'))]"
+      ]
     },
     {
       "type": "Microsoft.KeyVault/vaults",
@@ -502,7 +506,6 @@
       ]
     },
     {
-      "condition": "[variables('effectiveEnableDiagnostics')]",
       "type": "Microsoft.OperationalInsights/workspaces",
       "apiVersion": "2022-10-01",
       "name": "[variables('lawName')]",
@@ -893,7 +896,7 @@
     },
     "logAnalyticsWorkspaceId": {
       "type": "string",
-      "value": "[if(variables('effectiveEnableDiagnostics'), resourceId('Microsoft.OperationalInsights/workspaces', variables('lawName')), '')]"
+      "value": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('lawName'))]"
     },
     "effectiveAppServiceSku": {
       "type": "string",

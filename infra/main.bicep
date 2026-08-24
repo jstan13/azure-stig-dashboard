@@ -117,7 +117,7 @@ var funcName     = '${baseName}-func'
 var funcStorageName = take(replace('${baseName}funcsa', '-', ''), 24)
 var keyVaultName = take(replace('${baseName}-stig-kv', '-', ''), 24)
 // Built-in role: Key Vault Secrets User
-var kvSecretsUserRoleId = '4633458b-17de-457c-a5dd-322bbab69ee3'
+var kvSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6'
 var isGov = cloudEnvironment == 'AzureUSGovernment' || cloudEnvironment == 'AzureUSGovernmentDoD'
 var appHostSuffix = isGov ? 'azurewebsites.us' : 'azurewebsites.net'
 var authorityHost = isGov ? 'https://login.microsoftonline.us' : 'https://login.microsoftonline.com'
@@ -155,6 +155,7 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   kind: 'web'
   properties: {
     Application_Type: 'web'
+    WorkspaceResourceId: logAnalytics.id
     publicNetworkAccessForIngestion: lockdownNetworking ? 'Disabled' : 'Enabled'
     publicNetworkAccessForQuery: lockdownNetworking ? 'Disabled' : 'Enabled'
   }
@@ -386,7 +387,11 @@ resource frontendApp 'Microsoft.Web/sites@2023-01-01' = {
 }
 
 // ── Log Analytics + Diagnostics (SIEM-ready) ───────────────────────────────
-resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = if (effectiveEnableDiagnostics) {
+// Unconditional: classic Application Insights components can no longer be
+// created, so the component needs a workspace even when diagnostics are off.
+// The workspace itself is free; only ingestion is billed, and the diagnostic
+// settings that drive most of that stay behind the toggle below.
+resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
   name: lawName
   location: location
   properties: {
@@ -564,7 +569,7 @@ output aiKey        string = appInsights.properties.InstrumentationKey
 output backendPrincipalId string = backendApp.identity.principalId
 output functionAppName string = effectiveEnableScheduler ? funcApp.name : ''
 output functionPrincipalId string = effectiveEnableScheduler ? funcApp.identity.principalId : ''
-output logAnalyticsWorkspaceId string = effectiveEnableDiagnostics ? logAnalytics.id : ''
+output logAnalyticsWorkspaceId string = logAnalytics.id
 output effectiveAppServiceSku string = effectiveAppServiceSku
 output effectiveEnableScheduler bool = effectiveEnableScheduler
 output effectiveEnableDiagnostics bool = effectiveEnableDiagnostics
