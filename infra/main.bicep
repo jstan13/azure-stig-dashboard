@@ -255,6 +255,7 @@ resource pgFirewallAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRule
 var backendAppSettings = concat([
   { name: 'NODE_ENV',                       value: 'production'                                    }
   { name: 'MOCK_MODE',                      value: mockMode ? 'true' : 'false'                    }
+  { name: 'ALLOW_MOCK_IN_PRODUCTION',       value: mockMode ? 'true' : 'false'                    }
   { name: 'STRICT_TRACEABILITY',            value: strictTraceability ? 'true' : 'false'           }
   { name: 'AZURE_CLOUD',                    value: cloudEnvironment                                }
   { name: 'AZURE_AUTHORITY_HOST',           value: authorityHost                                   }

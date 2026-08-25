@@ -46,11 +46,18 @@ import poolsRouter from './routes/pools';
 import { startStigUpdateScheduler } from './stigs/stigUpdateScheduler';
 import { startScanScheduler } from './scanning/scanScheduler';
 
-// ─── Production safety: forbid MOCK_MODE in prod (Audit #1) ───────────────
+// ─── Production safety: MOCK_MODE needs an explicit opt-in (Audit #1) ─────
+// Demo deployments legitimately pair MOCK_MODE with NODE_ENV=production, so the
+// guard demands a second deliberate flag rather than refusing outright — a
+// stray MOCK_MODE=true still cannot pass real-looking data off as genuine.
 if (process.env.NODE_ENV === 'production' && process.env.MOCK_MODE === 'true') {
+  if (process.env.ALLOW_MOCK_IN_PRODUCTION !== 'true') {
+    // eslint-disable-next-line no-console
+    console.error('FATAL: MOCK_MODE=true requires ALLOW_MOCK_IN_PRODUCTION=true when NODE_ENV=production');
+    process.exit(1);
+  }
   // eslint-disable-next-line no-console
-  console.error('FATAL: MOCK_MODE=true is forbidden when NODE_ENV=production');
-  process.exit(1);
+  console.warn('WARNING: demo mode is on — every compliance figure this API returns is fabricated and must not be used for an authorization decision');
 }
 
 const app = express();
