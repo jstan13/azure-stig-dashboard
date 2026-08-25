@@ -53,6 +53,7 @@ export const PERMISSIONS = [
   'collection:manage',
   'users:manage',
   'notifications:manage',
+  'updates:manage',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -66,6 +67,7 @@ export const GLOBAL_PERMISSIONS: ReadonlySet<Permission> = new Set<Permission>([
   'collection:manage',
   'users:manage',
   'notifications:manage',
+  'updates:manage',
   'audit:read',
   'stig:import',
 ]);
@@ -87,7 +89,7 @@ const ROLE_GRANTS: Record<Role, Permission[]> = {
     'remediation:approve',
     'roles:assign',
   ],
-  admin: ['collection:manage', 'users:manage', 'notifications:manage'],
+  admin: ['collection:manage', 'users:manage', 'notifications:manage', 'updates:manage'],
 };
 
 /**

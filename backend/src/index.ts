@@ -42,6 +42,7 @@ import vulnerabilitiesRouter from './routes/vulnerabilities';
 import meRouter from './routes/me';
 import collectionsRouter from './routes/collections';
 import poolsRouter from './routes/pools';
+import updatesRouter from './routes/updates';
 
 import { startStigUpdateScheduler } from './stigs/stigUpdateScheduler';
 import { startScanScheduler } from './scanning/scanScheduler';
@@ -214,6 +215,7 @@ app.use('/api/vulnerabilities', vulnerabilitiesRouter);
 app.use('/api/me', meRouter);
 app.use('/api/collections', collectionsRouter);
 app.use('/api/pools', poolsRouter);
+app.use('/api/updates', updatesRouter);
 
 // ─── Error handling ──────────────────────────────────────────────────────────
 app.use(errorHandler);

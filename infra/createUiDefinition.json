@@ -202,6 +202,104 @@
         }
       },
       {
+        "name": "autoUpdateMode",
+        "type": "Microsoft.Common.OptionsGroup",
+        "label": "Automatic updates",
+        "defaultValue": "Notify me only",
+        "toolTip": "New versions ship as container images. 'Install automatically' swaps the image during your maintenance window and puts the old version back if the new one fails its health check. Your data is never touched.",
+        "constraints": {
+          "allowedValues": [
+            { "label": "Off — never check",              "value": "off" },
+            { "label": "Notify me only",                 "value": "notify" },
+            { "label": "Install automatically",          "value": "auto" }
+          ],
+          "required": true
+        }
+      },
+      {
+        "name": "autoUpdateRequireApproval",
+        "type": "Microsoft.Common.OptionsGroup",
+        "label": "Require approval for each update",
+        "defaultValue": "Approve each one",
+        "toolTip": "'Approve each one' holds every release until an administrator signs off on the Updates page. 'Set and forget' installs them unattended during the maintenance window. You can change this later in the app.",
+        "visible": "[equals(basics('autoUpdateMode'), 'auto')]",
+        "constraints": {
+          "allowedValues": [
+            { "label": "Approve each one", "value": true },
+            { "label": "Set and forget",   "value": false }
+          ],
+          "required": true
+        }
+      },
+      {
+        "name": "autoUpdateDay",
+        "type": "Microsoft.Common.DropDown",
+        "label": "Update day",
+        "defaultValue": "Any day",
+        "visible": "[equals(basics('autoUpdateMode'), 'auto')]",
+        "constraints": {
+          "required": true,
+          "allowedValues": [
+            { "label": "Any day",   "value": "-1" },
+            { "label": "Sunday",    "value": "0" },
+            { "label": "Monday",    "value": "1" },
+            { "label": "Tuesday",   "value": "2" },
+            { "label": "Wednesday", "value": "3" },
+            { "label": "Thursday",  "value": "4" },
+            { "label": "Friday",    "value": "5" },
+            { "label": "Saturday",  "value": "6" }
+          ]
+        }
+      },
+      {
+        "name": "autoUpdateHour",
+        "type": "Microsoft.Common.TextBox",
+        "label": "Update hour (0-23)",
+        "defaultValue": "2",
+        "toolTip": "Hour, in the timezone below, when updates may install. Expect a short outage while the app restarts.",
+        "visible": "[equals(basics('autoUpdateMode'), 'auto')]",
+        "constraints": {
+          "required": true,
+          "regex": "^(?:[0-9]|1[0-9]|2[0-3])$",
+          "validationMessage": "Enter a value from 0 to 23."
+        }
+      },
+      {
+        "name": "autoUpdateTimeZone",
+        "type": "Microsoft.Common.DropDown",
+        "label": "Update timezone",
+        "defaultValue": "UTC",
+        "visible": "[equals(basics('autoUpdateMode'), 'auto')]",
+        "constraints": {
+          "required": true,
+          "allowedValues": [
+            { "label": "UTC",                                  "value": "UTC" },
+            { "label": "US Eastern — America/New_York",        "value": "America/New_York" },
+            { "label": "US Central — America/Chicago",         "value": "America/Chicago" },
+            { "label": "US Mountain — America/Denver",         "value": "America/Denver" },
+            { "label": "US Mountain, no DST — America/Phoenix", "value": "America/Phoenix" },
+            { "label": "US Pacific — America/Los_Angeles",     "value": "America/Los_Angeles" },
+            { "label": "Alaska — America/Anchorage",           "value": "America/Anchorage" },
+            { "label": "Hawaii — Pacific/Honolulu",            "value": "Pacific/Honolulu" },
+            { "label": "Atlantic — America/Puerto_Rico",       "value": "America/Puerto_Rico" },
+            { "label": "UK — Europe/London",                   "value": "Europe/London" },
+            { "label": "Central Europe — Europe/Berlin",       "value": "Europe/Berlin" },
+            { "label": "Central Europe — Europe/Paris",        "value": "Europe/Paris" },
+            { "label": "Eastern Europe — Europe/Athens",       "value": "Europe/Athens" },
+            { "label": "Israel — Asia/Jerusalem",              "value": "Asia/Jerusalem" },
+            { "label": "Gulf — Asia/Dubai",                    "value": "Asia/Dubai" },
+            { "label": "India — Asia/Kolkata",                 "value": "Asia/Kolkata" },
+            { "label": "Singapore — Asia/Singapore",           "value": "Asia/Singapore" },
+            { "label": "China — Asia/Shanghai",                "value": "Asia/Shanghai" },
+            { "label": "Korea — Asia/Seoul",                   "value": "Asia/Seoul" },
+            { "label": "Japan — Asia/Tokyo",                   "value": "Asia/Tokyo" },
+            { "label": "Australia East — Australia/Sydney",    "value": "Australia/Sydney" },
+            { "label": "Australia West — Australia/Perth",     "value": "Australia/Perth" },
+            { "label": "New Zealand — Pacific/Auckland",       "value": "Pacific/Auckland" }
+          ]
+        }
+      },
+      {
         "name": "mockMode",
         "type": "Microsoft.Common.OptionsGroup",
         "label": "Run in demo mode (seeded sample data, sign-in disabled)",
@@ -358,6 +456,11 @@
       "businessHoursStartHour": "[int(basics('businessHoursStartHour'))]",
       "businessHoursEndHour": "[int(basics('businessHoursEndHour'))]",
       "autoShutdownOutsideBusinessHours": "[basics('autoShutdownOutsideBusinessHours')]",
+      "autoUpdateMode": "[basics('autoUpdateMode')]",
+      "autoUpdateRequireApproval": "[if(equals(basics('autoUpdateMode'), 'auto'), basics('autoUpdateRequireApproval'), true)]",
+      "autoUpdateDay": "[if(equals(basics('autoUpdateMode'), 'auto'), int(basics('autoUpdateDay')), -1)]",
+      "autoUpdateHour": "[if(equals(basics('autoUpdateMode'), 'auto'), int(basics('autoUpdateHour')), 2)]",
+      "autoUpdateTimeZone": "[if(equals(basics('autoUpdateMode'), 'auto'), basics('autoUpdateTimeZone'), 'UTC')]",
       "mockMode":          "[basics('mockMode')]",
       "azureTenantId":     "[if(equals(steps('azureAd').tenantSource, 'custom'), steps('azureAd').azureTenantIdOverride, subscription().tenantId)]",
       "azureClientId":     "[steps('azureAd').azureClientId]",

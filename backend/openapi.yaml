@@ -11,71 +11,6 @@ servers:
   - url: /api
     description: API base path
 
-components:
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: Azure AD JWT token obtained via MSAL
-
-  schemas:
-    Machine:
-      type: object
-      properties:
-        id:            { type: string }
-        name:          { type: string }
-        resourceId:    { type: string }
-        subscriptionId: { type: string }
-        resourceGroupName: { type: string }
-        location:      { type: string }
-        osType:        { type: string }
-        osVersion:     { type: string }
-        complianceScore: { type: number }
-        lastScanDate:  { type: string, format: date-time }
-        status:        { type: string, enum: [online, offline, unknown] }
-
-    Finding:
-      type: object
-      properties:
-        id:             { type: string }
-        machineId:      { type: string }
-        controlId:      { type: string }
-        status:         { type: string, enum: [open, not_a_finding, not_applicable, not_reviewed] }
-        severity:       { type: string, enum: [high, medium, low, informational] }
-        comments:       { type: string }
-        findingDetails: { type: string }
-        sourceType:     { type: string }
-
-    Control:
-      type: object
-      properties:
-        id:           { type: string, example: V-220700 }
-        stigId:       { type: string, example: WN10-AU-000005 }
-        title:        { type: string }
-        severity:     { type: string, enum: [high, medium, low, informational] }
-        description:  { type: string }
-        checkContent: { type: string }
-        fixText:      { type: string }
-
-    Scan:
-      type: object
-      properties:
-        id:              { type: string }
-        machineId:       { type: string }
-        status:          { type: string, enum: [pending, running, completed, failed] }
-        scanType:        { type: string, enum: [full, incremental, on-demand] }
-        openFindings:    { type: number }
-        compliantControls: { type: number }
-        startedAt:       { type: string, format: date-time }
-        completedAt:     { type: string, format: date-time }
-
-    Error:
-      type: object
-      properties:
-        error:   { type: string }
-        message: { type: string }
-
 security:
   - bearerAuth: []
 
@@ -330,8 +265,221 @@ paths:
         '202': { description: Scan triggered }
         '404': { description: Benchmark not found }
 
+  /updates:
+    get:
+      summary: Current version, the release on offer, and the auto-update policy
+      tags: [Updates]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UpdateStatus' }
+        '403': { description: Missing dashboard:read }
+
+  /updates/policy:
+    put:
+      summary: Change the auto-update policy
+      description: >-
+        `mode: auto` with `requireApproval: true` means an administrator signs
+        off on each release; with `requireApproval: false` releases install
+        unattended during the maintenance window.
+      tags: [Updates]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdatePolicy' }
+      responses:
+        '200': { description: Saved }
+        '400': { description: Invalid policy (including an unknown IANA time zone) }
+        '403': { description: Missing updates:manage }
+
+  /updates/approve:
+    post:
+      summary: Clear a specific release for installation
+      tags: [Updates]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version]
+              properties:
+                version: { type: string, example: 'v0.3.5' }
+      responses:
+        '200': { description: Approved }
+        '409': { description: That version is not the release currently on offer }
+        '403': { description: Missing updates:manage }
+
+  /updates/apply:
+    post:
+      summary: Install the available release now, ignoring the window and approval gate
+      description: >-
+        Queues the work for the scheduler Function; the backend cannot replace
+        its own container image without killing the request.
+      tags: [Updates]
+      security:
+        - bearerAuth: []
+      responses:
+        '202': { description: Update queued }
+        '409': { description: Nothing to install }
+        '403': { description: Missing updates:manage }
+
+  /updates/available:
+    post:
+      summary: Scheduler reports the newest upstream release
+      tags: [Updates]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version]
+              properties:
+                version: { type: string, example: 'v0.3.5' }
+                notes:   { type: string }
+      responses:
+        '200': { description: Recorded, with the action the scheduler should take next }
+        '403': { description: Missing updates:manage }
+
+  /updates/result:
+    post:
+      summary: Scheduler reports how an install went
+      tags: [Updates]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version, result]
+              properties:
+                version:         { type: string }
+                previousVersion: { type: string, nullable: true }
+                result:          { type: string, enum: [succeeded, rolled_back, failed] }
+                detail:          { type: string }
+      responses:
+        '200': { description: Recorded }
+        '403': { description: Missing updates:manage }
+
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Azure AD JWT token obtained via MSAL
+
   schemas:
+    Machine:
+      type: object
+      properties:
+        id:            { type: string }
+        name:          { type: string }
+        resourceId:    { type: string }
+        subscriptionId: { type: string }
+        resourceGroupName: { type: string }
+        location:      { type: string }
+        osType:        { type: string }
+        osVersion:     { type: string }
+        complianceScore: { type: number }
+        lastScanDate:  { type: string, format: date-time }
+        status:        { type: string, enum: [online, offline, unknown] }
+
+    Finding:
+      type: object
+      properties:
+        id:             { type: string }
+        machineId:      { type: string }
+        controlId:      { type: string }
+        status:         { type: string, enum: [open, not_a_finding, not_applicable, not_reviewed] }
+        severity:       { type: string, enum: [high, medium, low, informational] }
+        comments:       { type: string }
+        findingDetails: { type: string }
+        sourceType:     { type: string }
+
+    Control:
+      type: object
+      properties:
+        id:           { type: string, example: V-220700 }
+        stigId:       { type: string, example: WN10-AU-000005 }
+        title:        { type: string }
+        severity:     { type: string, enum: [high, medium, low, informational] }
+        description:  { type: string }
+        checkContent: { type: string }
+        fixText:      { type: string }
+
+    Scan:
+      type: object
+      properties:
+        id:              { type: string }
+        machineId:       { type: string }
+        status:          { type: string, enum: [pending, running, completed, failed] }
+        scanType:        { type: string, enum: [full, incremental, on-demand] }
+        openFindings:    { type: number }
+        compliantControls: { type: number }
+        startedAt:       { type: string, format: date-time }
+        completedAt:     { type: string, format: date-time }
+
+    Error:
+      type: object
+      properties:
+        error:   { type: string }
+        message: { type: string }
+
+    UpdatePolicy:
+      type: object
+      properties:
+        mode:            { type: string, enum: [off, notify, auto] }
+        requireApproval: { type: boolean }
+        securityOnly:    { type: boolean }
+        dayOfWeek:       { type: integer, minimum: 0, maximum: 6, nullable: true, description: '0 = Sunday; null = any day' }
+        hour:            { type: integer, minimum: 0, maximum: 23 }
+        timeZone:        { type: string, example: 'America/New_York' }
+    UpdateHistoryEntry:
+      type: object
+      properties:
+        version:         { type: string }
+        previousVersion: { type: string, nullable: true }
+        startedAt:       { type: string, format: date-time }
+        finishedAt:      { type: string, format: date-time }
+        result:          { type: string, enum: [succeeded, rolled_back, failed] }
+        detail:          { type: string }
+        actor:           { type: string }
+    UpdateStatus:
+      type: object
+      properties:
+        currentVersion:   { type: string, nullable: true }
+        availableVersion: { type: string, nullable: true }
+        availableNotes:   { type: string, nullable: true }
+        updateAvailable:  { type: boolean }
+        approvedVersion:  { type: string, nullable: true }
+        approvedBy:       { type: string, nullable: true }
+        lastCheckedAt:    { type: string, format: date-time, nullable: true }
+        inWindowNow:      { type: boolean }
+        nextAction:
+          type: object
+          properties:
+            action:  { type: string, enum: [none, notify, install] }
+            version: { type: string }
+            reason:  { type: string }
+        policy:  { $ref: '#/components/schemas/UpdatePolicy' }
+        history:
+          type: array
+          items: { $ref: '#/components/schemas/UpdateHistoryEntry' }
     StigBenchmark:
       type: object
       properties:

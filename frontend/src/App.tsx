@@ -22,6 +22,7 @@ import VulnerabilitiesPage from './pages/VulnerabilitiesPage';
 import BulkRemediationPage from './pages/BulkRemediationPage';
 import EmassPage from './pages/EmassPage';
 import AdminPage from './pages/AdminPage';
+import UpdatesPage from './pages/UpdatesPage';
 
 // Initialize Fluent UI icons
 initializeIcons();
@@ -49,6 +50,7 @@ function SignedInApp() {
           <Route path="/vulnerabilities" element={<VulnerabilitiesPage />} />
           <Route path="/remediation" element={<BulkRemediationPage />} />
           <Route path="/emass" element={<EmassPage />} />
+          <Route path="/updates" element={<UpdatesPage />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </AppShell>

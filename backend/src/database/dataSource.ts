@@ -27,6 +27,7 @@ import { GroupRoleMappingEntity } from '../models/GroupRoleMapping';
 import { AssetPoolEntity } from '../models/AssetPool';
 import { AssetPoolMemberEntity } from '../models/AssetPoolMember';
 import { ManualAnswerEntity } from '../models/ManualAnswer';
+import { UpdatePolicyEntity } from '../models/UpdatePolicy';
 
 const isMockMode = process.env.MOCK_MODE === 'true';
 
@@ -73,6 +74,7 @@ export const AppDataSource = new DataSource({
     AssetPoolEntity,
     AssetPoolMemberEntity,
     ManualAnswerEntity,
+    UpdatePolicyEntity,
   ],
   migrations: ['dist/database/migrations/*.js'],
   migrationsTableName: 'migrations',
