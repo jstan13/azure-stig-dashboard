@@ -112,6 +112,7 @@ jobs:
           context: .
           file: backend/Dockerfile
           push: false
+          load: true
           tags: stig-backend:ci
           cache-from: type=gha
           cache-to:   type=gha,mode=max
@@ -125,6 +126,34 @@ jobs:
           tags: stig-frontend:ci
           cache-from: type=gha
           cache-to:   type=gha,mode=max
+
+      # Building an image proves it compiles, not that it boots. The portal's
+      # demo path is the one combination no other job runs, and it shipped
+      # broken because nothing ever started the container this way.
+      - name: Boot the backend with the portal's demo settings
+        run: |
+          docker run -d --name backend-smoke -p 3001:3001 \
+            -e NODE_ENV=production \
+            -e MOCK_MODE=true \
+            -e ALLOW_MOCK_IN_PRODUCTION=true \
+            -e FRONTEND_URL=https://example.invalid \
+            stig-backend:ci
+          for i in $(seq 1 45); do
+            if curl -fsS http://localhost:3001/health >/dev/null 2>&1; then
+              echo "Backend healthy after ${i}s"
+              docker rm -f backend-smoke >/dev/null
+              exit 0
+            fi
+            if [ -z "$(docker ps -q --filter name=backend-smoke)" ]; then
+              echo '::error::Backend container exited during startup'
+              docker logs backend-smoke
+              exit 1
+            fi
+            sleep 1
+          done
+          echo '::error::Backend never answered /health'
+          docker logs backend-smoke
+          exit 1
 
       - name: Trivy filesystem scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0

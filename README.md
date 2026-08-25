@@ -102,7 +102,7 @@ Full details: [docs/architecture.md](docs/architecture.md) · [docs/data-flow.md
 | **Dashboard** | Compliance donut, per-machine bar chart, inventory table, audit timeline |
 | **Findings** | Per-control status edit, comments, finding details — all logged to audit trail |
 | **Export** | STIG Viewer `.ckl` XML · JSON · CSV |
-| **Mock mode** | `MOCK_MODE=true` — full app with demo data, zero Azure credentials needed |
+| **Mock mode** | `MOCK_MODE=true` — full app with demo data, zero Azure credentials needed (add `ALLOW_MOCK_IN_PRODUCTION=true` alongside `NODE_ENV=production`) |
 | **CI/CD** | GitHub Actions lint → test → Docker → App Service deploy |
 | **IaC** | Bicep + ARM JSON (Deploy-to-Azure button) |
 
