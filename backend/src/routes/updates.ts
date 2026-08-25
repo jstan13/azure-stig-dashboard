@@ -257,7 +257,7 @@ router.post('/result', requirePermission('updates:manage'), async (req: Request,
       entityType: 'update_policy',
       entityId: 'singleton',
       after: { version, detail },
-      result: result === 'succeeded' ? 'Success' : 'Failure',
+      result: result === 'succeeded' ? 'Success' : 'Error',
     });
     return res.json({ ok: true });
   } catch (err: any) {
