@@ -278,14 +278,14 @@
     },
     "backendImage": {
       "type": "string",
-      "defaultValue": "ghcr.io/jstan13/stig-backend@sha256:a1fca1b8982743162cc2827a058068d9401585148192630ac676a4a8714e9e28",
+      "defaultValue": "ghcr.io/jstan13/stig-backend@sha256:1941373e9dab07da7df649d732085852a80c4fa85d7e368e4b62ea799f605ab8",
       "metadata": {
         "description": "Backend container image, e.g. ghcr.io/org/stig-backend@sha256:... Leave empty to deploy code from source (azd)."
       }
     },
     "frontendImage": {
       "type": "string",
-      "defaultValue": "ghcr.io/jstan13/stig-frontend@sha256:3a543d70414cdd6ef2705107dcbe86dfe32c692d936fedf3a124324f53f93668",
+      "defaultValue": "ghcr.io/jstan13/stig-frontend@sha256:3b1f521a358984cb3b80d448b68fbfbbba427e8e53c742ff769084afbcafbd5f",
       "metadata": {
         "description": "Frontend container image, e.g. ghcr.io/org/stig-frontend@sha256:... Leave empty to deploy code from source (azd)."
       }
