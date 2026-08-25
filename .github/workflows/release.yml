@@ -283,8 +283,8 @@ jobs:
 
           ## Deploy
 
-          [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fjstan13%2Fazure-stig-dashboard%2Fdeploy-templates%2F$TAG%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fraw.githubusercontent.com%2Fjstan13%2Fazure-stig-dashboard%2Fdeploy-templates%2F$TAG%2FcreateUiDefinition.json)
-          [![Deploy to Azure US Gov](https://aka.ms/deploytoazuregovbutton)](https://portal.azure.us/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fjstan13%2Fazure-stig-dashboard%2Fdeploy-templates%2F$TAG%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fraw.githubusercontent.com%2Fjstan13%2Fazure-stig-dashboard%2Fdeploy-templates%2F$TAG%2FcreateUiDefinition.json)
+          [![Deploy to Azure](https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/1-CONTRIBUTION-GUIDE/images/deploytoazure.svg)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fjstan13%2Fazure-stig-dashboard%2Fdeploy-templates%2F$TAG%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fraw.githubusercontent.com%2Fjstan13%2Fazure-stig-dashboard%2Fdeploy-templates%2F$TAG%2FcreateUiDefinition.json)
+          [![Deploy to Azure US Gov](https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/1-CONTRIBUTION-GUIDE/images/deploytoazuregov.svg)](https://portal.azure.us/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fjstan13%2Fazure-stig-dashboard%2Fdeploy-templates%2F$TAG%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fraw.githubusercontent.com%2Fjstan13%2Fazure-stig-dashboard%2Fdeploy-templates%2F$TAG%2FcreateUiDefinition.json)
 
           ## Verify before deploying
 
