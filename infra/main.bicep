@@ -94,6 +94,39 @@ param teamsWebhookUrl string = ''
 @description('CAT I open finding threshold for drift alerts (0 = alert on any open CAT I)')
 param driftCat1Threshold int = 0
 
+// ── Auto-update ──
+// The scheduler Function performs the swap. It has to live outside both web
+// apps, because replacing the backend image kills whatever is doing the work.
+@description('How new releases reach this deployment: off (never check), notify (tell me only), auto (install during the maintenance window)')
+@allowed([
+  'off'
+  'notify'
+  'auto'
+])
+param autoUpdateMode string = 'notify'
+
+@description('When true an administrator approves each release before it installs; when false approved releases install unattended ("set and forget")')
+param autoUpdateRequireApproval bool = true
+
+@description('Day of the auto-update maintenance window: -1 = any day, 0 = Sunday through 6 = Saturday')
+@minValue(-1)
+@maxValue(6)
+param autoUpdateDay int = -1
+
+@description('Hour (0-23) in autoUpdateTimeZone when auto-updates may install')
+@minValue(0)
+@maxValue(23)
+param autoUpdateHour int = 2
+
+@description('IANA timezone for the auto-update maintenance window (for example: UTC, America/New_York)')
+param autoUpdateTimeZone string = 'UTC'
+
+@description('GitHub repository (owner/name) that publishes releases for this deployment')
+param updateSourceRepo string = 'jstan13/azure-stig-dashboard'
+
+@description('Release tag currently deployed. Release builds set this; leave empty for source deployments.')
+param releaseTag string = ''
+
 // Release builds pin these to signed, immutable digests; azd leaves them empty
 // and deploys the app code from source instead.
 @description('Backend container image, e.g. ghcr.io/org/stig-backend@sha256:... Leave empty to deploy code from source (azd).')
@@ -131,9 +164,16 @@ var autoAppServiceSku = trackedHostCount <= 150 ? 'B1' : 'S1'
 var autoEnableScheduler = trackedHostCount > 25
 var autoEnableDiagnostics = trackedHostCount > 150
 var effectiveAppServiceSku = autoSizeByTrackedHosts ? autoAppServiceSku : appServiceSku
-var effectiveEnableScheduler = autoSizeByTrackedHosts ? autoEnableScheduler : enableScheduler
 var effectiveEnableDiagnostics = autoSizeByTrackedHosts ? autoEnableDiagnostics : enableDiagnostics
+var autoUpdateEnabled = autoUpdateMode != 'off'
+// Scheduled scanning is what sizing decides; deploying the Function App is not.
+// Auto-update needs that Function App even on the smallest deployment, so the
+// two decisions are kept apart and the scan timers are gated by a setting.
+var scheduledScansEnabled = autoSizeByTrackedHosts ? autoEnableScheduler : enableScheduler
+var effectiveEnableScheduler = scheduledScansEnabled || autoUpdateEnabled
 var enableBusinessHoursShutdown = effectiveEnableScheduler && businessHoursMode && autoShutdownOutsideBusinessHours
+// One custom role covers both jobs the Function performs against ARM.
+var needsSchedulerOpsRole = enableBusinessHoursShutdown || autoUpdateEnabled
 
 // ── App Service Plan ───────────────────────────────────────────────────────────
 resource appServicePlan 'Microsoft.Web/serverfarms@2023-01-01' = {
@@ -257,6 +297,13 @@ var backendAppSettings = concat([
   { name: 'MOCK_MODE',                      value: mockMode ? 'true' : 'false'                    }
   { name: 'ALLOW_MOCK_IN_PRODUCTION',       value: mockMode ? 'true' : 'false'                    }
   { name: 'STRICT_TRACEABILITY',            value: strictTraceability ? 'true' : 'false'           }
+  // Seed values only: once the policy row exists, the Updates page owns it.
+  { name: 'AUTO_UPDATE_MODE',               value: autoUpdateMode                                  }
+  { name: 'AUTO_UPDATE_REQUIRE_APPROVAL',   value: autoUpdateRequireApproval ? 'true' : 'false'    }
+  { name: 'AUTO_UPDATE_DAY',                value: autoUpdateDay < 0 ? '' : string(autoUpdateDay)  }
+  { name: 'AUTO_UPDATE_HOUR',               value: string(autoUpdateHour)                          }
+  { name: 'AUTO_UPDATE_TIME_ZONE',          value: autoUpdateTimeZone                              }
+  { name: 'RELEASE_TAG',                    value: releaseTag                                      }
   { name: 'AZURE_CLOUD',                    value: cloudEnvironment                                }
   { name: 'AZURE_AUTHORITY_HOST',           value: authorityHost                                   }
   { name: 'AZURE_GRAPH_ENDPOINT',           value: graphHost                                       }
@@ -504,17 +551,21 @@ resource funcApp 'Microsoft.Web/sites@2023-01-01' = if (effectiveEnableScheduler
         { name: 'BACKEND_APP_RESOURCE_ID',             value: backendApp.id }
         { name: 'FRONTEND_APP_RESOURCE_ID',            value: frontendApp.id }
         { name: 'POSTGRES_SERVER_RESOURCE_ID',         value: pgServer.id }
+        { name: 'SCHEDULED_SCAN_ENABLED',              value: scheduledScansEnabled ? 'true' : 'false' }
+        { name: 'FRONTEND_BASE_URL',                   value: 'https://${frontendApp.properties.defaultHostName}' }
+        { name: 'UPDATE_SOURCE_REPO',                  value: updateSourceRepo }
+        { name: 'RELEASE_TAG',                         value: releaseTag }
       ])
     }
   }
 }
 
-resource schedulerOpsRole 'Microsoft.Authorization/roleDefinitions@2022-05-01-preview' = if (enableBusinessHoursShutdown) {
+resource schedulerOpsRole 'Microsoft.Authorization/roleDefinitions@2022-05-01-preview' = if (needsSchedulerOpsRole) {
   name: guid(subscription().id, resourceGroup().id, '${baseName}-ops-scheduler-role')
   scope: resourceGroup()
   properties: {
     roleName: '${baseName}-ops-scheduler'
-    description: 'Least-privilege role so the scheduler Function can start/stop dashboard web apps and PostgreSQL.'
+    description: 'Least-privilege role so the scheduler Function can start/stop dashboard web apps and PostgreSQL, and swap container images when installing an update.'
     type: 'CustomRole'
     assignableScopes: [
       resourceGroup().id
@@ -525,6 +576,12 @@ resource schedulerOpsRole 'Microsoft.Authorization/roleDefinitions@2022-05-01-pr
           'Microsoft.Web/sites/read'
           'Microsoft.Web/sites/start/action'
           'Microsoft.Web/sites/stop/action'
+          'Microsoft.Web/sites/restart/action'
+          // Reading and rewriting linuxFxVersion is how an update is installed
+          // and, when health checks fail, how it is undone.
+          'Microsoft.Web/sites/config/read'
+          'Microsoft.Web/sites/config/write'
+          'Microsoft.Web/sites/config/list/action'
           'Microsoft.DBforPostgreSQL/flexibleServers/read'
           'Microsoft.DBforPostgreSQL/flexibleServers/start/action'
           'Microsoft.DBforPostgreSQL/flexibleServers/stop/action'
@@ -537,7 +594,7 @@ resource schedulerOpsRole 'Microsoft.Authorization/roleDefinitions@2022-05-01-pr
   }
 }
 
-resource schedulerOpsAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableBusinessHoursShutdown) {
+resource schedulerOpsAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (needsSchedulerOpsRole) {
   scope: resourceGroup()
   name: guid(resourceGroup().id, funcApp.id, 'ops-scheduler-assignment')
   properties: {

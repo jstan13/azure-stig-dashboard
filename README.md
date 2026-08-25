@@ -103,6 +103,7 @@ Full details: [docs/architecture.md](docs/architecture.md) · [docs/data-flow.md
 | **Findings** | Per-control status edit, comments, finding details — all logged to audit trail |
 | **Export** | STIG Viewer `.ckl` XML · JSON · CSV |
 | **Mock mode** | `MOCK_MODE=true` — full app with demo data, zero Azure credentials needed (add `ALLOW_MOCK_IN_PRODUCTION=true` alongside `NODE_ENV=production`) |
+| **Auto-update** | Administration → Updates. Off / notify / install automatically, with per-release approval or unattended ("set and forget"), a maintenance window in your timezone, and automatic rollback if the new version fails its health check. Your database is never redeployed. |
 | **CI/CD** | GitHub Actions lint → test → Docker → App Service deploy |
 | **IaC** | Bicep + ARM JSON (Deploy-to-Azure button) |
 

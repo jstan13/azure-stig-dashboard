@@ -23,6 +23,7 @@ export const PERMISSIONS = [
   'collection:manage',
   'users:manage',
   'notifications:manage',
+  'updates:manage',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];

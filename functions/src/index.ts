@@ -33,6 +33,12 @@ const ARM_ENDPOINT = (process.env.AZURE_ARM_ENDPOINT || 'https://management.azur
 const BACKEND_APP_RESOURCE_ID = process.env.BACKEND_APP_RESOURCE_ID || '';
 const FRONTEND_APP_RESOURCE_ID = process.env.FRONTEND_APP_RESOURCE_ID || '';
 const POSTGRES_SERVER_RESOURCE_ID = process.env.POSTGRES_SERVER_RESOURCE_ID || '';
+const FRONTEND_BASE_URL = (process.env.FRONTEND_BASE_URL || '').replace(/\/$/, '');
+const UPDATE_REPO = process.env.UPDATE_SOURCE_REPO || 'jstan13/azure-stig-dashboard';
+const WEB_API_VERSION = '2023-01-01';
+// Small deployments get this Function App solely to install updates. Scanning
+// stays off there, so the flag is separate from whether the app exists at all.
+const SCHEDULED_SCAN_ENABLED = String(process.env.SCHEDULED_SCAN_ENABLED ?? 'true').toLowerCase() !== 'false';
 
 function getBusinessHourNow(date = new Date()): number {
   const formatted = new Intl.DateTimeFormat('en-US', {
@@ -96,6 +102,19 @@ async function postJson(path: string, body: unknown, ctx: InvocationContext): Pr
   ctx.log(`[functions] POST ${path} -> ${res.status}`);
 }
 
+async function postJsonForResult<T = any>(
+  path: string, body: unknown, ctx: InvocationContext,
+): Promise<T | null> {
+  if (!BACKEND_BASE_URL) {
+    ctx.warn(`[functions] BACKEND_BASE_URL not set; skipping ${path}`);
+    return null;
+  }
+  const headers = await backendHeaders();
+  const res = await axios.post(`${BACKEND_BASE_URL}${path}`, body, { headers, timeout: 60_000 });
+  ctx.log(`[functions] POST ${path} -> ${res.status}`);
+  return res.data as T;
+}
+
 async function getJson<T = any>(path: string, ctx: InvocationContext): Promise<T | null> {
   if (!BACKEND_BASE_URL) { ctx.warn(`[functions] BACKEND_BASE_URL not set; skipping ${path}`); return null; }
   const headers = await backendHeaders();
@@ -107,6 +126,10 @@ async function getJson<T = any>(path: string, ctx: InvocationContext): Promise<T
 app.timer('scheduledScan', {
   schedule: '0 0 6 * * *',
   handler: async (_t: Timer, ctx: InvocationContext) => {
+    if (!SCHEDULED_SCAN_ENABLED) {
+      ctx.log('[scheduledScan] skipped (scheduled scanning is disabled)');
+      return;
+    }
     if (!isWithinBusinessHours()) {
       const hour = getBusinessHourNow();
       ctx.log(`[scheduledScan] skipped (outside business hours, hour=${hour}, tz=${BUSINESS_HOURS_TZ})`);
@@ -130,6 +153,10 @@ app.timer('scheduledScan', {
 app.timer('complianceDriftCheck', {
   schedule: '0 0 */6 * * *',
   handler: async (_t: Timer, ctx: InvocationContext) => {
+    if (!SCHEDULED_SCAN_ENABLED) {
+      ctx.log('[drift] skipped (scheduled scanning is disabled)');
+      return;
+    }
     if (!isWithinBusinessHours()) {
       const hour = getBusinessHourNow();
       ctx.log(`[drift] skipped (outside business hours, hour=${hour}, tz=${BUSINESS_HOURS_TZ})`);
@@ -196,5 +223,214 @@ app.timer('businessHoursAutoShutdown', {
     await callArmAction(BACKEND_APP_RESOURCE_ID, 'stop', '2023-01-01', ctx);
     await callArmAction(FRONTEND_APP_RESOURCE_ID, 'stop', '2023-01-01', ctx);
     await callArmAction(POSTGRES_SERVER_RESOURCE_ID, 'stop', '2023-06-01-preview', ctx);
+  },
+});
+
+// ── Auto-update ─────────────────────────────────────────────────────────────
+// The backend cannot install its own update: swapping the image kills the
+// process mid-flight, leaving nobody to check health or undo the change. This
+// runs outside both web apps precisely so it survives to roll them back.
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+interface ReleaseInfo { version: string; notes: string }
+
+async function latestRelease(ctx: InvocationContext): Promise<ReleaseInfo | null> {
+  const res = await axios.get(
+    `https://api.github.com/repos/${UPDATE_REPO}/releases/latest`,
+    {
+      timeout: 30_000,
+      headers: { Accept: 'application/vnd.github+json' },
+      validateStatus: (s) => s === 200 || s === 404,
+    },
+  );
+  if (res.status === 404) { ctx.warn('[autoUpdate] no published releases'); return null; }
+  const version = String(res.data?.tag_name ?? '');
+  if (!/^v\d+\.\d+\.\d+$/.test(version)) {
+    ctx.warn(`[autoUpdate] ignoring unrecognised tag '${version}'`);
+    return null;
+  }
+  return { version, notes: String(res.data?.body ?? '').slice(0, 20_000) };
+}
+
+/** Container images a given release pins, read from its published template. */
+async function imagesForRelease(
+  version: string,
+): Promise<{ backend: string; frontend: string }> {
+  const url = `https://raw.githubusercontent.com/${UPDATE_REPO}/deploy-templates/${version}/azuredeploy.json`;
+  const res = await axios.get(url, { timeout: 30_000 });
+  const params = res.data?.parameters ?? {};
+  const backend = String(params.backendImage?.defaultValue ?? '');
+  const frontend = String(params.frontendImage?.defaultValue ?? '');
+  if (!backend || !frontend) throw new Error(`Release ${version} does not pin container images`);
+  return { backend, frontend };
+}
+
+async function getLinuxFxVersion(resourceId: string): Promise<string> {
+  const headers = await armHeaders();
+  const url = `${ARM_ENDPOINT}${resourceId}/config/web?api-version=${WEB_API_VERSION}`;
+  const res = await axios.get(url, { headers, timeout: 60_000 });
+  return String(res.data?.properties?.linuxFxVersion ?? '');
+}
+
+async function setLinuxFxVersion(
+  resourceId: string, value: string, ctx: InvocationContext,
+): Promise<void> {
+  const headers = await armHeaders();
+  const url = `${ARM_ENDPOINT}${resourceId}/config/web?api-version=${WEB_API_VERSION}`;
+  const res = await axios.patch(
+    url, { properties: { linuxFxVersion: value } }, { headers, timeout: 120_000 },
+  );
+  ctx.log(`[autoUpdate] set image on ${resourceId} -> ${res.status}`);
+}
+
+/** Waits for sustained health; one lucky 200 during a swap proves nothing. */
+async function waitForHealth(
+  url: string, ctx: InvocationContext, timeoutMs = 420_000,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  let consecutive = 0;
+  while (Date.now() < deadline) {
+    try {
+      const res = await axios.get(url, { timeout: 20_000, validateStatus: () => true });
+      if (res.status >= 200 && res.status < 400) {
+        if (++consecutive >= 3) return true;
+      } else {
+        consecutive = 0;
+      }
+    } catch {
+      consecutive = 0;
+    }
+    await sleep(10_000);
+  }
+  ctx.warn(`[autoUpdate] ${url} never became healthy`);
+  return false;
+}
+
+async function reportResult(
+  version: string,
+  previousVersion: string | null,
+  result: 'succeeded' | 'rolled_back' | 'failed',
+  detail: string,
+  ctx: InvocationContext,
+): Promise<void> {
+  try {
+    await postJson('/api/updates/result', { version, previousVersion, result, detail }, ctx);
+  } catch (e: any) {
+    ctx.error(`[autoUpdate] could not report '${result}' for ${version}: ${e.message}`);
+  }
+}
+
+async function installRelease(version: string, ctx: InvocationContext): Promise<void> {
+  if (!BACKEND_APP_RESOURCE_ID || !FRONTEND_APP_RESOURCE_ID) {
+    ctx.error('[autoUpdate] app resource IDs missing; refusing to update');
+    return;
+  }
+
+  const previous = {
+    backend: await getLinuxFxVersion(BACKEND_APP_RESOURCE_ID),
+    frontend: await getLinuxFxVersion(FRONTEND_APP_RESOURCE_ID),
+  };
+  const previousVersion = process.env.RELEASE_TAG || null;
+
+  // Database migrations are forward-only, so the restore point is a timestamp
+  // an operator can rewind to by hand. Rolling the image back is automatic;
+  // rolling the schema back never should be.
+  const restorePoint = new Date().toISOString();
+  ctx.log(`[autoUpdate] installing ${version}; PITR restore point ${restorePoint}`);
+
+  let images: { backend: string; frontend: string };
+  try {
+    images = await imagesForRelease(version);
+  } catch (e: any) {
+    await reportResult(version, previousVersion, 'failed', e.message, ctx);
+    return;
+  }
+
+  try {
+    await setLinuxFxVersion(BACKEND_APP_RESOURCE_ID, `DOCKER|${images.backend}`, ctx);
+    await setLinuxFxVersion(FRONTEND_APP_RESOURCE_ID, `DOCKER|${images.frontend}`, ctx);
+  } catch (e: any) {
+    ctx.error(`[autoUpdate] swap failed: ${e.message}`);
+    await rollback(previous, version, previousVersion, `swap failed: ${e.message}`, ctx);
+    return;
+  }
+
+  // App Service reports the old container healthy for a few seconds after the
+  // PATCH, so settle before believing anything.
+  await sleep(45_000);
+
+  const backendOk = await waitForHealth(`${BACKEND_BASE_URL}/health`, ctx);
+  const frontendOk = backendOk && FRONTEND_BASE_URL
+    ? await waitForHealth(`${FRONTEND_BASE_URL}/`, ctx)
+    : backendOk;
+
+  if (backendOk && frontendOk) {
+    ctx.log(`[autoUpdate] ${version} healthy`);
+    await reportResult(
+      version, previousVersion, 'succeeded',
+      `Installed ${version}. PITR restore point ${restorePoint}.`, ctx,
+    );
+    return;
+  }
+
+  await rollback(
+    previous, version, previousVersion,
+    `health checks failed after installing ${version}; PITR restore point ${restorePoint}`,
+    ctx,
+  );
+}
+
+async function rollback(
+  previous: { backend: string; frontend: string },
+  version: string,
+  previousVersion: string | null,
+  detail: string,
+  ctx: InvocationContext,
+): Promise<void> {
+  ctx.error(`[autoUpdate] rolling back: ${detail}`);
+  try {
+    if (previous.backend) {
+      await setLinuxFxVersion(BACKEND_APP_RESOURCE_ID, previous.backend, ctx);
+    }
+    if (previous.frontend) {
+      await setLinuxFxVersion(FRONTEND_APP_RESOURCE_ID, previous.frontend, ctx);
+    }
+    await sleep(45_000);
+    await waitForHealth(`${BACKEND_BASE_URL}/health`, ctx);
+    await reportResult(version, previousVersion, 'rolled_back', detail, ctx);
+  } catch (e: any) {
+    ctx.error(`[autoUpdate] rollback itself failed: ${e.message}`);
+    await reportResult(
+      version, previousVersion, 'failed',
+      `${detail}; rollback also failed: ${e.message}`, ctx,
+    );
+  }
+}
+
+app.timer('autoUpdate', {
+  schedule: '0 */20 * * * *',
+  handler: async (_t: Timer, ctx: InvocationContext) => {
+    try {
+      const release = await latestRelease(ctx);
+      if (!release) return;
+
+      // The backend owns the policy, so it decides; this only carries it out.
+      const decision = await postJsonForResult<{ nextAction?: { action: string; version?: string; reason?: string } }>(
+        '/api/updates/available',
+        { version: release.version, notes: release.notes },
+        ctx,
+      );
+      const next = decision?.nextAction;
+      if (!next) return;
+
+      if (next.action !== 'install' || !next.version) {
+        ctx.log(`[autoUpdate] no install (${next.action}: ${next.reason})`);
+        return;
+      }
+      await installRelease(next.version, ctx);
+    } catch (e: any) {
+      ctx.error(`[autoUpdate] failed: ${e.message}`);
+    }
   },
 });

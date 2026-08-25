@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "9601421490846232963"
+      "templateHash": "8287705953062709074"
     }
   },
   "parameters": {
@@ -217,6 +217,64 @@
         "description": "CAT I open finding threshold for drift alerts (0 = alert on any open CAT I)"
       }
     },
+    "autoUpdateMode": {
+      "type": "string",
+      "defaultValue": "notify",
+      "allowedValues": [
+        "off",
+        "notify",
+        "auto"
+      ],
+      "metadata": {
+        "description": "How new releases reach this deployment: off (never check), notify (tell me only), auto (install during the maintenance window)"
+      }
+    },
+    "autoUpdateRequireApproval": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "When true an administrator approves each release before it installs; when false approved releases install unattended (\"set and forget\")"
+      }
+    },
+    "autoUpdateDay": {
+      "type": "int",
+      "defaultValue": -1,
+      "minValue": -1,
+      "maxValue": 6,
+      "metadata": {
+        "description": "Day of the auto-update maintenance window: -1 = any day, 0 = Sunday through 6 = Saturday"
+      }
+    },
+    "autoUpdateHour": {
+      "type": "int",
+      "defaultValue": 2,
+      "minValue": 0,
+      "maxValue": 23,
+      "metadata": {
+        "description": "Hour (0-23) in autoUpdateTimeZone when auto-updates may install"
+      }
+    },
+    "autoUpdateTimeZone": {
+      "type": "string",
+      "defaultValue": "UTC",
+      "metadata": {
+        "description": "IANA timezone for the auto-update maintenance window (for example: UTC, America/New_York)"
+      }
+    },
+    "updateSourceRepo": {
+      "type": "string",
+      "defaultValue": "jstan13/azure-stig-dashboard",
+      "metadata": {
+        "description": "GitHub repository (owner/name) that publishes releases for this deployment"
+      }
+    },
+    "releaseTag": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Release tag currently deployed. Release builds set this; leave empty for source deployments."
+      }
+    },
     "backendImage": {
       "type": "string",
       "defaultValue": "",
@@ -264,9 +322,12 @@
     "autoEnableScheduler": "[greater(parameters('trackedHostCount'), 25)]",
     "autoEnableDiagnostics": "[greater(parameters('trackedHostCount'), 150)]",
     "effectiveAppServiceSku": "[if(parameters('autoSizeByTrackedHosts'), variables('autoAppServiceSku'), parameters('appServiceSku'))]",
-    "effectiveEnableScheduler": "[if(parameters('autoSizeByTrackedHosts'), variables('autoEnableScheduler'), parameters('enableScheduler'))]",
     "effectiveEnableDiagnostics": "[if(parameters('autoSizeByTrackedHosts'), variables('autoEnableDiagnostics'), parameters('enableDiagnostics'))]",
-    "enableBusinessHoursShutdown": "[and(and(variables('effectiveEnableScheduler'), parameters('businessHoursMode')), parameters('autoShutdownOutsideBusinessHours'))]"
+    "autoUpdateEnabled": "[not(equals(parameters('autoUpdateMode'), 'off'))]",
+    "scheduledScansEnabled": "[if(parameters('autoSizeByTrackedHosts'), variables('autoEnableScheduler'), parameters('enableScheduler'))]",
+    "effectiveEnableScheduler": "[or(variables('scheduledScansEnabled'), variables('autoUpdateEnabled'))]",
+    "enableBusinessHoursShutdown": "[and(and(variables('effectiveEnableScheduler'), parameters('businessHoursMode')), parameters('autoShutdownOutsideBusinessHours'))]",
+    "needsSchedulerOpsRole": "[or(variables('enableBusinessHoursShutdown'), variables('autoUpdateEnabled'))]"
   },
   "resources": [
     {
@@ -445,7 +506,7 @@
       "type": "Microsoft.Web/sites/config",
       "apiVersion": "2023-01-01",
       "name": "[format('{0}/{1}', variables('backendName'), 'appsettings')]",
-      "properties": "[toObject(concat(createArray(createObject('name', 'NODE_ENV', 'value', 'production'), createObject('name', 'MOCK_MODE', 'value', if(parameters('mockMode'), 'true', 'false')), createObject('name', 'ALLOW_MOCK_IN_PRODUCTION', 'value', if(parameters('mockMode'), 'true', 'false')), createObject('name', 'STRICT_TRACEABILITY', 'value', if(parameters('strictTraceability'), 'true', 'false')), createObject('name', 'AZURE_CLOUD', 'value', parameters('cloudEnvironment')), createObject('name', 'AZURE_AUTHORITY_HOST', 'value', variables('authorityHost')), createObject('name', 'AZURE_GRAPH_ENDPOINT', 'value', variables('graphHost')), createObject('name', 'AZURE_ARM_ENDPOINT', 'value', variables('armHost')), createObject('name', 'AZURE_TENANT_ID', 'value', parameters('azureTenantId')), createObject('name', 'AZURE_CLIENT_ID', 'value', parameters('azureClientId')), createObject('name', 'AZURE_CLIENT_SECRET', 'value', format('@Microsoft.KeyVault(SecretUri={0})', reference(resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'AZURE-CLIENT-SECRET'), '2023-07-01').secretUri)), createObject('name', 'DB_HOST', 'value', reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('dbServerName')), '2023-06-01-preview').fullyQualifiedDomainName), createObject('name', 'DB_PORT', 'value', '5432'), createObject('name', 'DB_NAME', 'value', variables('dbName')), createObject('name', 'DB_USER', 'value', parameters('dbAdminLogin')), createObject('name', 'DB_PASSWORD', 'value', format('@Microsoft.KeyVault(SecretUri={0})', reference(resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'DB-PASSWORD'), '2023-07-01').secretUri)), createObject('name', 'DB_SSL', 'value', 'true'), createObject('name', 'APPINSIGHTS_INSTRUMENTATIONKEY', 'value', reference(resourceId('Microsoft.Insights/components', variables('aiName')), '2020-02-02').InstrumentationKey), createObject('name', 'FRONTEND_URL', 'value', format('https://{0}.{1}', variables('frontendName'), variables('appHostSuffix')))), if(empty(parameters('backendImage')), createArray(createObject('name', 'WEBSITE_NODE_DEFAULT_VERSION', 'value', '~20'), createObject('name', 'SCM_DO_BUILD_DURING_DEPLOYMENT', 'value', 'true')), createArray(createObject('name', 'WEBSITES_PORT', 'value', '3001'), createObject('name', 'DOCKER_REGISTRY_SERVER_URL', 'value', variables('backendRegistryUrl')), createObject('name', 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', 'value', 'false')))), lambda('s', lambdaVariables('s').name), lambda('s', lambdaVariables('s').value))]",
+      "properties": "[toObject(concat(createArray(createObject('name', 'NODE_ENV', 'value', 'production'), createObject('name', 'MOCK_MODE', 'value', if(parameters('mockMode'), 'true', 'false')), createObject('name', 'ALLOW_MOCK_IN_PRODUCTION', 'value', if(parameters('mockMode'), 'true', 'false')), createObject('name', 'STRICT_TRACEABILITY', 'value', if(parameters('strictTraceability'), 'true', 'false')), createObject('name', 'AUTO_UPDATE_MODE', 'value', parameters('autoUpdateMode')), createObject('name', 'AUTO_UPDATE_REQUIRE_APPROVAL', 'value', if(parameters('autoUpdateRequireApproval'), 'true', 'false')), createObject('name', 'AUTO_UPDATE_DAY', 'value', if(less(parameters('autoUpdateDay'), 0), '', string(parameters('autoUpdateDay')))), createObject('name', 'AUTO_UPDATE_HOUR', 'value', string(parameters('autoUpdateHour'))), createObject('name', 'AUTO_UPDATE_TIME_ZONE', 'value', parameters('autoUpdateTimeZone')), createObject('name', 'RELEASE_TAG', 'value', parameters('releaseTag')), createObject('name', 'AZURE_CLOUD', 'value', parameters('cloudEnvironment')), createObject('name', 'AZURE_AUTHORITY_HOST', 'value', variables('authorityHost')), createObject('name', 'AZURE_GRAPH_ENDPOINT', 'value', variables('graphHost')), createObject('name', 'AZURE_ARM_ENDPOINT', 'value', variables('armHost')), createObject('name', 'AZURE_TENANT_ID', 'value', parameters('azureTenantId')), createObject('name', 'AZURE_CLIENT_ID', 'value', parameters('azureClientId')), createObject('name', 'AZURE_CLIENT_SECRET', 'value', format('@Microsoft.KeyVault(SecretUri={0})', reference(resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'AZURE-CLIENT-SECRET'), '2023-07-01').secretUri)), createObject('name', 'DB_HOST', 'value', reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('dbServerName')), '2023-06-01-preview').fullyQualifiedDomainName), createObject('name', 'DB_PORT', 'value', '5432'), createObject('name', 'DB_NAME', 'value', variables('dbName')), createObject('name', 'DB_USER', 'value', parameters('dbAdminLogin')), createObject('name', 'DB_PASSWORD', 'value', format('@Microsoft.KeyVault(SecretUri={0})', reference(resourceId('Microsoft.KeyVault/vaults/secrets', variables('keyVaultName'), 'DB-PASSWORD'), '2023-07-01').secretUri)), createObject('name', 'DB_SSL', 'value', 'true'), createObject('name', 'APPINSIGHTS_INSTRUMENTATIONKEY', 'value', reference(resourceId('Microsoft.Insights/components', variables('aiName')), '2020-02-02').InstrumentationKey), createObject('name', 'FRONTEND_URL', 'value', format('https://{0}.{1}', variables('frontendName'), variables('appHostSuffix')))), if(empty(parameters('backendImage')), createArray(createObject('name', 'WEBSITE_NODE_DEFAULT_VERSION', 'value', '~20'), createObject('name', 'SCM_DO_BUILD_DURING_DEPLOYMENT', 'value', 'true')), createArray(createObject('name', 'WEBSITES_PORT', 'value', '3001'), createObject('name', 'DOCKER_REGISTRY_SERVER_URL', 'value', variables('backendRegistryUrl')), createObject('name', 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', 'value', 'false')))), lambda('s', lambdaVariables('s').name), lambda('s', lambdaVariables('s').value))]",
       "dependsOn": [
         "[resourceId('Microsoft.Insights/components', variables('aiName'))]",
         "[resourceId('Microsoft.Web/sites', variables('backendName'))]",
@@ -678,7 +739,7 @@
           "linuxFxVersion": "NODE|20",
           "minTlsVersion": "1.2",
           "ftpsState": "Disabled",
-          "appSettings": "[concat(if(empty(parameters('schedulerPackageUrl')), createArray(), createArray(createObject('name', 'WEBSITE_RUN_FROM_PACKAGE', 'value', parameters('schedulerPackageUrl')))), createArray(createObject('name', 'AzureWebJobsStorage', 'value', format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix={2}', variables('funcStorageName'), listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('funcStorageName')), '2023-01-01').keys[0].value, environment().suffixes.storage)), createObject('name', 'FUNCTIONS_EXTENSION_VERSION', 'value', '~4'), createObject('name', 'FUNCTIONS_WORKER_RUNTIME', 'value', 'node'), createObject('name', 'WEBSITE_NODE_DEFAULT_VERSION', 'value', '~20'), createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', reference(resourceId('Microsoft.Insights/components', variables('aiName')), '2020-02-02').ConnectionString), createObject('name', 'BACKEND_BASE_URL', 'value', format('https://{0}', reference(resourceId('Microsoft.Web/sites', variables('backendName')), '2023-01-01').defaultHostName)), createObject('name', 'BACKEND_API_AUDIENCE', 'value', format('api://{0}', parameters('azureClientId'))), createObject('name', 'TEAMS_WEBHOOK_URL', 'value', parameters('teamsWebhookUrl')), createObject('name', 'DRIFT_CAT1_THRESHOLD', 'value', string(parameters('driftCat1Threshold'))), createObject('name', 'BUSINESS_HOURS_MODE', 'value', if(parameters('businessHoursMode'), 'true', 'false')), createObject('name', 'BUSINESS_HOURS_TIME_ZONE', 'value', parameters('businessHoursTimeZone')), createObject('name', 'BUSINESS_HOURS_START_HOUR', 'value', string(parameters('businessHoursStartHour'))), createObject('name', 'BUSINESS_HOURS_END_HOUR', 'value', string(parameters('businessHoursEndHour'))), createObject('name', 'BUSINESS_HOURS_AUTO_SHUTDOWN', 'value', if(parameters('autoShutdownOutsideBusinessHours'), 'true', 'false')), createObject('name', 'BUSINESS_HOURS_START_CRON', 'value', parameters('businessHoursStartCron')), createObject('name', 'BUSINESS_HOURS_STOP_CRON', 'value', parameters('businessHoursStopCron')), createObject('name', 'AZURE_ARM_ENDPOINT', 'value', variables('armHost')), createObject('name', 'BACKEND_APP_RESOURCE_ID', 'value', resourceId('Microsoft.Web/sites', variables('backendName'))), createObject('name', 'FRONTEND_APP_RESOURCE_ID', 'value', resourceId('Microsoft.Web/sites', variables('frontendName'))), createObject('name', 'POSTGRES_SERVER_RESOURCE_ID', 'value', resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('dbServerName')))))]"
+          "appSettings": "[concat(if(empty(parameters('schedulerPackageUrl')), createArray(), createArray(createObject('name', 'WEBSITE_RUN_FROM_PACKAGE', 'value', parameters('schedulerPackageUrl')))), createArray(createObject('name', 'AzureWebJobsStorage', 'value', format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix={2}', variables('funcStorageName'), listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('funcStorageName')), '2023-01-01').keys[0].value, environment().suffixes.storage)), createObject('name', 'FUNCTIONS_EXTENSION_VERSION', 'value', '~4'), createObject('name', 'FUNCTIONS_WORKER_RUNTIME', 'value', 'node'), createObject('name', 'WEBSITE_NODE_DEFAULT_VERSION', 'value', '~20'), createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', reference(resourceId('Microsoft.Insights/components', variables('aiName')), '2020-02-02').ConnectionString), createObject('name', 'BACKEND_BASE_URL', 'value', format('https://{0}', reference(resourceId('Microsoft.Web/sites', variables('backendName')), '2023-01-01').defaultHostName)), createObject('name', 'BACKEND_API_AUDIENCE', 'value', format('api://{0}', parameters('azureClientId'))), createObject('name', 'TEAMS_WEBHOOK_URL', 'value', parameters('teamsWebhookUrl')), createObject('name', 'DRIFT_CAT1_THRESHOLD', 'value', string(parameters('driftCat1Threshold'))), createObject('name', 'BUSINESS_HOURS_MODE', 'value', if(parameters('businessHoursMode'), 'true', 'false')), createObject('name', 'BUSINESS_HOURS_TIME_ZONE', 'value', parameters('businessHoursTimeZone')), createObject('name', 'BUSINESS_HOURS_START_HOUR', 'value', string(parameters('businessHoursStartHour'))), createObject('name', 'BUSINESS_HOURS_END_HOUR', 'value', string(parameters('businessHoursEndHour'))), createObject('name', 'BUSINESS_HOURS_AUTO_SHUTDOWN', 'value', if(parameters('autoShutdownOutsideBusinessHours'), 'true', 'false')), createObject('name', 'BUSINESS_HOURS_START_CRON', 'value', parameters('businessHoursStartCron')), createObject('name', 'BUSINESS_HOURS_STOP_CRON', 'value', parameters('businessHoursStopCron')), createObject('name', 'AZURE_ARM_ENDPOINT', 'value', variables('armHost')), createObject('name', 'BACKEND_APP_RESOURCE_ID', 'value', resourceId('Microsoft.Web/sites', variables('backendName'))), createObject('name', 'FRONTEND_APP_RESOURCE_ID', 'value', resourceId('Microsoft.Web/sites', variables('frontendName'))), createObject('name', 'POSTGRES_SERVER_RESOURCE_ID', 'value', resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('dbServerName'))), createObject('name', 'SCHEDULED_SCAN_ENABLED', 'value', if(variables('scheduledScansEnabled'), 'true', 'false')), createObject('name', 'FRONTEND_BASE_URL', 'value', format('https://{0}', reference(resourceId('Microsoft.Web/sites', variables('frontendName')), '2023-01-01').defaultHostName)), createObject('name', 'UPDATE_SOURCE_REPO', 'value', parameters('updateSourceRepo')), createObject('name', 'RELEASE_TAG', 'value', parameters('releaseTag'))))]"
         }
       },
       "dependsOn": [
@@ -691,13 +752,13 @@
       ]
     },
     {
-      "condition": "[variables('enableBusinessHoursShutdown')]",
+      "condition": "[variables('needsSchedulerOpsRole')]",
       "type": "Microsoft.Authorization/roleDefinitions",
       "apiVersion": "2022-05-01-preview",
       "name": "[guid(subscription().id, resourceGroup().id, format('{0}-ops-scheduler-role', parameters('baseName')))]",
       "properties": {
         "roleName": "[format('{0}-ops-scheduler', parameters('baseName'))]",
-        "description": "Least-privilege role so the scheduler Function can start/stop dashboard web apps and PostgreSQL.",
+        "description": "Least-privilege role so the scheduler Function can start/stop dashboard web apps and PostgreSQL, and swap container images when installing an update.",
         "type": "CustomRole",
         "assignableScopes": [
           "[resourceGroup().id]"
@@ -708,6 +769,10 @@
               "Microsoft.Web/sites/read",
               "Microsoft.Web/sites/start/action",
               "Microsoft.Web/sites/stop/action",
+              "Microsoft.Web/sites/restart/action",
+              "Microsoft.Web/sites/config/read",
+              "Microsoft.Web/sites/config/write",
+              "Microsoft.Web/sites/config/list/action",
               "Microsoft.DBforPostgreSQL/flexibleServers/read",
               "Microsoft.DBforPostgreSQL/flexibleServers/start/action",
               "Microsoft.DBforPostgreSQL/flexibleServers/stop/action"
@@ -720,7 +785,7 @@
       }
     },
     {
-      "condition": "[variables('enableBusinessHoursShutdown')]",
+      "condition": "[variables('needsSchedulerOpsRole')]",
       "type": "Microsoft.Authorization/roleAssignments",
       "apiVersion": "2022-04-01",
       "name": "[guid(resourceGroup().id, resourceId('Microsoft.Web/sites', variables('funcName')), 'ops-scheduler-assignment')]",

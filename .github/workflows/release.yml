@@ -206,15 +206,18 @@ jobs:
             --arg frontend  "$FRONTEND_REF" \
             --arg scheduler "$SCHEDULER_URL" \
             --arg tag       "$TAG" \
+            --arg repo      "$GITHUB_REPOSITORY" \
             '
               .parameters.backendImage.defaultValue        = $backend |
               .parameters.frontendImage.defaultValue       = $frontend |
               .parameters.schedulerPackageUrl.defaultValue = $scheduler |
+              .parameters.releaseTag.defaultValue          = $tag |
+              .parameters.updateSourceRepo.defaultValue    = $repo |
               .metadata.releaseTag                         = $tag
             ' infra/azuredeploy.json > release-assets/azuredeploy.json
 
           # Fail fast if the template ever loses these parameter declarations.
-          for p in backendImage frontendImage schedulerPackageUrl; do
+          for p in backendImage frontendImage schedulerPackageUrl releaseTag updateSourceRepo; do
             jq -e --arg p "$p" '.parameters[$p].type == "string"' release-assets/azuredeploy.json >/dev/null \
               || { echo "::error::Parameter $p is missing or untyped in azuredeploy.json"; exit 1; }
           done
