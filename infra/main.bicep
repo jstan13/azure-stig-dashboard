@@ -30,9 +30,9 @@ param azureClientSecret string = ''
 @description('PostgreSQL administrator login')
 param dbAdminLogin string = 'stigadmin'
 
-@description('PostgreSQL administrator password')
+@description('PostgreSQL administrator password. Not needed in demo mode, which provisions no database.')
 @secure()
-param dbAdminPassword string
+param dbAdminPassword string = ''
 
 @description('Demo mode — serves seeded sample data, disables sign-in and accepts every API request unauthenticated. Never enable for a deployment holding real data.')
 param mockMode bool = false
@@ -228,10 +228,12 @@ resource kvSecretClientSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
 resource kvSecretDbPassword 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   parent: keyVault
   name: 'DB-PASSWORD'
-  properties: { value: dbAdminPassword }
+  properties: { value: empty(dbAdminPassword) ? 'not-configured' : dbAdminPassword }
 }
-// ── PostgreSQL Flexible Server ─────────────────────────────────────────────────
-resource pgServer 'Microsoft.DBforPostgreSQL/flexibleServers@2023-06-01-preview' = {
+// ── PostgreSQL Flexible Server ────────────────────────────────────
+// Demo mode serves seeded sample data from memory and never opens a connection,
+// so it gets no server to pay for.
+resource pgServer 'Microsoft.DBforPostgreSQL/flexibleServers@2023-06-01-preview' = if (!mockMode) {
   name: dbServerName
   location: location
   sku: {
@@ -259,7 +261,7 @@ resource pgServer 'Microsoft.DBforPostgreSQL/flexibleServers@2023-06-01-preview'
   }
 }
 
-resource pgDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-06-01-preview' = {
+resource pgDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-06-01-preview' = if (!mockMode) {
   parent: pgServer
   name: dbName
   properties: {
@@ -271,7 +273,7 @@ resource pgDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-06
 // Enforce TLS on all client connections (defense-in-depth; pairs with the
 // backend's certificate-verifying TLS connection). Clients that connect
 // without SSL are rejected by the server.
-resource pgRequireSsl 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2023-06-01-preview' = {
+resource pgRequireSsl 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2023-06-01-preview' = if (!mockMode) {
   parent: pgServer
   name: 'require_secure_transport'
   properties: {
@@ -282,7 +284,7 @@ resource pgRequireSsl 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@
 
 // Allow Azure-hosted services (App Service) to reach the flexible server.
 // 0.0.0.0 -> 0.0.0.0 is the special "Allow Azure services" rule.
-resource pgFirewallAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-06-01-preview' = if (!lockdownNetworking) {
+resource pgFirewallAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-06-01-preview' = if (!mockMode && !lockdownNetworking) {
   parent: pgServer
   name: 'AllowAzureServices'
   properties: {
@@ -292,6 +294,16 @@ resource pgFirewallAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRule
 }
 
 // ── Backend App Service (API) ─────────────────────────────────────────────────
+// Demo mode has no server to point at, and the backend never opens a connection.
+var dbAppSettings = mockMode ? [] : [
+  { name: 'DB_HOST',                        value: pgServer.properties.fullyQualifiedDomainName    }
+  { name: 'DB_PORT',                        value: '5432'                                         }
+  { name: 'DB_NAME',                        value: dbName                                         }
+  { name: 'DB_USER',                        value: dbAdminLogin                                   }
+  { name: 'DB_PASSWORD',                    value: '@Microsoft.KeyVault(SecretUri=${kvSecretDbPassword.properties.secretUri})' }
+  { name: 'DB_SSL',                         value: 'true'                                         }
+]
+
 var backendAppSettings = concat([
   { name: 'NODE_ENV',                       value: 'production'                                    }
   { name: 'MOCK_MODE',                      value: mockMode ? 'true' : 'false'                    }
@@ -311,15 +323,9 @@ var backendAppSettings = concat([
   { name: 'AZURE_TENANT_ID',                value: azureTenantId                                  }
   { name: 'AZURE_CLIENT_ID',                value: azureClientId                                  }
   { name: 'AZURE_CLIENT_SECRET',            value: '@Microsoft.KeyVault(SecretUri=${kvSecretClientSecret.properties.secretUri})' }
-  { name: 'DB_HOST',                        value: pgServer.properties.fullyQualifiedDomainName    }
-  { name: 'DB_PORT',                        value: '5432'                                         }
-  { name: 'DB_NAME',                        value: dbName                                         }
-  { name: 'DB_USER',                        value: dbAdminLogin                                   }
-  { name: 'DB_PASSWORD',                    value: '@Microsoft.KeyVault(SecretUri=${kvSecretDbPassword.properties.secretUri})' }
-  { name: 'DB_SSL',                         value: 'true'                                         }
   { name: 'APPINSIGHTS_INSTRUMENTATIONKEY', value: appInsights.properties.InstrumentationKey      }
   { name: 'FRONTEND_URL',                   value: 'https://${frontendName}.${appHostSuffix}'     }
-], empty(backendImage) ? [
+], dbAppSettings, empty(backendImage) ? [
   { name: 'WEBSITE_NODE_DEFAULT_VERSION',   value: '~20'                                          }
   { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT', value: 'true'                                         }
 ] : [
@@ -550,7 +556,7 @@ resource funcApp 'Microsoft.Web/sites@2023-01-01' = if (effectiveEnableScheduler
         { name: 'AZURE_ARM_ENDPOINT',                  value: armHost }
         { name: 'BACKEND_APP_RESOURCE_ID',             value: backendApp.id }
         { name: 'FRONTEND_APP_RESOURCE_ID',            value: frontendApp.id }
-        { name: 'POSTGRES_SERVER_RESOURCE_ID',         value: pgServer.id }
+        { name: 'POSTGRES_SERVER_RESOURCE_ID',         value: mockMode ? '' : pgServer.id }
         { name: 'SCHEDULED_SCAN_ENABLED',              value: scheduledScansEnabled ? 'true' : 'false' }
         { name: 'FRONTEND_BASE_URL',                   value: 'https://${frontendApp.properties.defaultHostName}' }
         { name: 'UPDATE_SOURCE_REPO',                  value: updateSourceRepo }
@@ -622,7 +628,7 @@ output cloudEnvironment string = cloudEnvironment
 output backendUrl   string = 'https://${backendApp.properties.defaultHostName}'
 output frontendUrl  string = 'https://${frontendApp.properties.defaultHostName}'
 output redirectUriToConfigure string = 'https://${frontendApp.properties.defaultHostName}'
-output dbServerFqdn string = pgServer.properties.fullyQualifiedDomainName
+output dbServerFqdn string = mockMode ? '' : pgServer.properties.fullyQualifiedDomainName
 output aiKey        string = appInsights.properties.InstrumentationKey
 output backendPrincipalId string = backendApp.identity.principalId
 output functionAppName string = effectiveEnableScheduler ? funcApp.name : ''
