@@ -102,7 +102,7 @@ Full details: [docs/architecture.md](docs/architecture.md) · [docs/data-flow.md
 | **Dashboard** | Compliance donut, per-machine bar chart, inventory table, audit timeline |
 | **Findings** | Per-control status edit, comments, finding details — all logged to audit trail |
 | **Export** | STIG Viewer `.ckl` XML · JSON · CSV |
-| **Mock mode** | `MOCK_MODE=true` — full app with demo data, zero Azure credentials needed (add `ALLOW_MOCK_IN_PRODUCTION=true` alongside `NODE_ENV=production`) |
+| **Mock mode** | `MOCK_MODE=true` — full app with demo data, zero Azure credentials needed (add `ALLOW_MOCK_IN_PRODUCTION=true` alongside `NODE_ENV=production`). Deployed with demo mode on, the template provisions no database server. |
 | **Auto-update** | Administration → Updates. Off / notify / install automatically, with per-release approval or unattended ("set and forget"), a maintenance window in your timezone, and automatic rollback if the new version fails its health check. Your database is never redeployed. |
 | **CI/CD** | GitHub Actions lint → test → Docker → App Service deploy |
 | **IaC** | Bicep + ARM JSON (Deploy-to-Azure button) |
@@ -156,7 +156,7 @@ Click one of the buttons at the top of this README — Commercial uses `portal.a
 
 1. **Basics** — Organization name (resource prefix), Azure cloud environment, region, App Service SKU, demo-mode toggle.
 2. **Microsoft Entra sign-in** — app registration client ID + secret. The tenant is taken from the subscription you selected, with an override if the registration lives elsewhere. Skipped entirely when demo mode is on, because there is no sign-in to configure.
-3. **PostgreSQL** — admin login + complex password.
+3. **PostgreSQL** — admin login + complex password. Skipped entirely when demo mode is on, because demo mode serves seeded sample data from memory and no database server is created.
 4. **Review + create**.
 
 > The template cannot create the app registration for you: registrations live in Microsoft Entra ID, which ARM templates have no ability to write to. That is what `scripts/create-app-registration.ps1` is for.
@@ -168,7 +168,7 @@ The ARM template provisions:
 | App Service Plan | B1 Linux (configurable) |
 | Backend App Service | Node 20 LTS |
 | Frontend App Service | Node 20 LTS (Vite static bundle) |
-| PostgreSQL Flexible Server | Burstable B1ms + `AllowAzureServices` firewall rule |
+| PostgreSQL Flexible Server | Burstable B1ms + `AllowAzureServices` firewall rule (not created in demo mode) |
 | Application Insights | Pay-as-you-go |
 
 ### Sovereign cloud support (Azure US Gov / DoD)
