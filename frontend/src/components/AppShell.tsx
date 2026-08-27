@@ -52,6 +52,7 @@ const NAV: NavGroup[] = [
       { key: 'emass',     label: 'eMASS Sync',       icon: 'CloudUpload',      path: '/emass' },
       { key: 'audit',     label: 'Audit Log',        icon: 'History',          path: '/audit' },
       { key: 'users',     label: 'Users',            icon: 'People',           path: '/users' },
+      { key: 'schedule',  label: 'Scan schedule',    icon: 'Calendar',         path: '/scan-schedule' },
       { key: 'updates',   label: 'Updates',          icon: 'Sync',             path: '/updates' },
     ],
   },

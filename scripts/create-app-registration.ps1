@@ -35,6 +35,10 @@
   If $true (default) grants the current signed-in user the `admin` app role on
   the new registration so the first login is not locked out.
 
+.PARAMETER ShowSecret
+  If $true (default), prints values for a manual portal deployment. Automated
+  callers should set this to $false so the generated secret is not displayed.
+
 .EXAMPLE
   ./scripts/create-app-registration.ps1 -OrgName contoso
 
@@ -57,7 +61,9 @@ param(
 
   [string]$DisplayName = $null,
 
-  [bool]$GrantAdminToSelf = $true
+  [bool]$GrantAdminToSelf = $true,
+
+  [bool]$ShowSecret = $true
 )
 
 $ErrorActionPreference = 'Stop'
@@ -103,9 +109,22 @@ if ($existing -and $existing.Count -gt 0) {
 }
 
 # ── 2. Configure SPA redirect URI ────────────────────────────────────────────
-az ad app update --id $appId --set "spa.redirectUris=['$frontendUri']" --only-show-errors | Out-Null
-# Also add localhost for dev convenience.
-az ad app update --id $appId --set "spa.redirectUris=['$frontendUri','http://localhost:5173']" --only-show-errors | Out-Null
+# `az ad app update --set spa.redirectUris=...` cannot create a missing SPA
+# platform, so patch the application through Microsoft Graph instead.
+$spaFile = New-TemporaryFile
+@{
+  spa = @{
+    redirectUris = @($frontendUri, 'http://localhost:5173')
+  }
+} | ConvertTo-Json -Depth 4 | Set-Content -Path $spaFile -Encoding utf8
+az rest --method PATCH `
+  --uri "https://graph.microsoft.com/v1.0/applications/$objectId" `
+  --headers 'Content-Type=application/json' `
+  --body "@$spaFile" `
+  --only-show-errors | Out-Null
+$spaExitCode = $LASTEXITCODE
+Remove-Item $spaFile -Force
+if ($spaExitCode -ne 0) { throw 'Failed to configure SPA redirect URIs.' }
 Write-Host "[3/6] SPA redirect URIs set ($frontendUri, http://localhost:5173)."
 
 # ── 3. Application ID URI + access_as_user scope ─────────────────────────────
@@ -226,10 +245,15 @@ if ($GrantAdminToSelf) {
         resourceId  = $spObjectId
         appRoleId   = $adminRoleIdEffective
       } | ConvertTo-Json -Compress
+      $assignmentFile = New-TemporaryFile
+      Set-Content -Path $assignmentFile -Value $body -Encoding utf8
       az rest --method POST `
         --uri "https://graph.microsoft.com/v1.0/users/$($me.id)/appRoleAssignments" `
         --headers 'Content-Type=application/json' `
-        --body $body --only-show-errors | Out-Null
+        --body "@$assignmentFile" --only-show-errors | Out-Null
+      $assignmentExitCode = $LASTEXITCODE
+      Remove-Item $assignmentFile -Force
+      if ($assignmentExitCode -ne 0) { throw 'Failed to grant the admin app role to the signed-in user.' }
     }
     Write-Host "[6/6] Granted admin role to $($me.userPrincipalName)."
   } else {
@@ -244,22 +268,24 @@ $secretJson = az ad app credential reset --id $appId --display-name "auto-bootst
 $clientSecret = $secretJson.password
 
 # ── Output ───────────────────────────────────────────────────────────────────
-Write-Host ''
-Write-Host '════════════════════════════════════════════════════════════════'
-Write-Host ' DONE — paste these into the Deploy-to-Azure wizard:'
-Write-Host '════════════════════════════════════════════════════════════════'
-Write-Host "  Tenant ID     : $tenantId"
-Write-Host "  Client ID     : $appId"
-Write-Host "  Client secret : $clientSecret"
-Write-Host '════════════════════════════════════════════════════════════════'
-Write-Host ''
-Write-Host ' Or for azd up:'
-Write-Host "   azd env set AZURE_TENANT_ID     $tenantId"
-Write-Host "   azd env set AZURE_CLIENT_ID     $appId"
-Write-Host "   azd env set AZURE_CLIENT_SECRET $clientSecret"
-Write-Host ''
-Write-Host ' Save the client secret now — it cannot be retrieved later.'
-Write-Host ''
+if ($ShowSecret) {
+  Write-Host ''
+  Write-Host '════════════════════════════════════════════════════════════════'
+  Write-Host ' DONE — paste these into the Deploy-to-Azure wizard:'
+  Write-Host '════════════════════════════════════════════════════════════════'
+  Write-Host "  Tenant ID     : $tenantId"
+  Write-Host "  Client ID     : $appId"
+  Write-Host "  Client secret : $clientSecret"
+  Write-Host '════════════════════════════════════════════════════════════════'
+  Write-Host ''
+  Write-Host ' Or for azd up:'
+  Write-Host "   azd env set AZURE_TENANT_ID     $tenantId"
+  Write-Host "   azd env set AZURE_CLIENT_ID     $appId"
+  Write-Host "   azd env set AZURE_CLIENT_SECRET $clientSecret"
+  Write-Host ''
+  Write-Host ' Save the client secret now — it cannot be retrieved later.'
+  Write-Host ''
+}
 
 # Machine-readable output for the deploy.ps1 wrapper to consume.
 [pscustomobject]@{

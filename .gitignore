@@ -6,6 +6,7 @@ node_modules/
 backend/dist/
 frontend/dist/
 functions/dist/
+packages/*/dist/
 e2e/test-results/
 e2e/playwright-report/
 

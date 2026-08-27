@@ -337,6 +337,9 @@ var backendAppSettings = concat([
 resource backendApp 'Microsoft.Web/sites@2023-01-01' = {
   name: backendName
   location: location
+  tags: {
+    'azd-service-name': 'backend'
+  }
   identity: {
     type: 'SystemAssigned'
   }
@@ -345,6 +348,7 @@ resource backendApp 'Microsoft.Web/sites@2023-01-01' = {
     httpsOnly: true
     siteConfig: {
       linuxFxVersion: backendLinuxFxVersion
+      appCommandLine: empty(backendImage) ? 'npm start' : ''
       alwaysOn: effectiveAppServiceSku != 'F1'
       http20Enabled: true
       minTlsVersion: '1.2'
@@ -400,12 +404,15 @@ module remediationAccess 'modules/remediationAccess.bicep' = if (!empty(remediat
 resource frontendApp 'Microsoft.Web/sites@2023-01-01' = {
   name: frontendName
   location: location
+  tags: {
+    'azd-service-name': 'frontend'
+  }
   properties: {
     serverFarmId: appServicePlan.id
     httpsOnly: true
     siteConfig: {
       linuxFxVersion: frontendLinuxFxVersion
-      appCommandLine: empty(frontendImage) ? 'npm start' : ''
+      appCommandLine: empty(frontendImage) ? 'node server.cjs' : ''
       http20Enabled: true
       minTlsVersion: '1.2'
       ftpsState: 'Disabled'
@@ -525,6 +532,9 @@ resource funcPlan 'Microsoft.Web/serverfarms@2023-01-01' = if (effectiveEnableSc
 resource funcApp 'Microsoft.Web/sites@2023-01-01' = if (effectiveEnableScheduler) {
   name: funcName
   location: location
+  tags: {
+    'azd-service-name': 'scheduler'
+  }
   kind: 'functionapp,linux'
   identity: { type: 'SystemAssigned' }
   properties: {

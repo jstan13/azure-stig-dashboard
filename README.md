@@ -4,15 +4,37 @@ A production-ready full-stack TypeScript dashboard for tracking STIG compliance 
 
 ### Easiest path — one command
 
-If you have the [Azure CLI](https://aka.ms/installazurecli) and [Azure Developer CLI](https://aka.ms/install-azd) installed, this is the whole deployment:
+This path works from an otherwise empty subscription. Your Azure account needs:
+
+- **Owner**, or **Contributor** plus **User Access Administrator**, on the target subscription so the script can create resources and grant the dashboard read-only access.
+- Permission to create Microsoft Entra app registrations and assign an app role to yourself. **Application Administrator** or **Cloud Application Administrator** is sufficient; some tenants also allow ordinary users to register apps.
+- [Azure CLI](https://aka.ms/installazurecli), [Azure Developer CLI](https://aka.ms/install-azd), Git, and PowerShell 7.
+
+Then run:
 
 ```pwsh
 git clone https://github.com/jstan13/azure-stig-dashboard.git
 cd azure-stig-dashboard
-./scripts/deploy.ps1 -OrgName <your-org> -Location eastus
+./scripts/deploy.ps1 `
+  -OrgName <your-org> `
+  -ResourceGroupName <resource-group> `
+  -Location eastus `
+  -TrackedHostCount 1
 ```
 
-The script signs you in (device-code), creates the Entra app registration with the correct API scope + admin/operator/auditor roles + redirect URI, generates a database password, runs `azd up`, and grants the backend managed identity `Reader` + `Security Reader` at subscription scope. You'll be granted the `admin` role on your own user automatically so the first login works.
+If the preview reports `SubscriptionIsOverQuotaForSku`, choose another region or request an App Service quota increase. Visual Studio subscriptions can have zero workers available in some regions even when credits remain; quota and credit balance are separate limits.
+
+The script signs you in, creates the Entra app registration with the correct API scope, roles, and redirect URI, generates a database password, runs `azd up`, and grants the backend managed identity `Reader` + `Security Reader` at subscription scope. You'll be granted the `admin` role on your own user automatically so the first login works.
+
+The **Application (client) ID**, often shortened to **app ID** or **client ID**, identifies that Entra app registration. It is not your subscription ID, tenant ID, VM ID, or managed-identity object ID. You do not need to create or paste one when using `deploy.ps1`; the script creates it and configures the deployment automatically. The ID is not secret, but the generated client secret is.
+
+Set `-ResourceGroupName` when you want all billable Azure resources in one group for easy test cleanup. The Entra app registration is tenant-scoped rather than resource-group-scoped, so remove it separately after deleting a test deployment:
+
+```pwsh
+az group delete --name <resource-group> --yes
+$appId = az ad app list --display-name "<your-org> STIG Dashboard" --query "[0].appId" -o tsv
+if ($appId) { az ad app delete --id $appId }
+```
 
 When it finishes, browse to `https://<your-org>-stig-web.azurewebsites.net` and sign in.
 
@@ -554,6 +576,8 @@ After signing in, the left rail groups every page into three sections.
 | **eMASS Sync**       | `/emass`       | Push all open POA&Ms or upload a CKLB checklist for a specific machine to eMASS. The page reports connector configuration status; if PEMs / API key are missing it explains exactly which App Settings to add. |
 | **Audit Log**        | `/audit`       | Immutable log of every privileged action (scan triggered, status changed, POA&M edited, eMASS pushed, remediation job submitted). Filter by user, action, or date range. |
 | **Users**            | `/users`       | View Entra-assigned roles (admin / operator / auditor). Role assignment itself is done in the Entra portal. |
+| **Scan schedule**    | `/scan-schedule` | Enable automatic scans; choose an hourly, daily, or weekly cadence, time, and time zone; and see the next run and latest scheduled result. |
+| **Updates**          | `/updates`     | Choose whether releases are reported or installed automatically, with approval and maintenance-window controls. |
 
 ### Common workflows
 
@@ -561,21 +585,9 @@ After signing in, the left rail groups every page into three sections.
 Open *Machine Inventory* → select machines → **Trigger scan**. The orchestrator chooses PowerSTIG (Windows) or OpenSCAP (Linux) automatically. Or hit `POST /api/scan/trigger` from a CI pipeline.
 
 **1a. Schedule automatic refreshes (how often *you* decide).**
-The dashboard is a **database that is refreshed by scans**, not a live query against Azure — so it only changes when a scan runs. Automated scans are **off by default**; an operator opts in:
+The dashboard is a **database that is refreshed by scans**, not a live query against Azure, so it only changes when a scan runs. Automated scans are **off by default**. Open **Administration → Scan schedule**, enable automatic scans, then choose hourly, daily, or weekly, the run time, and your time zone. The page shows the calculated next run and the latest scheduled result. Changes take effect without restarting or redeploying the app.
 
-```bash
-azd env set SCAN_SCHEDULE_ENABLED true        # turn the scheduler on
-azd env set SCAN_CRON_SCHEDULE   "0 */6 * * *" # choose the cadence (every 6 h here)
-```
-
-Pick the cadence that matches how fresh you need the data:
-
-| Cadence | `SCAN_CRON_SCHEDULE` | Good for |
-|---|---|---|
-| Hourly        | `0 * * * *`   | Active remediation / near-live tracking |
-| Every 6 hours | `0 */6 * * *` | Balanced default for most teams |
-| Nightly (2AM) | `0 2 * * *`   | Steady-state monitoring (lightest load) |
-| Weekly (Sun)  | `0 2 * * 0`   | Slow-changing estates / audit prep |
+Pick hourly for active remediation, daily for steady-state monitoring, or weekly for slow-changing estates and audit preparation.
 
 > **Resource overhead.** Each run is a **batch pull** across Resource Graph, Policy, Defender, ARM, and Guest Configuration. Cost scales with fleet size — roughly a few API calls per subscription plus per VM, so a few hundred VMs is a few minutes of work and a brief CPU/network spike on the backend container. Calls are **read-only** but count against ARM/Resource Graph throttling limits, so prefer **hourly-or-slower** on large fleets (very frequent schedules can hit HTTP 429). Each run also writes a `Scan` row + a compliance-history snapshot, so the DB grows slowly and linearly with frequency. **Overlapping runs are skipped** — if a scan is still going when the next tick fires, the tick is logged and dropped rather than stacking concurrent scans.
 
@@ -646,53 +658,27 @@ Completing items 6–7 brings this to **true single-pane-of-glass parity** with 
 
 ## Azure AD app registration
 
-You need **two** app registrations: one for the backend API and one for the frontend SPA.
+The deployed dashboard uses **one single-tenant app registration** for both SPA sign-in and API authorization. The recommended `scripts/deploy.ps1` path creates and configures it automatically through [scripts/create-app-registration.ps1](scripts/create-app-registration.ps1).
 
-### 1 — Backend API registration
+That registration contains:
 
-```
-Azure Portal > Microsoft Entra ID > App registrations > New registration
-  Name:                   azure-stig-dashboard-api
-  Supported account types: Accounts in this organisational directory only
-  Redirect URI:           (leave blank)
-```
+- SPA redirect URIs for the deployed frontend and `http://localhost:5173`
+- Application ID URI `api://<application-client-id>`
+- Delegated scope `access_as_user`
+- App roles `admin`, `issm`, `isso`, `operator`, and `auditor`
+- Group claims limited to groups assigned to this enterprise application
 
-After creation:
-1. **Expose an API** > Set App ID URI to `api://<APPLICATION_CLIENT_ID>`
-2. **Add a scope**: `access_as_user` (Admins and users, consent display name of your choice)
-3. **App roles** > Create roles:
-   | Role | Value | Description |
-   |------|-------|-------------|
-   | Admin | `admin` | Full access |
-   | Operator | `operator` | Trigger scans, edit findings |
-   | Auditor | `auditor` | Read-only + export |
-4. **Certificates & secrets** > New client secret — copy the value immediately.
+The same Application (client) ID is used as `AZURE_CLIENT_ID` by the backend and exposed to the frontend runtime configuration. The deployment stores the generated secret in Key Vault and uses a Key Vault reference in App Service; do not put the secret in source control.
 
-Record:
-- `AZURE_TENANT_ID` — Entra ID > Overview > Tenant ID
-- `AZURE_CLIENT_ID` — this app registration's Application (client) ID
-- `AZURE_CLIENT_SECRET` — the secret value from step 4
+To assign other users or groups after deployment, open **Microsoft Entra ID > Enterprise applications > `<your-org> STIG Dashboard` > Users and groups > Add user/group**, then select the appropriate app role.
 
-### 2 — Frontend SPA registration
+For a manual or portal-button deployment, first run:
 
-```
-Azure Portal > Microsoft Entra ID > App registrations > New registration
-  Name:                   azure-stig-dashboard-spa
-  Supported account types: Accounts in this organisational directory only
-  Redirect URI:           Single-page application → https://<YOUR_FRONTEND_URL>
+```pwsh
+./scripts/create-app-registration.ps1 -OrgName <your-org>
 ```
 
-After creation:
-1. **Authentication** > Add redirect URI for local dev: `http://localhost:5173`
-2. Enable **Access tokens** and **ID tokens** under implicit grant (SPA flow does not need these, but leave default).
-3. **API permissions** > Add permission > My APIs > `azure-stig-dashboard-api` > `access_as_user` — Grant admin consent.
-
-Record:
-- `VITE_AZURE_CLIENT_ID` — this SPA registration's Application (client) ID
-
-### 3 — Assign app roles to users / groups
-
-Entra ID > Enterprise applications > `azure-stig-dashboard-api` > Users and groups > Add user/group > Select role.
+Use the printed Tenant ID, Application (client) ID, and secret in the deployment wizard. The secret value is shown only when it is created.
 
 ---
 

@@ -13,9 +13,60 @@ import { ScanEntity } from '../models/Scan';
 import { createError } from '../middleware/errorHandler';
 import { parsePage, parsePageSize } from '../utils/paging';
 import { logger } from '../utils/logger';
+import { z } from 'zod';
+import {
+  getScanPolicy, saveScanPolicy, scanPolicyResponse,
+} from '../services/scanPolicyService';
 
 const router = Router();
 const orchestrator = new ScanOrchestrator();
+
+const scheduleSchema = z.object({
+  enabled: z.boolean(),
+  frequency: z.enum(['hourly', 'daily', 'weekly']),
+  minute: z.number().int().min(0).max(59),
+  hour: z.number().int().min(0).max(23),
+  dayOfWeek: z.number().int().min(0).max(6),
+  timeZone: z.string().trim().min(1).max(64),
+});
+
+router.get('/schedule', requirePermission('dashboard:read'), async (_req, res, next) => {
+  try {
+    res.json(scanPolicyResponse(await getScanPolicy()));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put('/schedule', requirePermission('scan:schedule'), async (req, res, next) => {
+  const parsed = scheduleSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0].message });
+  }
+  try {
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: parsed.data.timeZone });
+    } catch {
+      return res.status(400).json({ error: `Unknown time zone: ${parsed.data.timeZone}` });
+    }
+    const policy = await getScanPolicy();
+    const before = scanPolicyResponse(policy);
+    Object.assign(policy, parsed.data);
+    const saved = await saveScanPolicy(policy);
+    const after = scanPolicyResponse(saved);
+    await recordAudit(req, {
+      action: 'scan_schedule.changed',
+      entityType: 'scan_policy',
+      entityId: 'singleton',
+      before,
+      after,
+      result: 'Success',
+    });
+    return res.json(after);
+  } catch (err) {
+    return next(err);
+  }
+});
 
 // POST /api/scan/trigger
 router.post(

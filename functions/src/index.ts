@@ -266,22 +266,30 @@ async function imagesForRelease(
   return { backend, frontend };
 }
 
-async function getLinuxFxVersion(resourceId: string): Promise<string> {
+interface WebAppRuntimeConfig {
+  linuxFxVersion: string;
+  appCommandLine: string;
+}
+
+async function getWebAppRuntimeConfig(resourceId: string): Promise<WebAppRuntimeConfig> {
   const headers = await armHeaders();
   const url = `${ARM_ENDPOINT}${resourceId}/config/web?api-version=${WEB_API_VERSION}`;
   const res = await axios.get(url, { headers, timeout: 60_000 });
-  return String(res.data?.properties?.linuxFxVersion ?? '');
+  return {
+    linuxFxVersion: String(res.data?.properties?.linuxFxVersion ?? ''),
+    appCommandLine: String(res.data?.properties?.appCommandLine ?? ''),
+  };
 }
 
-async function setLinuxFxVersion(
-  resourceId: string, value: string, ctx: InvocationContext,
+async function setWebAppRuntimeConfig(
+  resourceId: string, config: WebAppRuntimeConfig, ctx: InvocationContext,
 ): Promise<void> {
   const headers = await armHeaders();
   const url = `${ARM_ENDPOINT}${resourceId}/config/web?api-version=${WEB_API_VERSION}`;
   const res = await axios.patch(
-    url, { properties: { linuxFxVersion: value } }, { headers, timeout: 120_000 },
+    url, { properties: config }, { headers, timeout: 120_000 },
   );
-  ctx.log(`[autoUpdate] set image on ${resourceId} -> ${res.status}`);
+  ctx.log(`[autoUpdate] set runtime on ${resourceId} -> ${res.status}`);
 }
 
 /** Waits for sustained health; one lucky 200 during a swap proves nothing. */
@@ -328,8 +336,8 @@ async function installRelease(version: string, ctx: InvocationContext): Promise<
   }
 
   const previous = {
-    backend: await getLinuxFxVersion(BACKEND_APP_RESOURCE_ID),
-    frontend: await getLinuxFxVersion(FRONTEND_APP_RESOURCE_ID),
+    backend: await getWebAppRuntimeConfig(BACKEND_APP_RESOURCE_ID),
+    frontend: await getWebAppRuntimeConfig(FRONTEND_APP_RESOURCE_ID),
   };
   const previousVersion = process.env.RELEASE_TAG || null;
 
@@ -348,8 +356,14 @@ async function installRelease(version: string, ctx: InvocationContext): Promise<
   }
 
   try {
-    await setLinuxFxVersion(BACKEND_APP_RESOURCE_ID, `DOCKER|${images.backend}`, ctx);
-    await setLinuxFxVersion(FRONTEND_APP_RESOURCE_ID, `DOCKER|${images.frontend}`, ctx);
+    await setWebAppRuntimeConfig(BACKEND_APP_RESOURCE_ID, {
+      linuxFxVersion: `DOCKER|${images.backend}`,
+      appCommandLine: '',
+    }, ctx);
+    await setWebAppRuntimeConfig(FRONTEND_APP_RESOURCE_ID, {
+      linuxFxVersion: `DOCKER|${images.frontend}`,
+      appCommandLine: '',
+    }, ctx);
   } catch (e: any) {
     ctx.error(`[autoUpdate] swap failed: ${e.message}`);
     await rollback(previous, version, previousVersion, `swap failed: ${e.message}`, ctx);
@@ -382,7 +396,7 @@ async function installRelease(version: string, ctx: InvocationContext): Promise<
 }
 
 async function rollback(
-  previous: { backend: string; frontend: string },
+  previous: { backend: WebAppRuntimeConfig; frontend: WebAppRuntimeConfig },
   version: string,
   previousVersion: string | null,
   detail: string,
@@ -390,11 +404,11 @@ async function rollback(
 ): Promise<void> {
   ctx.error(`[autoUpdate] rolling back: ${detail}`);
   try {
-    if (previous.backend) {
-      await setLinuxFxVersion(BACKEND_APP_RESOURCE_ID, previous.backend, ctx);
+    if (previous.backend.linuxFxVersion) {
+      await setWebAppRuntimeConfig(BACKEND_APP_RESOURCE_ID, previous.backend, ctx);
     }
-    if (previous.frontend) {
-      await setLinuxFxVersion(FRONTEND_APP_RESOURCE_ID, previous.frontend, ctx);
+    if (previous.frontend.linuxFxVersion) {
+      await setWebAppRuntimeConfig(FRONTEND_APP_RESOURCE_ID, previous.frontend, ctx);
     }
     await sleep(45_000);
     await waitForHealth(`${BACKEND_BASE_URL}/health`, ctx);

@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "17864461554681076497"
+      "templateHash": "3827523439537807723"
     }
   },
   "parameters": {
@@ -474,6 +474,9 @@
       "apiVersion": "2023-01-01",
       "name": "[variables('backendName')]",
       "location": "[parameters('location')]",
+      "tags": {
+        "azd-service-name": "backend"
+      },
       "identity": {
         "type": "SystemAssigned"
       },
@@ -494,6 +497,7 @@
             }
           ],
           "linuxFxVersion": "[variables('backendLinuxFxVersion')]",
+          "appCommandLine": "[if(empty(parameters('backendImage')), 'npm start', '')]",
           "alwaysOn": "[not(equals(variables('effectiveAppServiceSku'), 'F1'))]",
           "http20Enabled": true,
           "minTlsVersion": "1.2",
@@ -540,6 +544,9 @@
       "apiVersion": "2023-01-01",
       "name": "[variables('frontendName')]",
       "location": "[parameters('location')]",
+      "tags": {
+        "azd-service-name": "frontend"
+      },
       "properties": {
         "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]",
         "httpsOnly": true,
@@ -557,7 +564,7 @@
             }
           ],
           "linuxFxVersion": "[variables('frontendLinuxFxVersion')]",
-          "appCommandLine": "[if(empty(parameters('frontendImage')), 'npm start', '')]",
+          "appCommandLine": "[if(empty(parameters('frontendImage')), 'node server.cjs', '')]",
           "http20Enabled": true,
           "minTlsVersion": "1.2",
           "ftpsState": "Disabled",
@@ -732,6 +739,9 @@
       "apiVersion": "2023-01-01",
       "name": "[variables('funcName')]",
       "location": "[parameters('location')]",
+      "tags": {
+        "azd-service-name": "scheduler"
+      },
       "kind": "functionapp,linux",
       "identity": {
         "type": "SystemAssigned"

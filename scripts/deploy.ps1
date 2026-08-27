@@ -24,6 +24,10 @@
 .PARAMETER EnvName
   azd environment name. Default: prod.
 
+.PARAMETER ResourceGroupName
+  Resource group that will contain all deployed Azure resources. When omitted,
+  azd generates its default resource group name.
+
 .PARAMETER CloudEnvironment
   AzureCloud | AzureUSGovernment | AzureUSGovernmentDoD.
 
@@ -39,6 +43,7 @@ param(
   [string]$OrgName,
   [string]$Location,
   [string]$EnvName          = 'prod',
+  [string]$ResourceGroupName,
   [ValidateSet('AzureCloud','AzureUSGovernment','AzureUSGovernmentDoD')]
   [string]$CloudEnvironment = 'AzureCloud',
   [string]$AppServiceSku    = 'B1',
@@ -101,7 +106,7 @@ Write-Host ''
 
 # ── 3. Create / refresh the Entra app registration ───────────────────────────
 Write-Host '─── Step 1/3 — Microsoft Entra app registration ─────────────────'
-$reg = & "$PSScriptRoot/create-app-registration.ps1" -OrgName $OrgName -CloudEnvironment $CloudEnvironment
+$reg = & "$PSScriptRoot/create-app-registration.ps1" -OrgName $OrgName -CloudEnvironment $CloudEnvironment -ShowSecret $false
 if (-not $reg -or -not $reg.clientId) { Write-Error 'App-registration bootstrap failed.'; exit 1 }
 Write-Host ''
 
@@ -115,6 +120,9 @@ if (-not ($envList | Where-Object { $_.Name -eq $EnvName })) {
 }
 
 azd env set AZURE_LOCATION       $Location           | Out-Null
+if ($ResourceGroupName) {
+  azd env set AZURE_RESOURCE_GROUP $ResourceGroupName | Out-Null
+}
 azd env set AZURE_TENANT_ID      $reg.tenantId       | Out-Null
 azd env set AZURE_CLIENT_ID      $reg.clientId       | Out-Null
 azd env set AZURE_CLIENT_SECRET  $reg.clientSecret   | Out-Null

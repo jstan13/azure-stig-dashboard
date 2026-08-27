@@ -23,6 +23,7 @@ export const PERMISSIONS = [
   'collection:manage',
   'users:manage',
   'notifications:manage',
+  'scan:schedule',
   'updates:manage',
 ] as const;
 

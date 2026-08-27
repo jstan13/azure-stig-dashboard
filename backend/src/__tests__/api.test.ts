@@ -124,3 +124,45 @@ describe('POST /api/scan/trigger', () => {
     expect(res.body.scanId).toBeTruthy();
   });
 });
+
+describe('/api/scan/schedule', () => {
+  it('reads and updates the automatic scan schedule', async () => {
+    const initial = await request(app).get('/api/scan/schedule');
+    expect(initial.status).toBe(200);
+    expect(initial.body).toHaveProperty('nextRunAt');
+
+    const updated = await request(app)
+      .put('/api/scan/schedule')
+      .send({
+        enabled: true,
+        frequency: 'daily',
+        minute: 30,
+        hour: 6,
+        dayOfWeek: 1,
+        timeZone: 'America/Chicago',
+      });
+    expect(updated.status).toBe(200);
+    expect(updated.body).toMatchObject({
+      enabled: true,
+      frequency: 'daily',
+      minute: 30,
+      hour: 6,
+      timeZone: 'America/Chicago',
+    });
+    expect(updated.body.nextRunAt).toBeTruthy();
+  });
+
+  it('rejects invalid schedule values', async () => {
+    const response = await request(app)
+      .put('/api/scan/schedule')
+      .send({
+        enabled: true,
+        frequency: 'daily',
+        minute: 99,
+        hour: 6,
+        dayOfWeek: 1,
+        timeZone: 'UTC',
+      });
+    expect(response.status).toBe(400);
+  });
+});

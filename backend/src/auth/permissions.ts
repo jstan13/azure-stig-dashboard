@@ -53,6 +53,7 @@ export const PERMISSIONS = [
   'collection:manage',
   'users:manage',
   'notifications:manage',
+  'scan:schedule',
   'updates:manage',
 ] as const;
 
@@ -67,6 +68,7 @@ export const GLOBAL_PERMISSIONS: ReadonlySet<Permission> = new Set<Permission>([
   'collection:manage',
   'users:manage',
   'notifications:manage',
+  'scan:schedule',
   'updates:manage',
   'audit:read',
   'stig:import',
@@ -89,7 +91,13 @@ const ROLE_GRANTS: Record<Role, Permission[]> = {
     'remediation:approve',
     'roles:assign',
   ],
-  admin: ['collection:manage', 'users:manage', 'notifications:manage', 'updates:manage'],
+  admin: [
+    'collection:manage',
+    'users:manage',
+    'notifications:manage',
+    'scan:schedule',
+    'updates:manage',
+  ],
 };
 
 /**

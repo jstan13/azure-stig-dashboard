@@ -113,11 +113,16 @@ if ($existing -and $existing -ne 'null') {
     resourceId  = $backendSp.id
     appRoleId   = $operatorRole.id
   } | ConvertTo-Json -Compress
+  $assignmentFile = New-TemporaryFile
+  Set-Content -Path $assignmentFile -Value $body -Encoding utf8
 
   az rest --method POST `
     --uri "https://graph.microsoft.com/v1.0/servicePrincipals/$FunctionPrincipalId/appRoleAssignments" `
     --headers 'Content-Type=application/json' `
-    --body $body | Out-Null
+    --body "@$assignmentFile" | Out-Null
+  $assignmentExitCode = $LASTEXITCODE
+  Remove-Item $assignmentFile -Force
+  if ($assignmentExitCode -ne 0) { throw 'Failed to grant the Function App operator role.' }
   Write-Host '[post-deploy] operator role granted.'
 }
 
