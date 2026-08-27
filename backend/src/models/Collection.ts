@@ -25,7 +25,7 @@ export class CollectionEntity {
   @Column({ type: 'text', nullable: true }) description!: string | null;
 
   /** Entra tenant this boundary belongs to (multi-tenant deployments). */
-  @Column({ nullable: true }) tenantId!: string | null;
+  @Column({ type: 'varchar', nullable: true }) tenantId!: string | null;
 
   /** How assets are associated with this collection. */
   @Column({ default: 'explicit' }) selectionMode!: 'tag' | 'explicit';
@@ -39,7 +39,7 @@ export class CollectionEntity {
   @Column({ default: 'active' }) status!: 'active' | 'archived';
 
   /** Object id (oid) of the principal that created the collection. */
-  @Column({ nullable: true }) createdBy!: string | null;
+  @Column({ type: 'varchar', nullable: true }) createdBy!: string | null;
 
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;

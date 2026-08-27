@@ -24,15 +24,15 @@ export class GroupRoleMappingEntity {
   @Column() groupObjectId!: string;
 
   /** Optional human-friendly label for the group (display only). */
-  @Column({ nullable: true }) groupDisplayName!: string | null;
+  @Column({ type: 'varchar', nullable: true }) groupDisplayName!: string | null;
 
   @Column({ type: 'enum', enum: ROLES }) role!: Role;
 
   /** Null = global; otherwise the Collection this mapping is scoped to. */
-  @Column({ nullable: true }) collectionId!: string | null;
+  @Column({ type: 'varchar', nullable: true }) collectionId!: string | null;
 
   /** Object id (oid) of the principal that created the mapping. */
-  @Column({ nullable: true }) createdBy!: string | null;
+  @Column({ type: 'varchar', nullable: true }) createdBy!: string | null;
 
   @CreateDateColumn() createdAt!: Date;
 }

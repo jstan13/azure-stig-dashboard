@@ -39,7 +39,7 @@ export class ManualAnswerEntity {
   @Column() controlId!: string;
 
   /** STIG vuln id captured for display/audit resilience (e.g. "V-220706"). */
-  @Column({ nullable: true }) vulnId!: string | null;
+  @Column({ type: 'varchar', nullable: true }) vulnId!: string | null;
 
   /** open | not_a_finding | not_applicable | not_reviewed */
   @Column({ default: 'not_reviewed' }) status!: string;
@@ -49,7 +49,7 @@ export class ManualAnswerEntity {
   @Column({ type: 'text', nullable: true }) findingDetails!: string | null;
 
   /** Object id (oid) of the principal that authored the answer. */
-  @Column({ nullable: true }) answeredBy!: string | null;
+  @Column({ type: 'varchar', nullable: true }) answeredBy!: string | null;
 
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;

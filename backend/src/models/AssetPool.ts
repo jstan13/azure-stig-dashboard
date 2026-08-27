@@ -26,10 +26,10 @@ export class AssetPoolEntity {
   @Column({ type: 'text', nullable: true }) description!: string | null;
 
   /** Free-form role label shown in the UI, e.g. "Domain Controller". */
-  @Column({ nullable: true }) role!: string | null;
+  @Column({ type: 'varchar', nullable: true }) role!: string | null;
 
   /** Entra tenant this pool belongs to (multi-tenant deployments). */
-  @Column({ nullable: true }) tenantId!: string | null;
+  @Column({ type: 'varchar', nullable: true }) tenantId!: string | null;
 
   /** How machines are associated with this pool. */
   @Column({ default: 'explicit' }) selectionMode!: 'tag' | 'explicit';
@@ -43,7 +43,7 @@ export class AssetPoolEntity {
   @Column({ default: 'active' }) status!: 'active' | 'archived';
 
   /** Object id (oid) of the principal that created the pool. */
-  @Column({ nullable: true }) createdBy!: string | null;
+  @Column({ type: 'varchar', nullable: true }) createdBy!: string | null;
 
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;

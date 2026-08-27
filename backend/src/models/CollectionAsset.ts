@@ -19,7 +19,7 @@ export class CollectionAssetEntity {
   @Column() machineId!: string;
 
   /** Object id (oid) of the principal that added the asset. */
-  @Column({ nullable: true }) addedBy!: string | null;
+  @Column({ type: 'varchar', nullable: true }) addedBy!: string | null;
 
   @CreateDateColumn() addedAt!: Date;
 }

@@ -25,12 +25,12 @@ export class RoleBindingEntity {
   @Column() subjectOid!: string;
 
   /** Null = global; otherwise the Collection this grant is scoped to. */
-  @Column({ nullable: true }) collectionId!: string | null;
+  @Column({ type: 'varchar', nullable: true }) collectionId!: string | null;
 
   @Column({ type: 'enum', enum: ROLES }) role!: Role;
 
   /** Object id (oid) of the principal that granted the role. */
-  @Column({ nullable: true }) grantedBy!: string | null;
+  @Column({ type: 'varchar', nullable: true }) grantedBy!: string | null;
 
   @CreateDateColumn() grantedAt!: Date;
 
