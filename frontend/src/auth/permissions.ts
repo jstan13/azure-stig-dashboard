@@ -25,6 +25,7 @@ export const PERMISSIONS = [
   'notifications:manage',
   'scan:schedule',
   'updates:manage',
+  'power:schedule',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];

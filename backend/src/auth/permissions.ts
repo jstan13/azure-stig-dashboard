@@ -55,6 +55,7 @@ export const PERMISSIONS = [
   'notifications:manage',
   'scan:schedule',
   'updates:manage',
+  'power:schedule',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -70,6 +71,7 @@ export const GLOBAL_PERMISSIONS: ReadonlySet<Permission> = new Set<Permission>([
   'notifications:manage',
   'scan:schedule',
   'updates:manage',
+  'power:schedule',
   'audit:read',
   'stig:import',
 ]);
@@ -97,6 +99,7 @@ const ROLE_GRANTS: Record<Role, Permission[]> = {
     'notifications:manage',
     'scan:schedule',
     'updates:manage',
+    'power:schedule',
   ],
 };
 

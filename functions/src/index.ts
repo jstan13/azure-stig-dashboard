@@ -198,31 +198,226 @@ app.timer('complianceDriftCheck', {
   },
 });
 
-app.timer('businessHoursAutoStart', {
-  schedule: '%BUSINESS_HOURS_START_CRON%',
+// ── Business-hours power schedule ───────────────────────────────────────────
+// Reconciliation, not cron. The window is owned by the backend so an admin can
+// change it from the UI, but the morning start-up is the awkward case: the
+// backend and the database are both stopped, so there is nobody to ask. The
+// poll therefore caches the schedule in the Function's own storage account
+// every time it *can* reach the backend, and falls back to that cache — and
+// then to the install-time app settings — when it cannot.
+//
+// Computing the window here from an IANA zone also fixes the daylight-saving
+// drift the old fixed UTC cron expressions suffered from twice a year.
+
+const PG_API_VERSION = '2023-06-01-preview';
+const SCHEDULE_CONTAINER = 'scheduler-state';
+const SCHEDULE_BLOB = 'power-schedule.json';
+
+interface PowerSchedulePolicy {
+  enabled: boolean;
+  autoShutdown: boolean;
+  timeZone: string;
+  startHour: number;
+  startMinute: number;
+  endHour: number;
+  endMinute: number;
+  days: number[];
+  deferUntil: string | null;
+}
+
+function scheduleFromSettings(): PowerSchedulePolicy {
+  return {
+    enabled: BUSINESS_HOURS_MODE,
+    autoShutdown: BUSINESS_HOURS_AUTO_SHUTDOWN,
+    timeZone: BUSINESS_HOURS_TZ,
+    startHour: BUSINESS_HOURS_START,
+    startMinute: 0,
+    endHour: BUSINESS_HOURS_END,
+    endMinute: 0,
+    days: [1, 2, 3, 4, 5],
+    deferUntil: null,
+  };
+}
+
+async function scheduleBlob() {
+  const conn = process.env.AzureWebJobsStorage;
+  if (!conn) return null;
+  const { BlobServiceClient } = await import('@azure/storage-blob');
+  const container = BlobServiceClient.fromConnectionString(conn)
+    .getContainerClient(SCHEDULE_CONTAINER);
+  await container.createIfNotExists();
+  return container.getBlockBlobClient(SCHEDULE_BLOB);
+}
+
+async function cacheSchedule(policy: PowerSchedulePolicy, ctx: InvocationContext): Promise<void> {
+  try {
+    const blob = await scheduleBlob();
+    if (!blob) return;
+    const body = JSON.stringify(policy);
+    await blob.upload(body, Buffer.byteLength(body), {
+      blobHTTPHeaders: { blobContentType: 'application/json' },
+    });
+  } catch (err: any) {
+    ctx.warn(`[powerSchedule] could not cache schedule: ${err?.message || err}`);
+  }
+}
+
+async function cachedSchedule(ctx: InvocationContext): Promise<PowerSchedulePolicy | null> {
+  try {
+    const blob = await scheduleBlob();
+    if (!blob || !(await blob.exists())) return null;
+    const buf = await blob.downloadToBuffer();
+    return JSON.parse(buf.toString('utf8')) as PowerSchedulePolicy;
+  } catch (err: any) {
+    ctx.warn(`[powerSchedule] could not read cached schedule: ${err?.message || err}`);
+    return null;
+  }
+}
+
+/** Weekday (0=Sun) and minutes-since-midnight as observed in `timeZone`. */
+function zonedParts(timeZone: string, date: Date): { dayOfWeek: number; minutes: number } {
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = new Intl.DateTimeFormat('en-US', {
+      timeZone, weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(date);
+  } catch {
+    parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'UTC', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(date);
+  }
+  const num = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  const weekday = parts.find((p) => p.type === 'weekday')?.value ?? 'Sun';
+  return {
+    dayOfWeek: Math.max(0, ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(weekday)),
+    minutes: num('hour') * 60 + num('minute'),
+  };
+}
+
+/** Mirrors backend/src/services/powerScheduleService.ts — keep the two in step. */
+function withinBusinessWindow(policy: PowerSchedulePolicy, date: Date): boolean {
+  const days = Array.isArray(policy.days)
+    ? policy.days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
+    : [];
+  if (days.length === 0) return false;
+
+  const start = policy.startHour * 60 + (policy.startMinute || 0);
+  const end = policy.endHour * 60 + (policy.endMinute || 0);
+  if (start === end) return false;
+
+  const { dayOfWeek, minutes } = zonedParts(policy.timeZone || 'UTC', date);
+  if (start < end) return days.includes(dayOfWeek) && minutes >= start && minutes < end;
+  if (minutes >= start) return days.includes(dayOfWeek);
+  if (minutes < end) return days.includes((dayOfWeek + 6) % 7);
+  return false;
+}
+
+function desiredPowerState(
+  policy: PowerSchedulePolicy, date = new Date(),
+): 'running' | 'stopped' | null {
+  if (!policy.enabled) return null;
+  if (policy.deferUntil && new Date(policy.deferUntil).getTime() > date.getTime()) return 'running';
+  if (withinBusinessWindow(policy, date)) return 'running';
+  return policy.autoShutdown ? 'stopped' : null;
+}
+
+async function armGetState(resourceId: string, apiVersion: string): Promise<string | null> {
+  if (!resourceId) return null;
+  const headers = await armHeaders();
+  const url = `${ARM_ENDPOINT}${resourceId}?api-version=${apiVersion}`;
+  const res = await axios.get(url, { headers, timeout: 30_000 });
+  const state = (res.data as any)?.properties?.state;
+  return typeof state === 'string' ? state.toLowerCase() : null;
+}
+
+/** `true`/`false` when known, `null` when the resource is not configured. */
+async function isWebAppRunning(resourceId: string): Promise<boolean | null> {
+  const state = await armGetState(resourceId, WEB_API_VERSION);
+  return state === null ? null : state === 'running';
+}
+
+async function isPostgresRunning(resourceId: string): Promise<boolean | null> {
+  const state = await armGetState(resourceId, PG_API_VERSION);
+  return state === null ? null : state === 'ready';
+}
+
+app.timer('powerScheduleReconcile', {
+  schedule: '0 */5 * * * *',
   handler: async (_t: Timer, ctx: InvocationContext) => {
-    if (!BUSINESS_HOURS_MODE || !BUSINESS_HOURS_AUTO_SHUTDOWN) {
-      ctx.log('[businessHoursAutoStart] disabled');
+    let policy: PowerSchedulePolicy | null = null;
+    let backendReachable = false;
+
+    try {
+      const fresh = await getJson<PowerSchedulePolicy>('/api/power-schedule', ctx);
+      if (fresh) {
+        policy = fresh;
+        backendReachable = true;
+        await cacheSchedule(fresh, ctx);
+      }
+    } catch (err: any) {
+      // Entirely expected while the backend is stopped overnight.
+      ctx.log(`[powerSchedule] backend unreachable, using cache: ${err?.message || err}`);
+    }
+
+    if (!policy) policy = await cachedSchedule(ctx);
+    if (!policy) policy = scheduleFromSettings();
+
+    const desired = desiredPowerState(policy);
+    if (!desired) {
+      ctx.log('[powerSchedule] schedule inactive; leaving resources untouched');
       return;
     }
 
-    await callArmAction(POSTGRES_SERVER_RESOURCE_ID, 'start', '2023-06-01-preview', ctx);
-    await callArmAction(BACKEND_APP_RESOURCE_ID, 'start', '2023-01-01', ctx);
-    await callArmAction(FRONTEND_APP_RESOURCE_ID, 'start', '2023-01-01', ctx);
-  },
-});
+    const [backendRunning, frontendRunning, pgRunning] = await Promise.all([
+      isWebAppRunning(BACKEND_APP_RESOURCE_ID),
+      isWebAppRunning(FRONTEND_APP_RESOURCE_ID),
+      isPostgresRunning(POSTGRES_SERVER_RESOURCE_ID),
+    ]);
 
-app.timer('businessHoursAutoShutdown', {
-  schedule: '%BUSINESS_HOURS_STOP_CRON%',
-  handler: async (_t: Timer, ctx: InvocationContext) => {
-    if (!BUSINESS_HOURS_MODE || !BUSINESS_HOURS_AUTO_SHUTDOWN) {
-      ctx.log('[businessHoursAutoShutdown] disabled');
+    if (desired === 'running') {
+      if (backendRunning !== false && frontendRunning !== false && pgRunning !== false) {
+        ctx.log('[powerSchedule] within hours and already running');
+        return;
+      }
+      // The database must be accepting connections before the API boots.
+      if (pgRunning === false) {
+        await callArmAction(POSTGRES_SERVER_RESOURCE_ID, 'start', PG_API_VERSION, ctx);
+      }
+      if (backendRunning === false) {
+        await callArmAction(BACKEND_APP_RESOURCE_ID, 'start', WEB_API_VERSION, ctx);
+      }
+      if (frontendRunning === false) {
+        await callArmAction(FRONTEND_APP_RESOURCE_ID, 'start', WEB_API_VERSION, ctx);
+      }
+      ctx.log('[powerSchedule] started resources for business hours');
       return;
     }
 
-    await callArmAction(BACKEND_APP_RESOURCE_ID, 'stop', '2023-01-01', ctx);
-    await callArmAction(FRONTEND_APP_RESOURCE_ID, 'stop', '2023-01-01', ctx);
-    await callArmAction(POSTGRES_SERVER_RESOURCE_ID, 'stop', '2023-06-01-preview', ctx);
+    if (backendRunning !== true && frontendRunning !== true && pgRunning !== true) {
+      ctx.log('[powerSchedule] outside hours and already stopped');
+      return;
+    }
+
+    // Record the shutdown first — once the backend stops there is nobody left
+    // to tell, and this also clears a deferral that has now been honoured.
+    if (backendReachable) {
+      try {
+        await postJson('/api/power-schedule/state', { action: 'stopped' }, ctx);
+      } catch (err: any) {
+        ctx.warn(`[powerSchedule] could not record shutdown: ${err?.message || err}`);
+      }
+    }
+
+    if (frontendRunning === true) {
+      await callArmAction(FRONTEND_APP_RESOURCE_ID, 'stop', WEB_API_VERSION, ctx);
+    }
+    if (backendRunning === true) {
+      await callArmAction(BACKEND_APP_RESOURCE_ID, 'stop', WEB_API_VERSION, ctx);
+    }
+    if (pgRunning === true) {
+      await callArmAction(POSTGRES_SERVER_RESOURCE_ID, 'stop', PG_API_VERSION, ctx);
+    }
+    ctx.log('[powerSchedule] stopped resources outside business hours');
   },
 });
 

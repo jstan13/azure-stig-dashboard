@@ -29,6 +29,7 @@ import { AssetPoolMemberEntity } from '../models/AssetPoolMember';
 import { ManualAnswerEntity } from '../models/ManualAnswer';
 import { UpdatePolicyEntity } from '../models/UpdatePolicy';
 import { ScanPolicyEntity } from '../models/ScanPolicy';
+import { PowerScheduleEntity } from '../models/PowerSchedule';
 
 const isMockMode = process.env.MOCK_MODE === 'true';
 
@@ -77,6 +78,7 @@ export const AppDataSource = new DataSource({
     ManualAnswerEntity,
     UpdatePolicyEntity,
     ScanPolicyEntity,
+    PowerScheduleEntity,
   ],
   migrations: ['dist/database/migrations/*.js'],
   migrationsTableName: 'migrations',

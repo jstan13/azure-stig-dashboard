@@ -22,8 +22,7 @@ import VulnerabilitiesPage from './pages/VulnerabilitiesPage';
 import BulkRemediationPage from './pages/BulkRemediationPage';
 import EmassPage from './pages/EmassPage';
 import AdminPage from './pages/AdminPage';
-import UpdatesPage from './pages/UpdatesPage';
-import ScanSchedulePage from './pages/ScanSchedulePage';
+import SettingsPage from './pages/SettingsPage';
 
 // Initialize Fluent UI icons
 initializeIcons();
@@ -51,8 +50,11 @@ function SignedInApp() {
           <Route path="/vulnerabilities" element={<VulnerabilitiesPage />} />
           <Route path="/remediation" element={<BulkRemediationPage />} />
           <Route path="/emass" element={<EmassPage />} />
-          <Route path="/updates" element={<UpdatesPage />} />
-          <Route path="/scan-schedule" element={<ScanSchedulePage />} />
+          {/* Both now live under Settings; the old paths stay as deep links. */}
+          <Route path="/updates" element={<Navigate to="/settings/updates" replace />} />
+          <Route path="/scan-schedule" element={<Navigate to="/settings/scans" replace />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/settings/:tab" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </AppShell>

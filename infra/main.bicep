@@ -315,6 +315,13 @@ var backendAppSettings = concat([
   { name: 'AUTO_UPDATE_DAY',                value: autoUpdateDay < 0 ? '' : string(autoUpdateDay)  }
   { name: 'AUTO_UPDATE_HOUR',               value: string(autoUpdateHour)                          }
   { name: 'AUTO_UPDATE_TIME_ZONE',          value: autoUpdateTimeZone                              }
+  // Seed values only: once the power_schedule row exists, the Settings page
+  // owns the window and the scheduler Function reads it from the backend.
+  { name: 'BUSINESS_HOURS_MODE',            value: businessHoursMode ? 'true' : 'false'            }
+  { name: 'BUSINESS_HOURS_AUTO_SHUTDOWN',   value: autoShutdownOutsideBusinessHours ? 'true' : 'false' }
+  { name: 'BUSINESS_HOURS_TIME_ZONE',       value: businessHoursTimeZone                           }
+  { name: 'BUSINESS_HOURS_START_HOUR',      value: string(businessHoursStartHour)                  }
+  { name: 'BUSINESS_HOURS_END_HOUR',        value: string(businessHoursEndHour)                    }
   { name: 'RELEASE_TAG',                    value: releaseTag                                      }
   { name: 'AZURE_CLOUD',                    value: cloudEnvironment                                }
   { name: 'AZURE_AUTHORITY_HOST',           value: authorityHost                                   }
@@ -561,6 +568,9 @@ resource funcApp 'Microsoft.Web/sites@2023-01-01' = if (effectiveEnableScheduler
         { name: 'BUSINESS_HOURS_START_HOUR',           value: string(businessHoursStartHour) }
         { name: 'BUSINESS_HOURS_END_HOUR',             value: string(businessHoursEndHour) }
         { name: 'BUSINESS_HOURS_AUTO_SHUTDOWN',        value: autoShutdownOutsideBusinessHours ? 'true' : 'false' }
+        // Legacy: the scheduler now reconciles on a 5-minute poll against the
+        // backend's power_schedule policy, which follows DST correctly. These
+        // are retained only so existing parameter files keep validating.
         { name: 'BUSINESS_HOURS_START_CRON',           value: businessHoursStartCron }
         { name: 'BUSINESS_HOURS_STOP_CRON',            value: businessHoursStopCron }
         { name: 'AZURE_ARM_ENDPOINT',                  value: armHost }

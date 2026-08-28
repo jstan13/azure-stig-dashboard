@@ -43,6 +43,7 @@ import meRouter from './routes/me';
 import collectionsRouter from './routes/collections';
 import poolsRouter from './routes/pools';
 import updatesRouter from './routes/updates';
+import powerScheduleRouter from './routes/powerSchedule';
 
 import { startStigUpdateScheduler } from './stigs/stigUpdateScheduler';
 import { startScanScheduler } from './scanning/scanScheduler';
@@ -216,6 +217,7 @@ app.use('/api/me', meRouter);
 app.use('/api/collections', collectionsRouter);
 app.use('/api/pools', poolsRouter);
 app.use('/api/updates', updatesRouter);
+app.use('/api/power-schedule', powerScheduleRouter);
 
 // ─── Error handling ──────────────────────────────────────────────────────────
 app.use(errorHandler);
