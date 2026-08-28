@@ -82,6 +82,12 @@ export const AppDataSource = new DataSource({
   ],
   migrations: ['dist/database/migrations/*.js'],
   migrationsTableName: 'migrations',
+  // Emit gen_random_uuid() rather than uuid_generate_v4() for generated uuid
+  // primary keys. gen_random_uuid() is built into PostgreSQL 13+, whereas
+  // uuid_generate_v4() needs the uuid-ossp extension, which Azure Database for
+  // PostgreSQL refuses to install unless it has been allow-listed on the
+  // server. The hand-written migrations already use gen_random_uuid().
+  uuidExtension: 'pgcrypto',
   ssl: buildDbSsl(),
 });
 
@@ -136,6 +142,49 @@ export const mockStore: {
   vulnerabilities: [],
 };
 
+/**
+ * True when the database has no schema to migrate: the base `controls` table is
+ * absent and no migration has ever been recorded as applied.
+ *
+ * Both conditions matter. `controls` is the oldest table the migration chain
+ * assumes, so its absence means the chain cannot run. Requiring an empty
+ * `migrations` table as well keeps every deployment that has ever migrated
+ * successfully on the ordinary path, even if a table were dropped by hand.
+ */
+async function needsSchemaBootstrap(): Promise<boolean> {
+  const [present]: Array<{ controls: boolean; migrations: boolean }> =
+    await AppDataSource.query(
+      `SELECT to_regclass('controls')   IS NOT NULL AS controls,
+              to_regclass('migrations') IS NOT NULL AS migrations`,
+    );
+  if (present?.controls) return false;
+  if (!present?.migrations) return true;
+  const [{ count }]: Array<{ count: number }> =
+    await AppDataSource.query('SELECT count(*)::int AS count FROM migrations');
+  return Number(count) === 0;
+}
+
+/**
+ * Create the schema on a brand-new database.
+ *
+ * The migration chain only ever layered changes on top of base tables
+ * (controls, machines, findings, …) that `synchronize` created during early
+ * development — no migration creates them. Replaying the chain against an
+ * empty database therefore dies on the first `ALTER TABLE "controls"`.
+ *
+ * So for an empty database we build the schema from entity metadata, which is
+ * the chain's end state, and then record every migration as applied. The
+ * data-carrying migrations are safe to skip: SeedRoleBindings backfills legacy
+ * `users.roles` rows that cannot exist yet, and the singleton policy rows are
+ * created on demand by their services.
+ */
+async function bootstrapSchema(): Promise<void> {
+  console.log('[db] no existing schema detected — creating it from entity metadata');
+  await AppDataSource.synchronize();
+  await AppDataSource.runMigrations({ transaction: 'each', fake: true });
+  console.log(`[db] schema created; recorded ${AppDataSource.migrations.length} migration(s) as applied`);
+}
+
 export async function initializeDatabase(): Promise<void> {
   if (isMockMode) {
     await seedMockData();
@@ -146,6 +195,10 @@ export async function initializeDatabase(): Promise<void> {
   // manual `npm run migration:run` step. Safe to call repeatedly — TypeORM
   // tracks applied migrations in the `migrations` table.
   if (process.env.SKIP_AUTO_MIGRATIONS !== 'true') {
+    if (await needsSchemaBootstrap()) {
+      await bootstrapSchema();
+      return;
+    }
     const pending = await AppDataSource.runMigrations({ transaction: 'each' });
     if (pending.length) {
       // eslint-disable-next-line no-console
