@@ -66,6 +66,26 @@ describe('JwtValidator', () => {
     });
   });
 
+  // Entra stamps the App ID URI on v1 access tokens and the bare client id on
+  // v2 ones, depending on the app registration's requestedAccessTokenVersion.
+  // The middleware passes both, so either must validate.
+  it.each([
+    ['v1 App ID URI', 'api://client-0001'],
+    ['v2 bare client id', 'client-0001'],
+  ])('accepts the %s audience form', async (_label, audience) => {
+    const fetcher = getTestJwksFetcher();
+    const v = new JwtValidator({
+      ...baseConfig(),
+      audience: ['api://client-0001', 'client-0001'],
+      jwksFetcher: fetcher.fetch,
+    });
+    const token = await signTestJwt({ audience });
+
+    await expect(v.validate(token)).resolves.toMatchObject({
+      objectId: 'test-oid-0001',
+    });
+  });
+
   it('rejects a token with the wrong issuer with reason "iss"', async () => {
     const fetcher = getTestJwksFetcher();
     const v = new JwtValidator({ ...baseConfig(), jwksFetcher: fetcher.fetch });

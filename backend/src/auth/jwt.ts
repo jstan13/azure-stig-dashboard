@@ -84,8 +84,13 @@ export interface AuthenticatedPrincipal {
 export type JwksFetcher = () => Promise<{ keys: JWK[] }>;
 
 export interface JwtValidatorConfig {
-  /** Expected `aud` claim, e.g. `api://<client-id>`. */
-  audience: string;
+  /**
+   * Accepted `aud` claim(s). Entra issues a different audience depending on the
+   * app registration's `requestedAccessTokenVersion`: v1 tokens carry the App
+   * ID URI (`api://<client-id>`) while v2 tokens carry the bare client id. Pass
+   * both forms so the deployment works either way.
+   */
+  audience: string | string[];
   /** Allowlist of acceptable `iss` values (Entra issues v1 + v2). */
   issuers: string[];
   /** JWKS cache TTL in milliseconds. Defaults to 1 hour. */

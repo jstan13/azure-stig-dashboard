@@ -41,7 +41,11 @@ let validator: JwtValidator | undefined;
 function getValidator(): JwtValidator {
   if (!validator) {
     validator = new JwtValidator({
-      audience: `api://${CLIENT_ID}`,
+      // Entra picks the audience from the app registration's
+      // `requestedAccessTokenVersion`: v1 tokens are stamped with the App ID
+      // URI, v2 tokens with the bare client id. Accept both so authentication
+      // does not silently break when that setting changes.
+      audience: [`api://${CLIENT_ID}`, CLIENT_ID],
       issuers: [
         `${AUTHORITY_HOST}/${TENANT_ID}/v2.0`,
         `https://${STS_HOST}/${TENANT_ID}/`,
