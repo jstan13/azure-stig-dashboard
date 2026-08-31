@@ -58,6 +58,15 @@ describe('permission catalog', () => {
     );
   });
 
+  it('lets the scheduler report without letting it set the policy', () => {
+    // The scheduler Function runs as an operator, so it must be able to check
+    // in and record a shutdown without being made an administrator.
+    expect(ROLE_PERMISSIONS.operator.has('power:report')).toBe(true);
+    expect(ROLE_PERMISSIONS.operator.has('power:schedule')).toBe(false);
+    expect(ROLE_PERMISSIONS.admin.has('power:schedule')).toBe(true);
+    expect(ROLE_PERMISSIONS.admin.has('power:report')).toBe(true);
+  });
+
   it('marks tenant-wide permissions as global', () => {
     for (const p of GLOBAL_PERMISSIONS) {
       expect(isGlobalPermission(p)).toBe(true);

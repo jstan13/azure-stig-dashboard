@@ -231,6 +231,33 @@ export function computeDeferUntil(
 
 // ── API shape ────────────────────────────────────────────────────────────────
 
+/**
+ * How long the scheduler may go without checking in before the UI says so.
+ * It polls every five minutes, so this tolerates two missed ticks.
+ */
+export const SCHEDULER_STALE_MINUTES = 15;
+
+/**
+ * `true` when the scheduler has not been heard from recently enough to trust
+ * that the schedule below is actually being enforced.
+ *
+ * `uptimeSeconds` guards the morning: the backend is started *by* the
+ * scheduler, so for the first few minutes of a new process the last check-in
+ * is always from the previous evening. That is not a fault, so do not report
+ * one until we have been alive long enough to have been polled.
+ */
+export function isSchedulerStale(
+  policy: PowerScheduleEntity,
+  now = new Date(),
+  uptimeSeconds = process.uptime(),
+): boolean {
+  if (!policy.enabled) return false;
+  const window = SCHEDULER_STALE_MINUTES * 60_000;
+  if (uptimeSeconds * 1000 < window) return false;
+  if (!policy.lastPolledAt) return true;
+  return now.getTime() - new Date(policy.lastPolledAt).getTime() > window;
+}
+
 export function powerScheduleResponse(policy: PowerScheduleEntity, now = new Date()) {
   const deferActive = isDeferralActive(policy, now);
   return {
@@ -252,6 +279,9 @@ export function powerScheduleResponse(policy: PowerScheduleEntity, now = new Dat
     nextStopAt: nextStopAt(policy, now)?.toISOString() ?? null,
     lastAction: policy.lastAction,
     lastActionAt: policy.lastActionAt,
+    lastPolledAt: policy.lastPolledAt ? new Date(policy.lastPolledAt).toISOString() : null,
+    schedulerStale: isSchedulerStale(policy, now),
+    schedulerStaleMinutes: SCHEDULER_STALE_MINUTES,
   };
 }
 

@@ -206,6 +206,11 @@ app.timer('complianceDriftCheck', {
 // every time it *can* reach the backend, and falls back to that cache — and
 // then to the install-time app settings — when it cannot.
 //
+// Those fallbacks may only ever *start* resources. A shutdown needs a live
+// answer from the backend, because stale data cannot know about a deferral
+// someone set a minute ago and the UI must never promise time the scheduler
+// then takes away. See the guard on the stop path below.
+//
 // Computing the window here from an IANA zone also fixes the daylight-saving
 // drift the old fixed UTC cron expressions suffered from twice a year.
 
@@ -223,7 +228,12 @@ interface PowerSchedulePolicy {
   endMinute: number;
   days: number[];
   deferUntil: string | null;
+  /** Written by this Function when it caches; absent on a live response. */
+  cachedAt?: string;
 }
+
+/** Where the policy in hand came from, which decides how far we trust it. */
+type PolicySource = 'live' | 'cache' | 'settings';
 
 function scheduleFromSettings(): PowerSchedulePolicy {
   return {
@@ -253,7 +263,7 @@ async function cacheSchedule(policy: PowerSchedulePolicy, ctx: InvocationContext
   try {
     const blob = await scheduleBlob();
     if (!blob) return;
-    const body = JSON.stringify(policy);
+    const body = JSON.stringify({ ...policy, cachedAt: new Date().toISOString() });
     await blob.upload(body, Buffer.byteLength(body), {
       blobHTTPHeaders: { blobContentType: 'application/json' },
     });
@@ -346,6 +356,7 @@ app.timer('powerScheduleReconcile', {
   handler: async (_t: Timer, ctx: InvocationContext) => {
     let policy: PowerSchedulePolicy | null = null;
     let backendReachable = false;
+    let source: PolicySource = 'live';
 
     try {
       const fresh = await getJson<PowerSchedulePolicy>('/api/power-schedule', ctx);
@@ -353,14 +364,33 @@ app.timer('powerScheduleReconcile', {
         policy = fresh;
         backendReachable = true;
         await cacheSchedule(fresh, ctx);
+        // Let the UI prove the schedule is being enforced, not just stored.
+        try {
+          await postJson('/api/power-schedule/heartbeat', {}, ctx);
+        } catch (err: any) {
+          ctx.warn(`[powerSchedule] could not record heartbeat: ${err?.message || err}`);
+        }
       }
     } catch (err: any) {
       // Entirely expected while the backend is stopped overnight.
       ctx.log(`[powerSchedule] backend unreachable, using cache: ${err?.message || err}`);
     }
 
-    if (!policy) policy = await cachedSchedule(ctx);
-    if (!policy) policy = scheduleFromSettings();
+    if (!policy) {
+      policy = await cachedSchedule(ctx);
+      if (policy) {
+        source = 'cache';
+        const age = policy.cachedAt
+          ? `${Math.round((Date.now() - new Date(policy.cachedAt).getTime()) / 60_000)}m old`
+          : 'age unknown';
+        ctx.log(`[powerSchedule] using cached policy (${age})`);
+      }
+    }
+    if (!policy) {
+      policy = scheduleFromSettings();
+      source = 'settings';
+      ctx.log('[powerSchedule] using install-time app settings');
+    }
 
     const desired = desiredPowerState(policy);
     if (!desired) {
@@ -398,14 +428,29 @@ app.timer('powerScheduleReconcile', {
       return;
     }
 
+    // Only a live answer from the backend may authorise a shutdown. The cache
+    // is up to five minutes old and the app settings know nothing about
+    // deferrals at all, so acting on either here would pull the plug on
+    // someone who was just told in the UI that they had until later tonight.
+    // The fallbacks exist for the *start* path, where the backend is stopped
+    // by design; at stop time the backend is by definition still running, so
+    // silence means something is wrong. Leaving resources up is recoverable
+    // and merely costs a little — shutting them down is not, because nobody
+    // can get back in to re-defer until the next scheduled start.
+    if (!backendReachable) {
+      ctx.warn(
+        `[powerSchedule] shutdown due, but the backend did not answer and the ${source} policy `
+        + 'cannot reflect a deferral set since — leaving resources running',
+      );
+      return;
+    }
+
     // Record the shutdown first — once the backend stops there is nobody left
     // to tell, and this also clears a deferral that has now been honoured.
-    if (backendReachable) {
-      try {
-        await postJson('/api/power-schedule/state', { action: 'stopped' }, ctx);
-      } catch (err: any) {
-        ctx.warn(`[powerSchedule] could not record shutdown: ${err?.message || err}`);
-      }
+    try {
+      await postJson('/api/power-schedule/state', { action: 'stopped' }, ctx);
+    } catch (err: any) {
+      ctx.warn(`[powerSchedule] could not record shutdown: ${err?.message || err}`);
     }
 
     if (frontendRunning === true) {

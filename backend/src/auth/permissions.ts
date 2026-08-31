@@ -56,6 +56,9 @@ export const PERMISSIONS = [
   'scan:schedule',
   'updates:manage',
   'power:schedule',
+  // Reporting what the scheduler *did*, as opposed to deciding the policy.
+  // Held by the scheduler Function's own identity, which is an operator.
+  'power:report',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -72,6 +75,7 @@ export const GLOBAL_PERMISSIONS: ReadonlySet<Permission> = new Set<Permission>([
   'scan:schedule',
   'updates:manage',
   'power:schedule',
+  'power:report',
   'audit:read',
   'stig:import',
 ]);
@@ -85,6 +89,11 @@ const ROLE_GRANTS: Record<Role, Permission[]> = {
     'remediation:execute',
     'stig:import',
     'emass:push',
+    // The scheduler Function runs as an operator and must be able to report
+    // its check-ins and shutdowns. Deliberately separate from
+    // 'power:schedule': reporting what happened is not the same authority as
+    // deciding when the estate powers down, which stays with admins.
+    'power:report',
   ],
   isso: ['poam:write', 'exception:write'],
   issm: [

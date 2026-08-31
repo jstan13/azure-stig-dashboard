@@ -2,6 +2,7 @@ import { PowerScheduleEntity } from '../models/PowerSchedule';
 import {
   desiredState, isWithinBusinessHours, nextStopAt, nextStartAt,
   computeDeferUntil, normalizeDays, powerScheduleResponse, isValidTimeZone,
+  isSchedulerStale, SCHEDULER_STALE_MINUTES,
 } from '../services/powerScheduleService';
 
 function policy(overrides: Partial<PowerScheduleEntity> = {}): PowerScheduleEntity {
@@ -19,6 +20,7 @@ function policy(overrides: Partial<PowerScheduleEntity> = {}): PowerScheduleEnti
     deferredBy: null,
     lastAction: null,
     lastActionAt: null,
+    lastPolledAt: null,
   }, overrides) as PowerScheduleEntity;
 }
 
@@ -123,5 +125,42 @@ describe('powerScheduleService', () => {
     expect(normalizeDays('nope')).toEqual([]);
     expect(isValidTimeZone('America/Denver')).toBe(true);
     expect(isValidTimeZone('Mars/Olympus')).toBe(false);
+  });
+
+  describe('scheduler heartbeat', () => {
+    const longUptime = SCHEDULER_STALE_MINUTES * 60 * 10;
+
+    it('is happy while the scheduler keeps checking in', () => {
+      const p = policy({ lastPolledAt: new Date('2026-07-15T14:58:00Z') });
+      expect(isSchedulerStale(p, summerNine, longUptime)).toBe(false);
+    });
+
+    it('reports a scheduler that has gone quiet', () => {
+      const p = policy({ lastPolledAt: new Date('2026-07-15T14:00:00Z') });
+      expect(isSchedulerStale(p, summerNine, longUptime)).toBe(true);
+    });
+
+    it('treats a scheduler that has never checked in as stale', () => {
+      expect(isSchedulerStale(policy(), summerNine, longUptime)).toBe(true);
+    });
+
+    it('stays quiet on a freshly started backend, which the scheduler just booted', () => {
+      // Last night's shutdown is the most recent check-in, and the first poll
+      // of the morning is still up to five minutes away.
+      const p = policy({ lastPolledAt: new Date('2026-07-15T00:00:00Z') });
+      expect(isSchedulerStale(p, summerNine, 30)).toBe(false);
+    });
+
+    it('says nothing when the schedule is switched off', () => {
+      expect(isSchedulerStale(policy({ enabled: false }), summerNine, longUptime)).toBe(false);
+    });
+
+    it('surfaces the warning through the API response', () => {
+      const p = policy({ lastPolledAt: new Date('2026-07-15T14:58:00Z') });
+      const body = powerScheduleResponse(p, summerNine);
+      expect(body.lastPolledAt).toBe('2026-07-15T14:58:00.000Z');
+      expect(body.schedulerStaleMinutes).toBe(SCHEDULER_STALE_MINUTES);
+      expect(body.schedulerStale).toBe(false);
+    });
   });
 });

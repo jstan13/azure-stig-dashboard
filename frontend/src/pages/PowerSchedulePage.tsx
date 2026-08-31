@@ -36,6 +36,9 @@ interface PowerSchedule {
   nextStopAt: string | null;
   lastAction: 'started' | 'stopped' | null;
   lastActionAt: string | null;
+  lastPolledAt: string | null;
+  schedulerStale: boolean;
+  schedulerStaleMinutes: number;
 }
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -204,6 +207,16 @@ export default function PowerSchedulePage() {
             + `Next start ${when(saved.nextStartAt)} · next shutdown ${when(saved.nextStopAt)}.`
           : 'The schedule is off — resources stay on until you turn it on.'}
       </MessageBar>
+
+      {saved.schedulerStale && (
+        <MessageBar messageBarType={MessageBarType.severeWarning}>
+          The scheduler has not checked in
+          {saved.lastPolledAt ? ` since ${when(saved.lastPolledAt)}` : ' yet'} — it normally does
+          so every few minutes. The times above may not be enforced: nothing may start or stop
+          the resources, and a delay you set here may not be honoured. Check the scheduler
+          Function before relying on this schedule.
+        </MessageBar>
+      )}
 
       {saved.deferActive && (
         <MessageBar

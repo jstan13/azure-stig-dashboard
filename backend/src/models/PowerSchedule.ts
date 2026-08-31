@@ -47,6 +47,14 @@ export class PowerScheduleEntity {
 
   @Column({ type: 'timestamptz', nullable: true }) lastActionAt!: Date | null;
 
+  /**
+   * Last time the scheduler Function checked in. Without this the UI would
+   * happily show "next shutdown 6:00 PM" even when nothing is enforcing the
+   * schedule at all, which is exactly how a broken scheduler went unnoticed
+   * before. Null until the first poll after install.
+   */
+  @Column({ type: 'timestamptz', nullable: true }) lastPolledAt!: Date | null;
+
   @CreateDateColumn() createdAt!: Date;
   @UpdateDateColumn() updatedAt!: Date;
 }

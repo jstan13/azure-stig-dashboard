@@ -3,7 +3,12 @@
  * PUT    /api/power-schedule         — change the window (admin)
  * POST   /api/power-schedule/extend  — "working late": push tonight's shutdown back
  * DELETE /api/power-schedule/extend  — cancel an active deferral
+ * POST   /api/power-schedule/heartbeat — scheduler check-in ('power:report')
  * POST   /api/power-schedule/state   — scheduler reports the action it is taking
+ *
+ * Changing the policy needs 'power:schedule' (admin). The two endpoints the
+ * scheduler Function calls need only 'power:report', which the operator role
+ * carries, so the Function does not have to run as an administrator.
  *
  * The scheduler Function reads GET on a short poll and reconciles Azure to the
  * `desiredState` it returns, so this router is the single source of truth for
@@ -140,9 +145,22 @@ router.delete('/extend', requirePermission('power:schedule'), async (req: Reques
   }
 });
 
+// The scheduler calls this on every successful poll so the UI can tell the
+// difference between "the schedule says 6pm" and "the schedule says 6pm and
+// something is actually out there enforcing it".
+router.post('/heartbeat', requirePermission('power:report'), async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const policy = await getPowerSchedule();
+    policy.lastPolledAt = new Date();
+    return res.json(powerScheduleResponse(await savePowerSchedule(policy)));
+  } catch (err) {
+    return next(err);
+  }
+});
+
 // The scheduler calls this immediately *before* it acts, because a shutdown
 // takes the backend offline and it could not report afterwards.
-router.post('/state', requirePermission('power:schedule'), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/state', requirePermission('power:report'), async (req: Request, res: Response, next: NextFunction) => {
   const parsed = stateSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues[0].message });
