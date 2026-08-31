@@ -208,6 +208,14 @@ export default function PowerSchedulePage() {
           : 'The schedule is off — resources stay on until you turn it on.'}
       </MessageBar>
 
+      {saved.enabled && !saved.schedulerStale && (
+        <Text style={{ color: '#605e5c', fontSize: 12 }}>
+          {saved.lastPolledAt
+            ? `Scheduler last checked in ${when(saved.lastPolledAt)}.`
+            : 'Waiting for the scheduler\u2019s first check-in.'}
+        </Text>
+      )}
+
       {saved.schedulerStale && (
         <MessageBar messageBarType={MessageBarType.severeWarning}>
           The scheduler has not checked in
