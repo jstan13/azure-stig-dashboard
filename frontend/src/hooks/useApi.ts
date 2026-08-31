@@ -6,6 +6,7 @@
  */
 
 import { useMsal } from '@azure/msal-react';
+import type { IPublicClientApplication } from '@azure/msal-browser';
 import axios, { AxiosInstance } from 'axios';
 import { useEffect, useMemo, useRef } from 'react';
 import { apiRequest } from '../auth/msalConfig';
@@ -13,6 +14,25 @@ import { RUNTIME_CONFIG } from '../runtime-config';
 
 const MOCK_MODE = RUNTIME_CONFIG.MOCK_MODE;
 const API_BASE = RUNTIME_CONFIG.API_URL;
+
+/** How long a request will wait for MSAL to finish restoring its cache. */
+const ACCOUNT_WAIT_MS = 5_000;
+
+/**
+ * MSAL populates `useMsal().accounts` only after its redirect promise settles,
+ * which is later than the first paint — and pages fire their loads from mount
+ * effects. Ask the instance directly so a request is never sent during that
+ * window with no token, which the API can only answer with a 401.
+ */
+async function currentAccount(instance: IPublicClientApplication) {
+  const deadline = Date.now() + ACCOUNT_WAIT_MS;
+  for (;;) {
+    const account = instance.getAllAccounts()[0];
+    if (account) return account;
+    if (Date.now() >= deadline) return null;
+    await new Promise((resolve) => { setTimeout(resolve, 100); });
+  }
+}
 
 export function useApi(): AxiosInstance {
   const { instance, accounts } = useMsal();
@@ -30,19 +50,21 @@ export function useApi(): AxiosInstance {
     api.interceptors.request.use(async (config) => {
       if (MOCK_MODE) return config;
 
-      const { instance: msalInstance, accounts: msalAccounts } = msal.current;
-      if (msalAccounts.length === 0) return config;
-
-      try {
-        const tokenResponse = await msalInstance.acquireTokenSilent({
-          ...apiRequest,
-          account: msalAccounts[0],
-        });
-        config.headers['Authorization'] = `Bearer ${tokenResponse.accessToken}`;
-      } catch {
-        // Token refresh failed — redirect to login
-        await msalInstance.acquireTokenRedirect(apiRequest);
+      const msalInstance = msal.current.instance;
+      const account = await currentAccount(msalInstance);
+      if (!account) {
+        throw new axios.CanceledError('Not signed in');
       }
+
+      let tokenResponse;
+      try {
+        tokenResponse = await msalInstance.acquireTokenSilent({ ...apiRequest, account });
+      } catch {
+        await msalInstance.acquireTokenRedirect(apiRequest);
+        // Sending it unauthenticated would surface a 401 over the redirect.
+        throw new axios.CanceledError('Signing in again');
+      }
+      config.headers['Authorization'] = `Bearer ${tokenResponse.accessToken}`;
       return config;
     });
 
