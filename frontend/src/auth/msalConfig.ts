@@ -1,4 +1,6 @@
-import { Configuration, LogLevel, BrowserCacheLocation } from '@azure/msal-browser';
+import {
+  Configuration, LogLevel, BrowserCacheLocation, PublicClientApplication,
+} from '@azure/msal-browser';
 import { RUNTIME_CONFIG } from '../runtime-config';
 
 /**
@@ -55,3 +57,10 @@ export const apiRequest = {
     RUNTIME_CONFIG.API_SCOPE || `api://${CLIENT_ID}/access_as_user`,
   ],
 };
+
+/**
+ * The one MSAL instance. It lives here rather than in main.tsx so that code
+ * outside the React tree — notably the Axios token interceptor — can reach it
+ * without being handed it through a hook.
+ */
+export const msalInstance = new PublicClientApplication(msalConfig);
