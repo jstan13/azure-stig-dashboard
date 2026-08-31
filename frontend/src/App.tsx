@@ -1,9 +1,10 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthenticatedTemplate, UnauthenticatedTemplate } from '@azure/msal-react';
 import { initializeIcons } from '@fluentui/react';
 import { AuthzProvider } from './auth/AuthzProvider';
 import { RUNTIME_CONFIG } from './runtime-config';
 import AppShell from './components/AppShell';
+import ErrorBoundary from './components/ErrorBoundary';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import CloudExplorerPage from './pages/CloudExplorerPage';
@@ -28,9 +29,12 @@ import SettingsPage from './pages/SettingsPage';
 initializeIcons();
 
 function SignedInApp() {
+  const location = useLocation();
   return (
     <AuthzProvider>
       <AppShell>
+        {/* Keyed by path so navigating away from a broken page clears the error. */}
+        <ErrorBoundary key={location.pathname}>
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
@@ -57,6 +61,7 @@ function SignedInApp() {
           <Route path="/settings/:tab" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
+        </ErrorBoundary>
       </AppShell>
     </AuthzProvider>
   );

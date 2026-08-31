@@ -72,7 +72,9 @@ export default function PoamPage() {
       if (statusFilter) params.set('status', statusFilter);
       if (severityFilter) params.set('severity', severityFilter);
       const res = await api.get<any>(`/api/poams?${params}`);
-      setPoams(res.data?.poams ?? res.data);
+      // The list endpoints answer with a { data, total, page, pageSize } envelope.
+      const list = res.data?.data ?? res.data;
+      setPoams(Array.isArray(list) ? list : []);
     } catch (e: any) {
       setError(e.message);
     } finally {

@@ -62,7 +62,9 @@ export default function ComplianceTrendPage() {
   const loadMachines = useCallback(async () => {
     try {
       const res = await api.get<any>('/api/machines');
-      const list = res.data?.machines ?? res.data;
+      // The list endpoints answer with a { data, total, page, pageSize } envelope.
+      const raw = res.data?.data ?? res.data;
+      const list = Array.isArray(raw) ? raw : [];
       setMachines(list.map((m: any) => ({ key: m.id, text: m.name })));
       if (list.length > 0 && !machineId) setMachineId(list[0].id);
     } catch {}
