@@ -168,6 +168,14 @@ export function desiredState(
   return policy.autoShutdown ? 'stopped' : null;
 }
 
+/**
+ * When the schedule next *changes into* `target`.
+ *
+ * This looks for an edge, not a level: if the system is already in the target
+ * state we skip past the current stretch rather than answering "in one
+ * minute", which is what the UI would otherwise show for "next start" all day
+ * long.
+ */
 function nextTransitionTo(
   policy: PowerScheduleEntity,
   target: DesiredState,
@@ -175,9 +183,12 @@ function nextTransitionTo(
 ): Date | null {
   const candidate = new Date(from);
   candidate.setUTCSeconds(0, 0);
+  let previous = desiredState(policy, candidate);
   candidate.setUTCMinutes(candidate.getUTCMinutes() + 1);
   for (let i = 0; i < SEARCH_MINUTES; i += 1) {
-    if (desiredState(policy, candidate) === target) return new Date(candidate);
+    const state = desiredState(policy, candidate);
+    if (state === target && previous !== target) return new Date(candidate);
+    previous = state;
     candidate.setUTCMinutes(candidate.getUTCMinutes() + 1);
   }
   return null;

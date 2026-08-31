@@ -96,6 +96,20 @@ describe('powerScheduleService', () => {
     expect(next?.toISOString()).toBe('2026-07-20T14:00:00.000Z');
   });
 
+  it('looks past the current window instead of answering "in a minute"', () => {
+    // Wednesday 09:00 MDT: already running, so the next *start* is Thursday
+    // 08:00 MDT (14:00Z) - not one minute from now.
+    const next = nextStartAt(policy(), summerNine);
+    expect(next?.toISOString()).toBe('2026-07-16T14:00:00.000Z');
+  });
+
+  it('looks past the current downtime for the next stop', () => {
+    // Wednesday 23:00 MDT: already stopped, so the next *stop* is Thursday
+    // 18:00 MDT (2026-07-17T00:00Z).
+    const next = nextStopAt(policy(), new Date('2026-07-16T05:00:00Z'));
+    expect(next?.toISOString()).toBe('2026-07-17T00:00:00.000Z');
+  });
+
   it('hides an expired deferral from the API response', () => {
     const p = policy({ deferUntil: new Date('2026-07-15T10:00:00Z'), deferredBy: 'a@b.com' });
     const body = powerScheduleResponse(p, summerNine);
