@@ -330,6 +330,8 @@ var backendAppSettings = concat([
   { name: 'AZURE_TENANT_ID',                value: azureTenantId                                  }
   { name: 'AZURE_CLIENT_ID',                value: azureClientId                                  }
   { name: 'AZURE_CLIENT_SECRET',            value: '@Microsoft.KeyVault(SecretUri=${kvSecretClientSecret.properties.secretUri})' }
+  { name: 'AZURE_SUBSCRIPTION_ID',           value: subscription().subscriptionId                   }
+  { name: 'AZURE_SUBSCRIPTION_IDS',          value: subscription().subscriptionId                   }
   { name: 'APPINSIGHTS_INSTRUMENTATIONKEY', value: appInsights.properties.InstrumentationKey      }
   { name: 'FRONTEND_URL',                   value: 'https://${frontendName}.${appHostSuffix}'     }
 ], dbAppSettings, empty(backendImage) ? [

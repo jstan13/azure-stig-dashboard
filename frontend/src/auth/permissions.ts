@@ -27,6 +27,7 @@ export const PERMISSIONS = [
   'updates:manage',
   'power:schedule',
   'power:report',
+  'emass:configure',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];

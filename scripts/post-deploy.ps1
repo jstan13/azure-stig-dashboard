@@ -6,9 +6,10 @@
   Runs after `azd up` (or after the portal "Deploy to Azure" button finishes).
   Reads outputs from the deployment and:
 
-    1. Grants the backend App Service's managed identity the Azure RBAC
-       roles it needs at *subscription* scope so it can read inventory,
-       policy state, and Defender assessments:
+     1. Grants the backend App Service's managed identity and configured client
+       service principal the Azure RBAC roles they need at *subscription* scope
+       so the active credential can read inventory, policy state, and Defender
+       assessments:
            - Reader
            - Security Reader
     2. Grants the Function App's managed identity the `operator` app role on
@@ -45,36 +46,51 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# ── 0. Subscription-scope RBAC for the backend MI ────────────────────────────
+# ── 0. Subscription-scope RBAC for backend Azure credentials ─────────────────
+$backendPrincipals = @()
 if ($BackendPrincipalId) {
+  $backendPrincipals += @{ label = 'managed identity'; id = $BackendPrincipalId }
+}
+
+$backendSp = $null
+if ($BackendClientId) {
+  $backendSp = az ad sp list --filter "appId eq '$BackendClientId'" --query '[0]' -o json | ConvertFrom-Json
+  if ($backendSp) {
+    $backendPrincipals += @{ label = 'client service principal'; id = $backendSp.id }
+  }
+}
+
+if ($backendPrincipals.Count -gt 0) {
   if (-not $SubscriptionId) {
     $SubscriptionId = (az account show --only-show-errors -o json | ConvertFrom-Json).id
   }
-  Write-Host "[post-deploy] Granting backend MI ($BackendPrincipalId) Reader + Security Reader on /subscriptions/$SubscriptionId ..."
 
   $roles = @(
     @{ name = 'Reader';          id = 'acdd72a7-3385-48ef-bd42-f606fba81ae7' }
     @{ name = 'Security Reader'; id = '39bc4728-0917-49c7-9d2c-d95423bc2eb4' }
   )
 
-  foreach ($role in $roles) {
-    $scope = "/subscriptions/$SubscriptionId"
-    $existing = az role assignment list --assignee-object-id $BackendPrincipalId --assignee-principal-type ServicePrincipal --role $role.id --scope $scope --only-show-errors -o json 2>$null | ConvertFrom-Json
-    if ($existing -and $existing.Count -gt 0) {
-      Write-Host "  - $($role.name) already assigned. Skipping."
-    } else {
-      az role assignment create `
-        --assignee-object-id $BackendPrincipalId `
-        --assignee-principal-type ServicePrincipal `
-        --role $role.id `
-        --scope $scope `
-        --only-show-errors | Out-Null
-      Write-Host "  - $($role.name) granted."
+  foreach ($principal in $backendPrincipals) {
+    Write-Host "[post-deploy] Granting backend $($principal.label) ($($principal.id)) Reader + Security Reader on /subscriptions/$SubscriptionId ..."
+    foreach ($role in $roles) {
+      $scope = "/subscriptions/$SubscriptionId"
+      $existing = az role assignment list --assignee-object-id $principal.id --assignee-principal-type ServicePrincipal --role $role.id --scope $scope --only-show-errors -o json 2>$null | ConvertFrom-Json
+      if ($existing -and $existing.Count -gt 0) {
+        Write-Host "  - $($role.name) already assigned. Skipping."
+      } else {
+        az role assignment create `
+          --assignee-object-id $principal.id `
+          --assignee-principal-type ServicePrincipal `
+          --role $role.id `
+          --scope $scope `
+          --only-show-errors | Out-Null
+        Write-Host "  - $($role.name) granted."
+      }
     }
   }
 } else {
-  Write-Host '[post-deploy] BACKEND_PRINCIPAL_ID not set; skipping subscription-scope role grants.'
-  Write-Host '             Pass -BackendPrincipalId or set the env var to assign Reader + Security Reader automatically.'
+  Write-Host '[post-deploy] No backend principal resolved; skipping subscription-scope role grants.'
+  Write-Host '             Pass -BackendPrincipalId and/or -BackendClientId to assign Reader + Security Reader automatically.'
 }
 
 if (-not $BackendClientId) {
@@ -88,8 +104,7 @@ if (-not $FunctionPrincipalId) {
 
 Write-Host "[post-deploy] Granting Function App MI ($FunctionPrincipalId) the 'operator' app role on backend $BackendClientId..."
 
-# Resolve backend app registration's service principal + operator app-role id
-$backendSp = az ad sp list --filter "appId eq '$BackendClientId'" --query '[0]' -o json | ConvertFrom-Json
+# Resolve backend app registration's operator app-role id
 if (-not $backendSp) {
   Write-Error "Backend service principal not found for appId $BackendClientId. Make sure the backend app registration exists and has been admin-consented."
   exit 1

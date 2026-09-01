@@ -6,7 +6,8 @@
  * eMASS without manual file uploads.
  *
  * Auth: eMASS requires mutual TLS (mTLS) with a DoD-issued PKI certificate
- * plus an api-key header. Both are sourced from environment / Key Vault:
+ * plus an api-key header. Values saved from Settings are encrypted in the
+ * database and take precedence over these environment / Key Vault fallbacks:
  *   EMASS_BASE_URL          e.g. https://mitigation.emass.apps.mil/api
  *   EMASS_API_KEY           Issued by eMASS administrator
  *   EMASS_USER_UID          eMASS user UID (rfc4514 distinguished name)
@@ -24,6 +25,7 @@
 import https from 'https';
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import { logger } from '../utils/logger';
+import { EffectiveEmassConfig, getEffectiveEmassConfig } from '../services/emassConfigService';
 
 export class EmassNotConfigured extends Error {
   constructor(missing: string[]) {
@@ -68,33 +70,17 @@ export interface EmassSystem {
   registrationType?: string;
 }
 
-interface EmassConfig {
-  baseUrl:  string;
-  apiKey:   string;
-  userUid:  string;
-  certPem:  string;
-  keyPem:   string;
-  caPem?:   string;
+async function loadConfig(): Promise<EffectiveEmassConfig> {
+  try {
+    return await getEffectiveEmassConfig();
+  } catch (err: any) {
+    const match = String(err?.message || err).match(/Missing settings: (.+)$/);
+    if (match) throw new EmassNotConfigured(match[1].split(', '));
+    throw err;
+  }
 }
 
-function loadConfig(): EmassConfig {
-  const required = ['EMASS_BASE_URL', 'EMASS_API_KEY', 'EMASS_USER_UID', 'EMASS_CERT_PEM', 'EMASS_KEY_PEM'] as const;
-  const missing = required.filter((k) => !process.env[k] || !process.env[k]!.trim());
-  if (missing.length) throw new EmassNotConfigured(missing);
-  return {
-    baseUrl: process.env.EMASS_BASE_URL!.replace(/\/$/, ''),
-    apiKey:  process.env.EMASS_API_KEY!,
-    userUid: process.env.EMASS_USER_UID!,
-    certPem: process.env.EMASS_CERT_PEM!,
-    keyPem:  process.env.EMASS_KEY_PEM!,
-    caPem:   process.env.EMASS_CA_PEM,
-  };
-}
-
-let cachedClient: AxiosInstance | null = null;
-
-function buildClient(cfg: EmassConfig): AxiosInstance {
-  if (cachedClient) return cachedClient;
+function buildClient(cfg: EffectiveEmassConfig): AxiosInstance {
   // Never allow disabling eMASS server-certificate validation in production —
   // this connects to a DoD authoritative system over mTLS.
   if (process.env.EMASS_TLS_INSECURE === 'true' && process.env.NODE_ENV === 'production') {
@@ -108,7 +94,7 @@ function buildClient(cfg: EmassConfig): AxiosInstance {
     rejectUnauthorized: process.env.EMASS_TLS_INSECURE !== 'true',
     minVersion: 'TLSv1.2',
   });
-  cachedClient = axios.create({
+  return axios.create({
     baseURL: cfg.baseUrl,
     httpsAgent,
     timeout: 30_000,
@@ -119,11 +105,10 @@ function buildClient(cfg: EmassConfig): AxiosInstance {
       'Content-Type': 'application/json',
     },
   });
-  return cachedClient;
 }
 
-export function isConfigured(): boolean {
-  try { loadConfig(); return true; } catch { return false; }
+export async function isConfigured(): Promise<boolean> {
+  try { await loadConfig(); return true; } catch { return false; }
 }
 
 export function isMock(): boolean {
@@ -135,7 +120,7 @@ export function isMock(): boolean {
 export async function ping(): Promise<{ ok: boolean; mode: 'mock' | 'live'; serverVersion?: string; error?: string }> {
   if (isMock()) return { ok: true, mode: 'mock', serverVersion: 'mock-3.20' };
   try {
-    const client = buildClient(loadConfig());
+    const client = buildClient(await loadConfig());
     const res = await safeGet(client, '/api');
     return { ok: true, mode: 'live', serverVersion: res?.meta?.epmassApiVersion };
   } catch (e: any) {
@@ -150,7 +135,7 @@ export async function listSystems(): Promise<EmassSystem[]> {
       { systemId: 1002, name: 'Fabrikam US Gov Apps', acronym: 'FBRG', policy: 'RMF', registrationType: 'Assess and Authorize' },
     ];
   }
-  const client = buildClient(loadConfig());
+  const client = buildClient(await loadConfig());
   const res = await safeGet(client, '/api/systems');
   return (res?.data || []).map((s: any) => ({
     systemId: s.systemId,
@@ -174,7 +159,7 @@ export async function pushPoams(systemId: number, poams: EmassPoamPayload[]): Pr
     };
   }
 
-  const client = buildClient(loadConfig());
+  const client = buildClient(await loadConfig());
   const body = poams.map((p) => ({ ...p }));
   const res = await safePost(client, `/api/systems/${systemId}/poams`, body);
   const emassIds = (res?.data || []).map((d: any) => d.poamId).filter((id: any) => typeof id === 'number');
@@ -188,7 +173,7 @@ export async function uploadCklb(systemId: number, cklbBuffer: Buffer, filename:
     return { uploaded: true, cklbId: Math.floor(Math.random() * 100000) };
   }
   // eMASS multipart upload — wrapped in a function so the cert agent stays loaded.
-  const client = buildClient(loadConfig());
+  const client = buildClient(await loadConfig());
   const FormData = (await import('form-data')).default;
   const form = new FormData();
   form.append('file', cklbBuffer, { filename, contentType: 'application/json' });

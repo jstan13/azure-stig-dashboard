@@ -150,6 +150,48 @@ paths:
       responses:
         '200': { description: OK }
 
+  /emass/config:
+    get:
+      summary: Get eMASS configuration status without secret values
+      tags: [eMASS]
+      responses:
+        '200': { description: Configuration status }
+        '403': { description: Administrator permission required }
+    put:
+      summary: Save encrypted eMASS connection configuration
+      tags: [eMASS]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [baseUrl, userUid]
+              properties:
+                baseUrl: { type: string, format: uri }
+                userUid: { type: string }
+                apiKey: { type: string, format: password, description: Blank or omitted retains the stored value }
+                certPem: { type: string, format: password, description: Blank or omitted retains the stored value }
+                keyPem: { type: string, format: password, description: Blank or omitted retains the stored value }
+                caPem: { type: string, format: password, nullable: true }
+      responses:
+        '200': { description: Configuration saved; secret presence flags only }
+        '400': { description: Validation error }
+        '403': { description: Administrator permission required }
+    delete:
+      summary: Clear database-saved eMASS configuration
+      tags: [eMASS]
+      responses:
+        '200': { description: Saved configuration cleared; deployment environment fallback may remain active }
+        '403': { description: Administrator permission required }
+
+  /emass/status:
+    get:
+      summary: Test eMASS configuration and API connectivity
+      tags: [eMASS]
+      responses:
+        '200': { description: Configuration and connection status }
+
   # ─── STIG Library ────────────────────────────────────────────────────────────
   /stigs:
     get:

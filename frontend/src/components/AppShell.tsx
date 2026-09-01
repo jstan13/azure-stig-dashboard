@@ -11,7 +11,7 @@
  * Visual cues borrowed from portal.azure.com: dark navy header,
  * collapsible icon-only rail on the left, breadcrumb-friendly main pane.
  */
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import {
   Stack, IconButton, Persona, PersonaSize, ContextualMenu, SearchBox, Text,
@@ -60,6 +60,10 @@ const NAV: NavGroup[] = [
 const HEADER_HEIGHT = 48;
 const RAIL_OPEN     = 240;
 const RAIL_CLOSED   = 56;
+const MOBILE_BREAKPOINT = 720;
+
+const isCompactViewport = () =>
+  typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT;
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
@@ -67,9 +71,26 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const { instance, accounts } = useMsal();
   const account = accounts[0];
 
-  const [open, setOpen] = useState(true);
+  const [compact, setCompact] = useState(isCompactViewport);
+  const [open, setOpen] = useState(() => !isCompactViewport());
   const [showMenu, setShowMenu] = useState(false);
   const personaRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const media = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
+    const apply = (matches: boolean) => {
+      setCompact(matches);
+      setOpen(!matches);
+    };
+    apply(media.matches);
+    const listener = (event: MediaQueryListEvent) => apply(event.matches);
+    media.addEventListener('change', listener);
+    return () => media.removeEventListener('change', listener);
+  }, []);
+
+  useEffect(() => {
+    if (compact) setOpen(false);
+  }, [compact, location.pathname]);
 
   const isActive = (path: string) =>
     location.pathname === path ||
@@ -99,14 +120,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           to="/dashboard"
           style={{ color: '#fff', textDecoration: 'none', fontWeight: 600, fontSize: 15, marginLeft: 4 }}
         >
-          🛡 Azure STIG Dashboard
+          {compact ? '🛡' : '🛡 Azure STIG Dashboard'}
         </Link>
 
-        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', minWidth: 0 }}>
           <SearchBox
             placeholder="Search machines, findings, controls…"
             styles={{
-              root: { width: 480, maxWidth: '60vw', background: '#106ebe', border: 'none' },
+              root: { width: compact ? 160 : 480, maxWidth: compact ? '100%' : '60vw', background: '#106ebe', border: 'none' },
               field: { color: '#fff' },
               iconContainer: { color: '#fff' },
             }}
@@ -130,7 +151,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               hidePersonaDetails
               styles={{ root: { color: '#fff' } }}
             />
-            <span style={{ fontSize: 13 }}>{account?.name?.split(' ')[0] || 'Account'}</span>
+            {!compact && <span style={{ fontSize: 13 }}>{account?.name?.split(' ')[0] || 'Account'}</span>}
           </button>
           {showMenu && (
             <ContextualMenu
@@ -165,10 +186,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       )}
 
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+        {compact && open && (
+          <button
+            aria-label="Close navigation"
+            onClick={() => setOpen(false)}
+            style={{ position: 'fixed', inset: `${HEADER_HEIGHT}px 0 0`, border: 0, background: 'rgba(0,0,0,.35)', zIndex: 18 }}
+          />
+        )}
         {/* ─── Left side rail (Azure portal style) ─────────────────────── */}
         <nav
           style={{
-            width: open ? RAIL_OPEN : RAIL_CLOSED,
+            width: compact ? (open ? RAIL_OPEN : 0) : (open ? RAIL_OPEN : RAIL_CLOSED),
             transition: 'width 150ms ease',
             background: '#1b1b1b',
             color: '#e6e6e6',
@@ -176,6 +204,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             overflowY: 'auto',
             overflowX: 'hidden',
             flexShrink: 0,
+            ...(compact ? { position: 'fixed' as const, top: HEADER_HEIGHT, bottom: 0, left: 0, zIndex: 20 } : {}),
           }}
         >
           {NAV.map((group) => (
@@ -195,7 +224,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 return (
                   <button
                     key={it.key}
-                    onClick={() => navigate(it.path)}
+                    onClick={() => { navigate(it.path); if (compact) setOpen(false); }}
                     title={open ? '' : it.label}
                     style={{
                       width: '100%', textAlign: 'left',
@@ -221,7 +250,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
 
         {/* ─── Main content pane ──────────────────────────────────────── */}
-        <main style={{ flex: 1, padding: 24, overflow: 'auto', minWidth: 0 }}>
+        <main style={{ flex: 1, padding: compact ? 16 : 24, overflow: 'auto', minWidth: 0 }}>
           {children}
         </main>
       </div>

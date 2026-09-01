@@ -30,6 +30,7 @@ import { ManualAnswerEntity } from '../models/ManualAnswer';
 import { UpdatePolicyEntity } from '../models/UpdatePolicy';
 import { ScanPolicyEntity } from '../models/ScanPolicy';
 import { PowerScheduleEntity } from '../models/PowerSchedule';
+import { EmassConfigEntity } from '../models/EmassConfig';
 
 const isMockMode = process.env.MOCK_MODE === 'true';
 
@@ -79,6 +80,7 @@ export const AppDataSource = new DataSource({
     UpdatePolicyEntity,
     ScanPolicyEntity,
     PowerScheduleEntity,
+    EmassConfigEntity,
   ],
   migrations: ['dist/database/migrations/*.js'],
   migrationsTableName: 'migrations',

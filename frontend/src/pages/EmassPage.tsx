@@ -5,14 +5,16 @@
 import { useEffect, useState } from 'react';
 import {
   Stack, Text, Spinner, SpinnerSize, MessageBar, MessageBarType,
-  PrimaryButton, DefaultButton, Dropdown, IDropdownOption, TextField,
+  PrimaryButton, DefaultButton, Dropdown, IDropdownOption, TextField, Link,
 } from '@fluentui/react';
 import { api } from '../hooks/useApi';
+import { useNavigate } from 'react-router-dom';
 
 interface Status { configured: boolean; mode?: string; ok?: boolean; serverVersion?: string; error?: string; message?: string; }
 interface System { systemId: number; name: string; acronym: string; policy?: string; registrationType?: string; }
 
 export default function EmassPage() {
+  const navigate = useNavigate();
   const [status, setStatus] = useState<Status | null>(null);
   const [systems, setSystems] = useState<System[]>([]);
   const [systemId, setSystemId] = useState<number | null>(null);
@@ -74,14 +76,7 @@ export default function EmassPage() {
 
       {!status?.configured && (
         <MessageBar messageBarType={MessageBarType.warning}>
-          eMASS is not configured. Set the following App Settings (typically via Key Vault references):
-          <ul style={{ marginTop: 6 }}>
-            <li><code>EMASS_BASE_URL</code></li>
-            <li><code>EMASS_API_KEY</code></li>
-            <li><code>EMASS_USER_UID</code></li>
-            <li><code>EMASS_CERT_PEM</code> &amp; <code>EMASS_KEY_PEM</code> (DoD PKI)</li>
-            <li><code>EMASS_CA_PEM</code> (optional, DoD root bundle)</li>
-          </ul>
+          eMASS is not configured. <Link onClick={() => navigate('/settings/emass')}>Open eMASS settings</Link>.
         </MessageBar>
       )}
 

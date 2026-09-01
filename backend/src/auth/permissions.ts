@@ -56,6 +56,7 @@ export const PERMISSIONS = [
   'scan:schedule',
   'updates:manage',
   'power:schedule',
+  'emass:configure',
   // Reporting what the scheduler *did*, as opposed to deciding the policy.
   // Held by the scheduler Function's own identity, which is an operator.
   'power:report',
@@ -75,6 +76,7 @@ export const GLOBAL_PERMISSIONS: ReadonlySet<Permission> = new Set<Permission>([
   'scan:schedule',
   'updates:manage',
   'power:schedule',
+  'emass:configure',
   'power:report',
   'audit:read',
   'stig:import',
@@ -109,6 +111,7 @@ const ROLE_GRANTS: Record<Role, Permission[]> = {
     'scan:schedule',
     'updates:manage',
     'power:schedule',
+    'emass:configure',
   ],
 };
 

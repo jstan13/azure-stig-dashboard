@@ -52,6 +52,7 @@ hooks:
       shell: pwsh
       run: |
         $env:FUNCTION_PRINCIPAL_ID = (azd env get-value functionPrincipalId 2>$null)
+        $env:BACKEND_PRINCIPAL_ID = (azd env get-value backendPrincipalId 2>$null)
         ./scripts/post-deploy.ps1
     posix:
       shell: sh

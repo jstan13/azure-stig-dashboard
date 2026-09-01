@@ -11,8 +11,9 @@ import { useNavigate, useParams } from 'react-router-dom';
 import PowerSchedulePage from './PowerSchedulePage';
 import ScanSchedulePage from './ScanSchedulePage';
 import UpdatesPage from './UpdatesPage';
+import EmassSettingsPage from './EmassSettingsPage';
 
-const TABS = ['power', 'scans', 'updates'] as const;
+const TABS = ['power', 'scans', 'updates', 'emass'] as const;
 type Tab = (typeof TABS)[number];
 
 const isTab = (value: string | undefined): value is Tab =>
@@ -34,6 +35,7 @@ export default function SettingsPage() {
 
       <Pivot
         selectedKey={selected}
+        styles={{ root: { display: 'flex', flexWrap: 'wrap' } }}
         onLinkClick={(item) => {
           if (item?.props.itemKey) navigate(`/settings/${item.props.itemKey}`);
         }}
@@ -46,6 +48,9 @@ export default function SettingsPage() {
         </PivotItem>
         <PivotItem itemKey="updates" headerText="Updates" itemIcon="Sync">
           <Stack styles={{ root: { paddingTop: 18 } }}><UpdatesPage /></Stack>
+        </PivotItem>
+        <PivotItem itemKey="emass" headerText="eMASS" itemIcon="CloudUpload">
+          <Stack styles={{ root: { paddingTop: 18 } }}><EmassSettingsPage /></Stack>
         </PivotItem>
       </Pivot>
     </Stack>

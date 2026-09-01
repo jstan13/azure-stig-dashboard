@@ -22,19 +22,82 @@ import { generateCklb } from '../exporters/cklbExporter';
 import { requirePermission } from '../middleware/authz';
 import { recordAudit } from '../auth';
 import { sendServerError } from '../middleware/errorHandler';
+import {
+  clearSavedEmassConfig, getEmassConfigStatus, saveEmassConfig,
+} from '../services/emassConfigService';
+import { z } from 'zod';
 
 const router = Router();
 const isMock = () => process.env.MOCK_MODE === 'true';
+const optionalSecret = z.string().max(100_000).optional();
+const configSchema = z.object({
+  baseUrl: z.string().trim().url().refine((value) => value.startsWith('https://'), 'Base URL must use HTTPS'),
+  userUid: z.string().trim().min(1).max(2_000),
+  apiKey: optionalSecret,
+  certPem: optionalSecret.refine((value) => !value?.trim() || value.includes('BEGIN CERTIFICATE'), 'Client certificate must be PEM encoded'),
+  keyPem: optionalSecret.refine((value) => !value?.trim() || value.includes('PRIVATE KEY'), 'Private key must be PEM encoded'),
+  caPem: z.string().max(200_000).nullable().optional()
+    .refine((value) => value == null || !value.trim() || value.includes('BEGIN CERTIFICATE'), 'CA bundle must be PEM encoded'),
+});
+
+// ── GET/PUT/DELETE /api/emass/config ────────────────────────────────────────
+router.get('/config', requirePermission('emass:configure'), async (_req: Request, res: Response) => {
+  try {
+    return res.json(await getEmassConfigStatus());
+  } catch (err: any) {
+    return sendServerError(res, '[GET /emass/config]', err);
+  }
+});
+
+router.put('/config', requirePermission('emass:configure'), async (req: Request, res: Response) => {
+  const parsed = configSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0].message });
+  try {
+    const before = await getEmassConfigStatus();
+    await saveEmassConfig(parsed.data);
+    const after = await getEmassConfigStatus();
+    await recordAudit(req as any, {
+      action: 'emass.config_changed',
+      entityType: 'emass_config',
+      entityId: 'singleton',
+      before,
+      after,
+      result: 'Success',
+    });
+    return res.json(after);
+  } catch (err: any) {
+    return sendServerError(res, '[PUT /emass/config]', err);
+  }
+});
+
+router.delete('/config', requirePermission('emass:configure'), async (req: Request, res: Response) => {
+  try {
+    const before = await getEmassConfigStatus();
+    await clearSavedEmassConfig();
+    const after = await getEmassConfigStatus();
+    await recordAudit(req as any, {
+      action: 'emass.config_cleared',
+      entityType: 'emass_config',
+      entityId: 'singleton',
+      before,
+      after,
+      result: 'Success',
+    });
+    return res.json(after);
+  } catch (err: any) {
+    return sendServerError(res, '[DELETE /emass/config]', err);
+  }
+});
 
 // ── GET /api/emass/status ───────────────────────────────────────────────────
 router.get('/status', async (_req: Request, res: Response) => {
   try {
-    const configured = emass.isConfigured() || emass.isMock();
+    const configured = await emass.isConfigured() || emass.isMock();
     if (!configured) {
       return res.json({
         configured: false,
         mode: 'unconfigured',
-        message: 'Set EMASS_BASE_URL, EMASS_API_KEY, EMASS_USER_UID, EMASS_CERT_PEM, EMASS_KEY_PEM in app settings to enable eMASS push.',
+        message: 'Configure eMASS in Settings to enable eMASS push.',
       });
     }
     const ping = await emass.ping();
@@ -47,7 +110,7 @@ router.get('/status', async (_req: Request, res: Response) => {
 // ── GET /api/emass/systems ──────────────────────────────────────────────────
 router.get('/systems', async (_req: Request, res: Response) => {
   try {
-    if (!emass.isConfigured() && !emass.isMock()) {
+    if (!await emass.isConfigured() && !emass.isMock()) {
       return res.status(412).json({ error: 'eMASS not configured' });
     }
     const systems = await emass.listSystems();
@@ -63,7 +126,7 @@ router.post('/systems/:id/push-poams', requirePermission('emass:push'), async (r
   try {
     const systemId = Number(req.params.id);
     if (!Number.isFinite(systemId)) return res.status(400).json({ error: 'systemId must be numeric' });
-    if (!emass.isConfigured() && !emass.isMock()) return res.status(412).json({ error: 'eMASS not configured' });
+    if (!await emass.isConfigured() && !emass.isMock()) return res.status(412).json({ error: 'eMASS not configured' });
 
     const { poamIds, onlyOpen = true } = req.body || {};
     let poams: any[];
@@ -104,7 +167,7 @@ router.post('/systems/:id/upload-cklb', requirePermission('emass:push'), async (
     const machineId = String(req.body?.machineId || '');
     if (!Number.isFinite(systemId)) return res.status(400).json({ error: 'systemId must be numeric' });
     if (!machineId)                  return res.status(400).json({ error: 'machineId is required' });
-    if (!emass.isConfigured() && !emass.isMock()) return res.status(412).json({ error: 'eMASS not configured' });
+    if (!await emass.isConfigured() && !emass.isMock()) return res.status(412).json({ error: 'eMASS not configured' });
 
     let machine: any;
     let findings: any[] = [];

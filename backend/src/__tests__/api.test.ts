@@ -125,6 +125,53 @@ describe('POST /api/scan/trigger', () => {
   });
 });
 
+describe('/api/emass/config', () => {
+  afterAll(async () => {
+    await request(app).delete('/api/emass/config');
+  });
+
+  it('saves configuration without returning secret values', async () => {
+    const saved = await request(app)
+      .put('/api/emass/config')
+      .send({
+        baseUrl: 'https://emass.example.mil',
+        userUid: 'CN=Test User',
+        apiKey: 'secret-api-key',
+        certPem: '-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----',
+        keyPem: '-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----',
+      });
+
+    expect(saved.status).toBe(200);
+    expect(saved.body).toMatchObject({
+      configured: true,
+      source: 'saved',
+      apiKeyConfigured: true,
+      certPemConfigured: true,
+      keyPemConfigured: true,
+    });
+    expect(JSON.stringify(saved.body)).not.toContain('secret-api-key');
+    expect(JSON.stringify(saved.body)).not.toContain('PRIVATE KEY');
+
+    const retained = await request(app)
+      .put('/api/emass/config')
+      .send({ baseUrl: 'https://emass.example.mil/api', userUid: 'CN=Test User', apiKey: '', certPem: '', keyPem: '' });
+    expect(retained.status).toBe(200);
+    expect(retained.body.configured).toBe(true);
+  });
+
+  it('rejects non-HTTPS endpoints and invalid PEM values', async () => {
+    const insecure = await request(app)
+      .put('/api/emass/config')
+      .send({ baseUrl: 'http://emass.example.mil', userUid: 'test' });
+    expect(insecure.status).toBe(400);
+
+    const invalidPem = await request(app)
+      .put('/api/emass/config')
+      .send({ baseUrl: 'https://emass.example.mil', userUid: 'test', certPem: 'not a certificate' });
+    expect(invalidPem.status).toBe(400);
+  });
+});
+
 describe('/api/scan/schedule', () => {
   it('reads and updates the automatic scan schedule', async () => {
     const initial = await request(app).get('/api/scan/schedule');
