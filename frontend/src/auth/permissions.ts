@@ -25,6 +25,7 @@ export const PERMISSIONS = [
   'notifications:manage',
   'scan:schedule',
   'updates:manage',
+  'updates:report',
   'power:schedule',
   'power:report',
   'emass:configure',

@@ -59,6 +59,7 @@ export const PERMISSIONS = [
   'emass:configure',
   // Reporting what the scheduler *did*, as opposed to deciding the policy.
   // Held by the scheduler Function's own identity, which is an operator.
+  'updates:report',
   'power:report',
 ] as const;
 
@@ -77,6 +78,7 @@ export const GLOBAL_PERMISSIONS: ReadonlySet<Permission> = new Set<Permission>([
   'updates:manage',
   'power:schedule',
   'emass:configure',
+  'updates:report',
   'power:report',
   'audit:read',
   'stig:import',
@@ -95,6 +97,7 @@ const ROLE_GRANTS: Record<Role, Permission[]> = {
     // its check-ins and shutdowns. Deliberately separate from
     // 'power:schedule': reporting what happened is not the same authority as
     // deciding when the estate powers down, which stays with admins.
+    'updates:report',
     'power:report',
   ],
   isso: ['poam:write', 'exception:write'],

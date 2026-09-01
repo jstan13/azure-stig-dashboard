@@ -393,7 +393,7 @@ paths:
                 notes:   { type: string }
       responses:
         '200': { description: Recorded, with the action the scheduler should take next }
-        '403': { description: Missing updates:manage }
+        '403': { description: Missing updates:report }
 
   /updates/result:
     post:
@@ -415,7 +415,7 @@ paths:
                 detail:          { type: string }
       responses:
         '200': { description: Recorded }
-        '403': { description: Missing updates:manage }
+        '403': { description: Missing updates:report }
 
 components:
   securitySchemes:

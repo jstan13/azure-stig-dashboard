@@ -206,7 +206,7 @@ router.post('/apply', requirePermission('updates:manage'), async (req: Request, 
 });
 
 // ── Scheduler reporting ──────────────────────────────────────────────────────
-router.post('/available', requirePermission('updates:manage'), async (req: Request, res: Response) => {
+router.post('/available', requirePermission('updates:report'), async (req: Request, res: Response) => {
   try {
     const parsed = availableSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -229,7 +229,7 @@ router.post('/available', requirePermission('updates:manage'), async (req: Reque
   }
 });
 
-router.post('/result', requirePermission('updates:manage'), async (req: Request, res: Response) => {
+router.post('/result', requirePermission('updates:report'), async (req: Request, res: Response) => {
   try {
     const parsed = resultSchema.safeParse(req.body);
     if (!parsed.success) {
