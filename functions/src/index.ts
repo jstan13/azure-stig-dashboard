@@ -511,6 +511,8 @@ interface WebAppRuntimeConfig {
   appCommandLine: string;
 }
 
+type WebAppSettings = Record<string, string>;
+
 async function getWebAppRuntimeConfig(resourceId: string): Promise<WebAppRuntimeConfig> {
   const headers = await armHeaders();
   const url = `${ARM_ENDPOINT}${resourceId}/config/web?api-version=${WEB_API_VERSION}`;
@@ -530,6 +532,35 @@ async function setWebAppRuntimeConfig(
     url, { properties: config }, { headers, timeout: 120_000 },
   );
   ctx.log(`[autoUpdate] set runtime on ${resourceId} -> ${res.status}`);
+}
+
+async function getWebAppSettings(resourceId: string): Promise<WebAppSettings> {
+  const headers = await armHeaders();
+  const url = `${ARM_ENDPOINT}${resourceId}/config/appsettings/list?api-version=${WEB_API_VERSION}`;
+  const res = await axios.post(url, {}, { headers, timeout: 60_000 });
+  const properties = res.data?.properties;
+  if (!properties || typeof properties !== 'object' || Array.isArray(properties)) {
+    throw new Error(`App settings unavailable for ${resourceId}`);
+  }
+  return Object.fromEntries(
+    Object.entries(properties).map(([name, value]) => [name, String(value ?? '')]),
+  );
+}
+
+async function setReleaseTag(
+  resourceId: string,
+  currentSettings: WebAppSettings,
+  releaseTag: string | null,
+  ctx: InvocationContext,
+): Promise<void> {
+  const properties = { ...currentSettings };
+  if (releaseTag) properties.RELEASE_TAG = releaseTag;
+  else delete properties.RELEASE_TAG;
+
+  const headers = await armHeaders();
+  const url = `${ARM_ENDPOINT}${resourceId}/config/appsettings?api-version=${WEB_API_VERSION}`;
+  const res = await axios.put(url, { properties }, { headers, timeout: 120_000 });
+  ctx.log(`[autoUpdate] set release tag on ${resourceId} -> ${res.status}`);
 }
 
 /** Waits for sustained health; one lucky 200 during a swap proves nothing. */
@@ -578,8 +609,9 @@ async function installRelease(version: string, ctx: InvocationContext): Promise<
   const previous = {
     backend: await getWebAppRuntimeConfig(BACKEND_APP_RESOURCE_ID),
     frontend: await getWebAppRuntimeConfig(FRONTEND_APP_RESOURCE_ID),
+    backendSettings: await getWebAppSettings(BACKEND_APP_RESOURCE_ID),
   };
-  const previousVersion = process.env.RELEASE_TAG || null;
+  const previousVersion = previous.backendSettings.RELEASE_TAG || null;
 
   // Database migrations are forward-only, so the restore point is a timestamp
   // an operator can rewind to by hand. Rolling the image back is automatic;
@@ -604,6 +636,7 @@ async function installRelease(version: string, ctx: InvocationContext): Promise<
       linuxFxVersion: `DOCKER|${images.frontend}`,
       appCommandLine: '',
     }, ctx);
+    await setReleaseTag(BACKEND_APP_RESOURCE_ID, previous.backendSettings, version, ctx);
   } catch (e: any) {
     ctx.error(`[autoUpdate] swap failed: ${e.message}`);
     await rollback(previous, version, previousVersion, `swap failed: ${e.message}`, ctx);
@@ -636,7 +669,11 @@ async function installRelease(version: string, ctx: InvocationContext): Promise<
 }
 
 async function rollback(
-  previous: { backend: WebAppRuntimeConfig; frontend: WebAppRuntimeConfig },
+  previous: {
+    backend: WebAppRuntimeConfig;
+    frontend: WebAppRuntimeConfig;
+    backendSettings: WebAppSettings;
+  },
   version: string,
   previousVersion: string | null,
   detail: string,
@@ -650,6 +687,9 @@ async function rollback(
     if (previous.frontend.linuxFxVersion) {
       await setWebAppRuntimeConfig(FRONTEND_APP_RESOURCE_ID, previous.frontend, ctx);
     }
+    await setReleaseTag(
+      BACKEND_APP_RESOURCE_ID, previous.backendSettings, previousVersion, ctx,
+    );
     await sleep(45_000);
     await waitForHealth(`${BACKEND_BASE_URL}/health`, ctx);
     await reportResult(version, previousVersion, 'rolled_back', detail, ctx);
