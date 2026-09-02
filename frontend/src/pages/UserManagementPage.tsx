@@ -18,17 +18,19 @@ import {
 import { api } from '../hooks/useApi';
 
 const ROLE_OPTIONS: IDropdownOption[] = [
-  { key: 'viewer',  text: 'Viewer' },
-  { key: 'analyst', text: 'Analyst' },
   { key: 'auditor', text: 'Auditor' },
+  { key: 'operator', text: 'Operator' },
+  { key: 'isso', text: 'ISSO' },
+  { key: 'issm', text: 'ISSM' },
   { key: 'admin',   text: 'Admin' },
 ];
 
 const ROLE_COLORS: Record<string, string> = {
   admin:   '#a4262c',
-  analyst: '#0078d4',
+  issm:    '#5c2d91',
+  isso:    '#8764b8',
+  operator:'#0078d4',
   auditor: '#ca5010',
-  viewer:  '#605e5c',
 };
 
 const classes = mergeStyleSets({
@@ -53,8 +55,11 @@ export default function UserManagementPage() {
       if (search)     params.set('search', search);
       if (roleFilter) params.set('role', roleFilter);
       const res = await api.get<any>(`/api/users?${params}`);
-      setUsers(res.data?.users ?? res.data);
-      setTotal(res.data?.total ?? (res.data?.users ?? res.data).length);
+      const nextUsers = Array.isArray(res.data?.users)
+        ? res.data.users
+        : Array.isArray(res.data) ? res.data : [];
+      setUsers(nextUsers);
+      setTotal(typeof res.data?.total === 'number' ? res.data.total : nextUsers.length);
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
   }, [api, search, roleFilter]);

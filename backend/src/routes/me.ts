@@ -22,8 +22,9 @@ import { Router } from 'express';
 import { In } from 'typeorm';
 import { AppDataSource } from '../database/dataSource';
 import { CollectionEntity } from '../models/Collection';
+import { UserEntity } from '../models/User';
 import { resolveRoles } from '../middleware/authz';
-import { permissionsForRoles } from '../auth/permissions';
+import { permissionsForRoles, ROLE_RANK, type Role } from '../auth/permissions';
 
 const router = Router();
 
@@ -42,6 +43,26 @@ router.get('/', async (req, res, next) => {
 
     const globalRoles = [...resolved.global];
     const globalPermissions = [...permissionsForRoles(resolved.global)];
+
+    // Register human callers in the application directory. Authorization still
+    // comes exclusively from token claims and role bindings, never this row.
+    if (principal.upn && AppDataSource.isInitialized) {
+      const userRepo = AppDataSource.getRepository(UserEntity);
+      const existing = await userRepo.findOne({
+        where: [{ oid: principal.objectId }, { email: principal.upn }],
+      });
+      const primaryRole = globalRoles
+        .filter((role): role is Role => role in ROLE_RANK)
+        .sort((left, right) => ROLE_RANK[right] - ROLE_RANK[left])[0] ?? 'auditor';
+      const user = existing ?? userRepo.create({ oid: principal.objectId });
+      user.oid = principal.objectId;
+      user.email = principal.upn;
+      user.displayName = principal.name ?? principal.upn;
+      user.roles = [primaryRole];
+      user.isActive = true;
+      user.lastLogin = new Date();
+      await userRepo.save(user);
+    }
 
     // Look up friendly names for the scoped collections (best-effort; skipped
     // when running DB-free in mock mode).
