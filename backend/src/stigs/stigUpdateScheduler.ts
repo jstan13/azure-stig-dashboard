@@ -20,8 +20,8 @@
 import cron from 'node-cron';
 import { DataSource } from 'typeorm';
 import { StigBenchmarkEntity } from '../models/StigBenchmark';
-import { fetchStigCatalog, filterCatalog, normaliseVersionString } from './stigCatalog';
-import { importStigs, DEFAULT_BENCHMARKS } from './stigImporter';
+import { fetchStigCatalog, normaliseVersionString } from './stigCatalog';
+import { importStigs } from './stigImporter';
 import { logger } from '../utils/logger';
 
 const CHECK_CRON = process.env.STIG_CHECK_CRON || '0 6 * * 1';
@@ -56,7 +56,7 @@ export function startStigUpdateScheduler(dataSource: DataSource): void {
 export async function checkForUpdates(dataSource: DataSource): Promise<UpdateCheckResult[]> {
   logger.info('[STIGScheduler] Checking DISA catalog for STIG updates');
   const catalog = await fetchStigCatalog();
-  const entries = filterCatalog(catalog, DEFAULT_BENCHMARKS);
+  const entries = catalog.entries;
 
   const benchmarkRepo = dataSource.getRepository(StigBenchmarkEntity);
   const installed = await benchmarkRepo.find();

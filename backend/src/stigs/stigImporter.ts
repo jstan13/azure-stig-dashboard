@@ -40,41 +40,20 @@ export interface ImportResult {
   error?: string;
 }
 
-/**
- * Default benchmark titles to auto-import on first install.
- * These match DISA's catalog titles via case-insensitive substring.
- */
-export const DEFAULT_BENCHMARKS = [
-  'Windows 10',
-  'Windows 11',
-  'Windows Server 2019',
-  'Windows Server 2022',
-  'Microsoft Edge',
-  'Google Chrome',
-  'Mozilla Firefox',
-  'Internet Explorer 11',
-  'Office 2019',
-  'Office 365 ProPlus',
-  'IIS 10.0 Site',
-  'IIS 10.0 Server',
-  'SQL Server 2019',
-  'Active Directory Domain',
-  'Windows DNS Server',
-];
-
 export async function importStigs(options: ImportOptions = {}): Promise<ImportResult[]> {
-  const titles = options.benchmarkTitles || DEFAULT_BENCHMARKS;
   const results: ImportResult[] = [];
 
-  logger.info(`[STIGImporter] Starting import for ${titles.length} benchmark(s)`);
+  const requestedTitles = options.benchmarkTitles?.filter(Boolean);
+  logger.info(`[STIGImporter] Starting import for ${requestedTitles?.length ?? 'all'} benchmark(s)`);
 
   // 1. Fetch catalog
   const catalog = await fetchStigCatalog();
-  const matching = filterCatalog(catalog, titles);
+  const matching = requestedTitles?.length
+    ? filterCatalog(catalog, requestedTitles)
+    : catalog.entries;
 
   if (matching.length === 0) {
-    logger.warn('[STIGImporter] No matching benchmarks found in DISA catalog');
-    return results;
+    throw new Error('No matching benchmarks found in the DISA catalog');
   }
 
   logger.info(`[STIGImporter] Found ${matching.length} matching benchmarks`);

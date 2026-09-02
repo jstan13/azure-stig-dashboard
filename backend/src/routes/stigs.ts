@@ -22,7 +22,8 @@ import { recordAudit } from '../auth';
 import { createError } from '../middleware/errorHandler';
 import { parsePage, parsePageSize } from '../utils/paging';
 import { logger } from '../utils/logger';
-import { importStigs, DEFAULT_BENCHMARKS } from '../stigs/stigImporter';
+import { importStigs, ImportResult } from '../stigs/stigImporter';
+import { fetchStigCatalog } from '../stigs/stigCatalog';
 import { checkForUpdates, runQuarterlyImport } from '../stigs/stigUpdateScheduler';
 import { runPowerStigAudit } from '../scanning/powerStigRunner';
 import { parseStigResults } from '../scanning/dscResultParser';
@@ -45,6 +46,16 @@ export interface UpdateCheckStatus {
   error?: string;
 }
 export const updateCheckStatus: UpdateCheckStatus = { running: false };
+
+export interface ImportStatus {
+  running: boolean;
+  jobId?: string;
+  startedAt?: Date;
+  completedAt?: Date;
+  results?: ImportResult[];
+  error?: string;
+}
+export const importStatus: ImportStatus = { running: false };
 
 // ── Mock data ─────────────────────────────────────────────────────────────────
 const MOCK_BENCHMARKS = [
@@ -143,6 +154,23 @@ router.get('/', async (req, res, next) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/update-check/status', (_req, res) => {
   res.json(updateCheckStatus);
+});
+
+router.get('/import/status', (_req, res) => {
+  res.json(importStatus);
+});
+
+router.get('/catalog', requirePermission('stig:import'), async (_req, res, next) => {
+  try {
+    const catalog = await fetchStigCatalog();
+    return res.json({
+      data: catalog.entries.map(({ title, version, releaseDate }) => ({ title, version, releaseDate })),
+      total: catalog.entries.length,
+      fetchedAt: catalog.fetchedAt,
+    });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -269,38 +297,71 @@ router.post(
 
       const MOCK = process.env.MOCK_MODE === 'true';
       if (MOCK) {
+        const jobId = `import-${Date.now()}`;
+        importStatus.running = false;
+        importStatus.jobId = jobId;
+        importStatus.startedAt = new Date();
+        importStatus.completedAt = new Date();
+        importStatus.results = [];
+        importStatus.error = undefined;
         await recordAudit(req, {
           action: 'stig.imported',
           entityType: 'stig_benchmark',
-          entityId: (benchmarkTitles ?? DEFAULT_BENCHMARKS).join(','),
-          after: { benchmarks: benchmarkTitles ?? DEFAULT_BENCHMARKS, force, dryRun, mock: true },
+          entityId: jobId,
+          after: { benchmarks: benchmarkTitles ?? 'all', force, dryRun, mock: true, jobId },
           result: 'Success',
         });
-        return res.json({
+        return res.status(202).json({
           message: 'Import triggered (mock mode — no actual download)',
-          benchmarks: benchmarkTitles ?? DEFAULT_BENCHMARKS,
+          jobId,
+        });
+      }
+
+      if (importStatus.running) {
+        return res.status(409).json({
+          message: 'A STIG import is already in progress',
+          jobId: importStatus.jobId,
         });
       }
 
       // Run import async — respond immediately with 202
       const jobId = `import-${Date.now()}`;
+      importStatus.running = true;
+      importStatus.jobId = jobId;
+      importStatus.startedAt = new Date();
+      importStatus.completedAt = undefined;
+      importStatus.results = undefined;
+      importStatus.error = undefined;
       await recordAudit(req, {
         action: 'stig.imported',
         entityType: 'stig_benchmark',
         entityId: jobId,
-        after: { benchmarks: benchmarkTitles ?? DEFAULT_BENCHMARKS, force, dryRun, jobId },
+        after: { benchmarks: benchmarkTitles ?? 'all', force, dryRun, jobId },
         result: 'Success',
       });
       res.status(202).json({ message: 'Import started', jobId });
 
       importStigs({
-        benchmarkTitles: benchmarkTitles ?? DEFAULT_BENCHMARKS,
+        benchmarkTitles,
         force,
         dryRun,
         dataSource: AppDataSource,
-      }).catch((err: Error) => {
-        logger.error(`[StigsRoute] Import job ${jobId} failed: ${err.message}`);
-      });
+      })
+        .then((results) => {
+          importStatus.running = false;
+          importStatus.completedAt = new Date();
+          importStatus.results = results;
+          const failed = results.filter((result) => result.error);
+          if (failed.length > 0) {
+            importStatus.error = `${failed.length} of ${results.length} STIG imports failed. First error: ${failed[0].title}: ${failed[0].error}`;
+          }
+        })
+        .catch((err: Error) => {
+          importStatus.running = false;
+          importStatus.completedAt = new Date();
+          importStatus.error = err.message;
+          logger.error(`[StigsRoute] Import job ${jobId} failed: ${err.message}`);
+        });
     } catch (err) {
       next(err);
     }

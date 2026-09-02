@@ -1,18 +1,30 @@
 /**
- * STIG Catalog — queries the DISA public.cyber.mil API to discover available
- * STIG benchmarks and their latest versions.
- *
- * DISA publishes STIG content at:
- *   https://public.cyber.mil/stigs/downloads/
- *
- * The unofficial JSON API used here returns the same data as the downloads page.
- * If DISA changes the API, update CATALOG_URL below.
+ * STIG Catalog — queries the public Cyber.mil document library used by the
+ * STIG downloads page to discover current manual benchmark packages.
  */
 
 import axios from 'axios';
+import { z } from 'zod';
 import { logger } from '../utils/logger';
 
-const CATALOG_URL = 'https://public.cyber.mil/stigs/api/downloads/';
+const CATALOG_URL = 'https://www.cyber.mil/webruntime/api/apex/execute?language=en-US&asGuest=true&htmlEncode=false';
+const CATALOG_REQUEST = {
+  namespace: '',
+  classname: '@udd/01pRw0000002mOj',
+  method: 'getCyberDocumentCatalogByDocumentLibrary',
+  isContinuation: false,
+  params: { documentLibrary: 'STIGs' },
+  cacheable: false,
+};
+
+const catalogResponseSchema = z.object({
+  returnValue: z.array(z.object({
+    FileName: z.string(),
+    UploadDate: z.string(),
+    DownloadLink: z.string().url(),
+    RawDownloadType: z.string().optional().default(''),
+  })),
+});
 
 export interface CatalogEntry {
   title: string;
@@ -28,33 +40,61 @@ export interface CatalogResult {
   fetchedAt: Date;
 }
 
+export function parseCatalogResponse(data: unknown): CatalogEntry[] {
+  const parsed = catalogResponseSchema.parse(data);
+  const entries = parsed.returnValue
+    .filter((item) => {
+      const isZip = item.DownloadLink.toLowerCase().endsWith('.zip');
+      const isStig = item.RawDownloadType.split(';').includes('STIGs');
+      const isAutomation = /SCAP|Automation|Ansible|Chef|Powershell|Group Policy/i.test(item.RawDownloadType);
+      const isRetired = /\bSunset\b/i.test(`${item.FileName} ${item.RawDownloadType}`);
+      return isZip && isStig && !isAutomation && !isRetired && /\bSTIG\b/i.test(item.FileName);
+    })
+    .map((item) => ({
+      title: item.FileName.replace(/[\u200B-\u200D\uFEFF]/g, '').trim(),
+      version: normaliseVersionString(`${item.FileName} ${item.DownloadLink}`),
+      releaseDate: item.UploadDate,
+      downloadUrl: item.DownloadLink,
+      filename: item.DownloadLink.split('/').pop() || '',
+      type: 'STIG' as const,
+    }));
+
+  const latestByProduct = new Map<string, CatalogEntry>();
+  for (const entry of entries) {
+    const product = entry.title
+      .replace(/\s+[-\u2013\u2014]?\s*\bVer(?:sion)?\.?\s*\d+.*$/i, '')
+      .trim()
+      .toLowerCase();
+    const current = latestByProduct.get(product);
+    if (!current || entry.releaseDate > current.releaseDate) {
+      latestByProduct.set(product, entry);
+    }
+  }
+  return [...latestByProduct.values()];
+}
+
 export async function fetchStigCatalog(): Promise<CatalogResult> {
   try {
-    logger.info('[STIGCatalog] Fetching DISA STIG catalog from public.cyber.mil');
-    const response = await axios.get(CATALOG_URL, {
+    logger.info('[STIGCatalog] Fetching DISA STIG catalog from cyber.mil');
+    const response = await axios.post(CATALOG_URL, CATALOG_REQUEST, {
       timeout: 30000,
-      headers: { 'User-Agent': 'azure-stig-dashboard/1.0' },
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        Referer: 'https://www.cyber.mil/stigs/downloads/',
+        'User-Agent': 'azure-stig-dashboard/1.0',
+      },
     });
 
-    const raw: any[] = response.data?.data || response.data || [];
-    const entries: CatalogEntry[] = raw
-      .filter((item: any) => item.type === 'STIG' || !item.type)
-      .map((item: any) => ({
-        title: item.title || item.name || '',
-        version: item.version || '',
-        releaseDate: item.releaseDate || item.date || '',
-        downloadUrl: item.url || item.downloadUrl || '',
-        filename: item.filename || (item.url || '').split('/').pop() || '',
-        type: 'STIG' as const,
-      }))
-      .filter((e) => e.downloadUrl);
+    const entries = parseCatalogResponse(response.data);
+    if (entries.length === 0) {
+      throw new Error('Cyber.mil returned no manual STIG ZIP entries');
+    }
 
     logger.info(`[STIGCatalog] Found ${entries.length} STIG entries`);
     return { entries, fetchedAt: new Date() };
   } catch (err: any) {
     logger.error('[STIGCatalog] Failed to fetch catalog:', err.message);
-    // Return empty catalog — caller decides whether to retry or use cached data.
-    return { entries: [], fetchedAt: new Date() };
+    throw new Error(`Failed to fetch DISA STIG catalog: ${err.message}`);
   }
 }
 
@@ -73,7 +113,7 @@ export function filterCatalog(catalog: CatalogResult, queries: string[]): Catalo
  * Parse a DISA version string like "Version 2, Release 8" → "V2R8"
  */
 export function normaliseVersionString(raw: string): string {
-  const m = raw.match(/[Vv]ersion\s*(\d+)[,\s]+[Rr]elease\s*(\d+)/);
+  const m = raw.match(/\b[Vv]er(?:sion)?\.?\s*(\d+)[,\s-]+[Rr]el(?:ease)?\.?\s*(\d+)/);
   if (m) return `V${m[1]}R${m[2]}`;
   // Already normalised, e.g. "V2R8"
   const m2 = raw.match(/V(\d+)R(\d+)/i);

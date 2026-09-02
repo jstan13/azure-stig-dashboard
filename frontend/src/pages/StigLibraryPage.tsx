@@ -22,6 +22,8 @@ import {
   PivotItem,
   TooltipHost,
   Icon,
+  ComboBox,
+  IComboBoxOption,
 } from '@fluentui/react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../hooks/useApi';
@@ -62,6 +64,18 @@ interface UpdateCheckStatus {
   error?: string;
 }
 
+interface ImportStatus {
+  running: boolean;
+  jobId?: string;
+  results?: Array<{ skipped: boolean; error?: string }>;
+  error?: string;
+}
+
+interface CatalogResponse {
+  data: Array<{ title: string; version: string; releaseDate: string }>;
+  total: number;
+}
+
 const categoryColor: Record<string, string> = {
   'Operating System': '#0078d4',
   'Browser':          '#107c10',
@@ -80,6 +94,11 @@ export default function StigLibraryPage() {
   const [error, setError] = useState<string | null>(null);
   const [updateStatus, setUpdateStatus] = useState<UpdateCheckStatus | null>(null);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [catalogOptions, setCatalogOptions] = useState<IComboBoxOption[]>([]);
+  const [selectedCatalogTitles, setSelectedCatalogTitles] = useState<string[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [activeImportJobId, setActiveImportJobId] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
@@ -111,6 +130,41 @@ export default function StigLibraryPage() {
     pollUpdateStatus();
   }, [load, pollUpdateStatus]);
 
+  useEffect(() => {
+    if (!activeImportJobId) return;
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const res = await api.get<ImportStatus>('/api/stigs/import/status');
+        if (cancelled || res.data.jobId !== activeImportJobId || res.data.running) return;
+
+        setActiveImportJobId(null);
+        setActionBusy(false);
+        if (res.data.error) {
+          setActionMessage(`Error: ${res.data.error}`);
+        } else {
+          const imported = res.data.results?.filter((result) => !result.skipped && !result.error).length ?? 0;
+          setActionMessage(`Import complete. ${imported} STIG benchmark(s) updated.`);
+          await load();
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setActiveImportJobId(null);
+          setActionBusy(false);
+          setActionMessage(`Error: Unable to read import status: ${e.message}`);
+        }
+      }
+    };
+
+    void poll();
+    const timer = window.setInterval(() => void poll(), 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [activeImportJobId, load]);
+
   const filtered = benchmarks.filter((b) => {
     if (!q) return true;
     const lower = q.toLowerCase();
@@ -135,17 +189,39 @@ export default function StigLibraryPage() {
     }
   }
 
-  async function handleImportAll() {
+  async function openImportDialog() {
+    setImportDialogOpen(true);
+    setCatalogLoading(true);
+    setCatalogError(null);
+    try {
+      const res = await api.get<CatalogResponse>('/api/stigs/catalog');
+      setCatalogOptions(res.data.data.map((entry) => ({
+        key: entry.title,
+        text: entry.version && entry.version !== entry.title
+          ? `${entry.title} (${entry.version})`
+          : entry.title,
+      })));
+    } catch (e: any) {
+      setCatalogError(e.message);
+    } finally {
+      setCatalogLoading(false);
+    }
+  }
+
+  async function handleImport(benchmarkTitles?: string[]) {
     setImportDialogOpen(false);
     setActionBusy(true);
     setActionMessage(null);
     try {
-      await api.post('/api/stigs/import', {});
-      setActionMessage('Import triggered — this runs in the background and may take several minutes.');
+      const res = await api.post<{ jobId: string }>('/api/stigs/import', {
+        benchmarkTitles: benchmarkTitles?.length ? benchmarkTitles : undefined,
+      });
+      setActiveImportJobId(res.data.jobId);
+      setSelectedCatalogTitles([]);
+      setActionMessage('Import started. Progress is being monitored in the background.');
     } catch (e: any) {
-      setActionMessage(`Error: ${e.message}`);
-    } finally {
       setActionBusy(false);
+      setActionMessage(`Error: ${e.message}`);
     }
   }
 
@@ -155,14 +231,14 @@ export default function StigLibraryPage() {
       text: 'Check for Updates',
       iconProps: { iconName: 'Refresh' },
       disabled: actionBusy,
-      onClick: handleUpdateCheck,
+      onClick: () => void handleUpdateCheck(),
     },
     {
       key: 'import',
-      text: 'Import All STIGs',
+      text: 'Import STIGs',
       iconProps: { iconName: 'Download' },
       disabled: actionBusy,
-      onClick: () => setImportDialogOpen(true),
+      onClick: () => void openImportDialog(),
     },
   ];
 
@@ -329,14 +405,43 @@ export default function StigLibraryPage() {
         onDismiss={() => setImportDialogOpen(false)}
         dialogContentProps={{
           type: DialogType.normal,
-          title: 'Import All STIGs',
+          title: 'Import STIGs',
           subText:
-            'This will download the latest STIG content from DISA public.cyber.mil and import it into the database. ' +
-            'The process runs in the background and may take 5–15 minutes depending on network speed. Continue?',
+            'This will discover and download the latest manual STIG packages from the Cyber.mil document library and import them into the database. ' +
+            'The process runs in the background and may take a while depending on the number of releases and network speed. Continue?',
         }}
       >
+        {catalogLoading && <Spinner label="Loading current Cyber.mil catalog..." />}
+        {catalogError && <MessageBar messageBarType={MessageBarType.error}>{catalogError}</MessageBar>}
+        {!catalogLoading && !catalogError && (
+          <ComboBox
+            label="STIGs to import"
+            placeholder="Type to find and select one or more STIGs"
+            options={catalogOptions}
+            selectedKey={selectedCatalogTitles}
+            multiSelect
+            autoComplete="on"
+            useComboBoxAsMenuWidth
+            onChange={(_event, option) => {
+              if (!option) return;
+              const title = String(option.key);
+              setSelectedCatalogTitles((current) => option.selected
+                ? [...current, title]
+                : current.filter((value) => value !== title));
+            }}
+          />
+        )}
         <DialogFooter>
-          <PrimaryButton text="Import" onClick={handleImportAll} disabled={actionBusy} />
+          <PrimaryButton
+            text={`Import Selected (${selectedCatalogTitles.length})`}
+            onClick={() => void handleImport(selectedCatalogTitles)}
+            disabled={actionBusy || catalogLoading || selectedCatalogTitles.length === 0}
+          />
+          <DefaultButton
+            text={`Import All (${catalogOptions.length})`}
+            onClick={() => void handleImport()}
+            disabled={actionBusy || catalogLoading || catalogOptions.length === 0}
+          />
           <DefaultButton text="Cancel" onClick={() => setImportDialogOpen(false)} />
         </DialogFooter>
       </Dialog>
