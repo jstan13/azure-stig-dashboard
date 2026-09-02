@@ -20,6 +20,7 @@ function policy(overrides: Partial<UpdatePolicyEntity> = {}): UpdatePolicyEntity
   p.availableNotes = null;
   p.approvedVersion = null;
   p.approvedBy = null;
+  p.applyNowVersion = null;
   p.lastCheckedAt = null;
   p.history = [];
   return Object.assign(p, overrides);
@@ -72,6 +73,26 @@ describe('decide', () => {
 
   it('only notifies in notify mode', () => {
     expect(decide(policy({ mode: 'notify' }), inWindow).action).toBe('notify');
+  });
+
+  it('installs a matching one-shot request regardless of mode or window', () => {
+    const d = decide(policy({
+      mode: 'notify',
+      applyNowVersion: 'v1.1.0',
+    }), outOfWindow);
+    expect(d).toMatchObject({
+      action: 'install',
+      version: 'v1.1.0',
+      reason: 'queued for immediate installation',
+    });
+  });
+
+  it('does not install a stale one-shot request', () => {
+    const d = decide(policy({
+      mode: 'notify',
+      applyNowVersion: 'v1.0.5',
+    }), outOfWindow);
+    expect(d.action).toBe('notify');
   });
 
   it('will not install an unapproved release', () => {

@@ -44,6 +44,7 @@ interface UpdateStatus {
   updateAvailable: boolean;
   approvedVersion: string | null;
   approvedBy: string | null;
+  applyNowVersion: string | null;
   lastCheckedAt: string | null;
   inWindowNow: boolean;
   nextAction: { action: string; reason: string; version?: string };
@@ -213,12 +214,17 @@ export default function UpdatesPage() {
             {status.lastCheckedAt && ` (checked ${new Date(status.lastCheckedAt).toLocaleString()})`}
           </Text>
           <Text>Next step: {status.nextAction.reason}</Text>
-          {status.approvedVersion && (
+          {status.applyNowVersion ? (
+            <MessageBar messageBarType={MessageBarType.info}>
+              {status.applyNowVersion} is queued for immediate installation. The scheduler checks
+              every 20 minutes.
+            </MessageBar>
+          ) : status.approvedVersion ? (
             <MessageBar messageBarType={MessageBarType.info}>
               {status.approvedVersion} is approved{status.approvedBy ? ` by ${status.approvedBy}` : ''} and
               will install at the next maintenance window.
             </MessageBar>
-          )}
+          ) : null}
           {status.updateAvailable && status.availableNotes && (
             <Stack tokens={{ childrenGap: 4 }}>
               <Text variant="mediumPlus">Release notes</Text>
@@ -236,7 +242,8 @@ export default function UpdatesPage() {
               />
               <DefaultButton
                 text="Update now"
-                disabled={saving || !status.updateAvailable}
+                disabled={saving || !status.updateAvailable
+                  || status.applyNowVersion === status.availableVersion}
                 onClick={applyNow}
               />
               <DefaultButton text="Refresh" disabled={saving} onClick={() => void load()} />

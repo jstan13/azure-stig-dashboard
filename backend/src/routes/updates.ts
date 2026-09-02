@@ -66,6 +66,7 @@ router.get('/', requirePermission('dashboard:read'), async (_req: Request, res: 
       ),
       approvedVersion: policy.approvedVersion,
       approvedBy: policy.approvedBy,
+      applyNowVersion: policy.applyNowVersion,
       lastCheckedAt: policy.lastCheckedAt,
       inWindowNow: isWithinWindow(policy),
       nextAction: decision,
@@ -183,10 +184,11 @@ router.post('/apply', requirePermission('updates:manage'), async (req: Request, 
     if (decision.action !== 'install') {
       return res.status(409).json({ error: decision.reason });
     }
-    // Approving here is what lets the scheduler pick the work up on its next
-    // pass; the backend cannot swap its own image without killing itself.
+    // Persist the one-shot bypass so it survives until the external scheduler's
+    // next pass; the backend cannot swap its own image without killing itself.
     policy.approvedVersion = decision.version;
     policy.approvedBy = actorOf(req);
+    policy.applyNowVersion = decision.version;
     await savePolicy(policy);
     await recordAudit(req, {
       action: 'update.apply_requested',
@@ -198,7 +200,7 @@ router.post('/apply', requirePermission('updates:manage'), async (req: Request, 
     return res.status(202).json({
       ok: true,
       version: decision.version,
-      message: 'Update queued. The scheduler will install it within a few minutes.',
+      message: 'Update queued. The scheduler will install it within 20 minutes.',
     });
   } catch (err: any) {
     return sendServerError(res, '[POST /updates/apply]', err);
@@ -220,6 +222,9 @@ router.post('/available', requirePermission('updates:report'), async (req: Reque
     if (policy.approvedVersion && policy.approvedVersion !== parsed.data.version) {
       policy.approvedVersion = null;
       policy.approvedBy = null;
+    }
+    if (policy.applyNowVersion && policy.applyNowVersion !== parsed.data.version) {
+      policy.applyNowVersion = null;
     }
     await savePolicy(policy);
     const decision = decide(policy);
@@ -251,6 +256,9 @@ router.post('/result', requirePermission('updates:report'), async (req: Request,
     }
     policy.approvedVersion = null;
     policy.approvedBy = null;
+    if (policy.applyNowVersion === version) {
+      policy.applyNowVersion = null;
+    }
     await savePolicy(policy);
     await recordAudit(req, {
       action: `update.${result}`,

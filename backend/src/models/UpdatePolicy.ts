@@ -65,6 +65,9 @@ export class UpdatePolicyEntity {
 
   @Column({ type: 'varchar', nullable: true }) approvedBy!: string | null;
 
+  /** One-shot install request that bypasses mode and the maintenance window. */
+  @Column({ type: 'varchar', nullable: true }) applyNowVersion!: string | null;
+
   @Column({ type: 'timestamptz', nullable: true }) lastCheckedAt!: Date | null;
 
   @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })

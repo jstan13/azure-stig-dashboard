@@ -33,6 +33,7 @@ function seedPolicy(): UpdatePolicyEntity {
   p.availableNotes = null;
   p.approvedVersion = null;
   p.approvedBy = null;
+  p.applyNowVersion = null;
   p.lastCheckedAt = null;
   p.history = [];
   return p;
@@ -121,6 +122,9 @@ export function decide(
     return { action: 'none', reason: 'already on the latest release' };
   }
   if (force) return { action: 'install', version: available, reason: 'requested by an administrator' };
+  if (policy.applyNowVersion === available) {
+    return { action: 'install', version: available, reason: 'queued for immediate installation' };
+  }
 
   if (policy.mode === 'off') return { action: 'none', reason: 'auto-update is off' };
   if (policy.mode === 'notify') {
