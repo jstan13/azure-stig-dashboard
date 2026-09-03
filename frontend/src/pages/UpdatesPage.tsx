@@ -8,7 +8,7 @@
  * Viewing is open to anyone who can see the dashboard; changing anything needs
  * `updates:manage`, and the server re-checks on every call.
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Stack, Text, MessageBar, MessageBarType, Spinner, SpinnerSize,
   PrimaryButton, DefaultButton, Dropdown, IDropdownOption, Toggle,
@@ -97,6 +97,7 @@ export default function UpdatesPage() {
   const api = useApi();
   const { has } = usePermissions();
   const canManage = has('updates:manage');
+  const queuedVersion = useRef<string | null>(null);
 
   const [status, setStatus] = useState<UpdateStatus | null>(null);
   const [draft, setDraft] = useState<UpdatePolicy | null>(null);
@@ -105,21 +106,38 @@ export default function UpdatesPage() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) {
+      setLoading(true);
+      setError('');
+    }
     try {
       const res = await api.get<UpdateStatus>('/api/updates');
+      if (queuedVersion.current
+        && res.data.currentVersion === queuedVersion.current
+        && !res.data.applyNowVersion) {
+        window.location.reload();
+        return;
+      }
       setStatus(res.data);
       setDraft(res.data.policy);
+      queuedVersion.current = res.data.applyNowVersion;
     } catch (e: any) {
-      setError(e?.response?.data?.error || e?.message || 'Could not load update settings');
+      if (!quiet) {
+        setError(e?.response?.data?.error || e?.message || 'Could not load update settings');
+      }
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, [api]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    if (!status?.applyNowVersion) return undefined;
+    const interval = window.setInterval(() => void load(true), 10_000);
+    return () => window.clearInterval(interval);
+  }, [load, status?.applyNowVersion]);
 
   const patchDraft = (patch: Partial<UpdatePolicy>) =>
     setDraft((d) => (d ? { ...d, ...patch } : d));
@@ -157,11 +175,13 @@ export default function UpdatesPage() {
   };
 
   const applyNow = async () => {
+    const version = status?.availableVersion ?? null;
     setSaving(true);
     setError('');
     setNotice('');
     try {
       const res = await api.post<{ message: string }>('/api/updates/apply', {});
+      queuedVersion.current = version;
       setNotice(res.data.message);
       await load();
     } catch (e: any) {

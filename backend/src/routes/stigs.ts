@@ -194,7 +194,7 @@ router.get('/:benchmarkId', async (req, res, next) => {
     if (!benchmark) return next(createError('Benchmark not found', 404, 'NOT_FOUND'));
 
     const versions = await svRepo.find({
-      where: { benchmarkId },
+      where: { benchmarkId: benchmark.id },
       order: { benchmarkDate: 'DESC' },
     });
 
@@ -237,18 +237,23 @@ router.get('/:benchmarkId/controls', async (req, res, next) => {
       return res.json({ data: controls.slice((p - 1) * ps, p * ps), total, page: p, pageSize: ps });
     }
 
+    const benchmark = await AppDataSource.getRepository(StigBenchmarkEntity).findOne({
+      where: { benchmarkId },
+    });
+    if (!benchmark) return next(createError('Benchmark not found', 404, 'NOT_FOUND'));
+
     // Resolve stigVersionId
     let stigVersionId: string;
     if (version) {
       const sv = await AppDataSource.getRepository(StigVersionEntity).findOne({
-        where: { benchmarkId, version },
+        where: { benchmarkId: benchmark.id, version },
       });
       if (!sv) return next(createError('Version not found', 404, 'NOT_FOUND'));
       stigVersionId = sv.id;
     } else {
       // Find active version
       const sv = await AppDataSource.getRepository(StigVersionEntity).findOne({
-        where: { benchmarkId, status: 'active' },
+        where: { benchmarkId: benchmark.id, status: 'active' },
         order: { benchmarkDate: 'DESC' },
       });
       if (!sv) return next(createError('No active version found for this benchmark', 404, 'NOT_FOUND'));
@@ -456,10 +461,20 @@ router.post(
       }
 
       // Resolve active STIG version
+      const benchmark = await AppDataSource.getRepository(StigBenchmarkEntity).findOne({
+        where: { benchmarkId },
+      });
+      if (!benchmark) {
+        return next(createError(`Benchmark ${benchmarkId} not found`, 404, 'NOT_FOUND'));
+      }
+
       const svRepo = AppDataSource.getRepository(StigVersionEntity);
       const stigVersion = version
-        ? await svRepo.findOne({ where: { benchmarkId, version } })
-        : await svRepo.findOne({ where: { benchmarkId, status: 'active' }, order: { benchmarkDate: 'DESC' } });
+        ? await svRepo.findOne({ where: { benchmarkId: benchmark.id, version } })
+        : await svRepo.findOne({
+          where: { benchmarkId: benchmark.id, status: 'active' },
+          order: { benchmarkDate: 'DESC' },
+        });
 
       if (!stigVersion) {
         return next(createError(`No active version found for benchmark ${benchmarkId}`, 404, 'NOT_FOUND'));
