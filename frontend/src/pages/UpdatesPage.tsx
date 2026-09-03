@@ -93,13 +93,24 @@ const resultLabel: Record<HistoryEntry['result'], string> = {
   failed: 'Failed',
 };
 
+const pendingUpdateKey = 'stig-tracker.pending-update';
+
+function storedPendingVersion(): string | null {
+  try {
+    return sessionStorage.getItem(pendingUpdateKey);
+  } catch {
+    return null;
+  }
+}
+
 export default function UpdatesPage() {
   const api = useApi();
   const { has } = usePermissions();
   const canManage = has('updates:manage');
-  const queuedVersion = useRef<string | null>(null);
+  const queuedVersion = useRef<string | null>(storedPendingVersion());
 
   const [status, setStatus] = useState<UpdateStatus | null>(null);
+  const [pendingVersion, setPendingVersion] = useState<string | null>(queuedVersion.current);
   const [draft, setDraft] = useState<UpdatePolicy | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -113,15 +124,30 @@ export default function UpdatesPage() {
     }
     try {
       const res = await api.get<UpdateStatus>('/api/updates');
-      if (queuedVersion.current
-        && res.data.currentVersion === queuedVersion.current
+      const requestedVersion = queuedVersion.current;
+      if (requestedVersion
+        && res.data.currentVersion === requestedVersion
         && !res.data.applyNowVersion) {
+        sessionStorage.removeItem(pendingUpdateKey);
         window.location.reload();
         return;
       }
+      const failedAttempt = requestedVersion
+        ? res.data.history.find((entry) => entry.version === requestedVersion
+          && entry.result !== 'succeeded')
+        : undefined;
+      if (failedAttempt && !res.data.applyNowVersion) {
+        sessionStorage.removeItem(pendingUpdateKey);
+        queuedVersion.current = null;
+        setPendingVersion(null);
+        setError(`Update ${requestedVersion} ${failedAttempt.result.replace('_', ' ')}.`);
+      } else if (!requestedVersion && res.data.applyNowVersion) {
+        queuedVersion.current = res.data.applyNowVersion;
+        sessionStorage.setItem(pendingUpdateKey, res.data.applyNowVersion);
+        setPendingVersion(res.data.applyNowVersion);
+      }
       setStatus(res.data);
       setDraft(res.data.policy);
-      queuedVersion.current = res.data.applyNowVersion;
     } catch (e: any) {
       if (!quiet) {
         setError(e?.response?.data?.error || e?.message || 'Could not load update settings');
@@ -134,10 +160,10 @@ export default function UpdatesPage() {
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
-    if (!status?.applyNowVersion) return undefined;
+    if (!pendingVersion) return undefined;
     const interval = window.setInterval(() => void load(true), 10_000);
     return () => window.clearInterval(interval);
-  }, [load, status?.applyNowVersion]);
+  }, [load, pendingVersion]);
 
   const patchDraft = (patch: Partial<UpdatePolicy>) =>
     setDraft((d) => (d ? { ...d, ...patch } : d));
@@ -182,6 +208,10 @@ export default function UpdatesPage() {
     try {
       const res = await api.post<{ message: string }>('/api/updates/apply', {});
       queuedVersion.current = version;
+      if (version) {
+        sessionStorage.setItem(pendingUpdateKey, version);
+        setPendingVersion(version);
+      }
       setNotice(res.data.message);
       await load();
     } catch (e: any) {
