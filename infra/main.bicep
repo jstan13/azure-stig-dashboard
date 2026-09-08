@@ -54,8 +54,8 @@ param lockdownNetworking bool = false
 @description('Allowed ingress CIDRs for frontend/backend when lockdownNetworking=true')
 param allowedIngressCidrs array = []
 
-@description('Optional resource group name containing VMs/Arc machines that this app may remediate')
-param remediationTargetResourceGroupName string = ''
+@description('Resource group containing VMs/Arc machines that this app may assess and remediate')
+param remediationTargetResourceGroupName string = resourceGroup().name
 
 @description('Provision the scheduled-scan Azure Function App + Storage on a Consumption plan')
 param enableScheduler bool = true

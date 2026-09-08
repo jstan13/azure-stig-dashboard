@@ -5,10 +5,9 @@
  * change the schedule from the UI without restarting the App Service.
  *
  * ── Resource overhead (know this before enabling) ──────────────────────────
- *   • Each run is a *batch pull* across Azure Resource Graph, Policy, Defender,
- *     ARM, and Guest Configuration. Cost scales with fleet size: roughly a few
- *     API calls per subscription + per VM. A few hundred VMs is minutes of
- *     wall-clock work and a brief CPU/network spike on the backend container.
+ *   • Each run refreshes Azure inventory/control-plane signals and then runs
+ *     every supported active OS STIG that applies to each online machine.
+ *     Cost and duration scale with fleet size and applicable benchmarks.
  *   • Azure-side: read-only calls only, but they count against ARM/Resource
  *     Graph throttling limits. Very frequent schedules (e.g. every few minutes)
  *     on large fleets can hit 429s — prefer hourly or slower.
@@ -19,15 +18,12 @@
  *     scans.
  *
  * ── First-run lag (set expectations) ───────────────────────────────────────
- *   The scheduler only pulls what Azure has already evaluated. On a brand-new
- *   deployment the dashboard fills in *gradually*:
+ *   On a brand-new deployment the dashboard fills in *gradually*:
  *     • Inventory (machines/OS/RGs) appears on the first run.
  *     • Azure Policy / Defender posture (~5-15% of a STIG) appears once Azure
  *       finishes evaluating assignments (~30 min, up to ~24 h).
- *     • The bulk of a STIG (~80-90%) comes from Guest Configuration, which must
- *       first be deployed to the VMs and report back — this can take hours to
- *       **days** to fully populate across a fleet. Running the scan more often
- *       does not speed up Azure's own evaluation; it just refreshes what's ready.
+ *     • The comprehensive pass also runs PowerSTIG on applicable Windows hosts
+ *       and OpenSCAP on applicable Arc Linux hosts, then updates machine scores.
  *
  * Environment variables:
  *   SCAN_SCHEDULE_ENABLED   "true" to enable automated scans (default: false)
@@ -98,12 +94,12 @@ export async function runScheduledScanIfDue(
     policy.lastError = null;
     await saveScanPolicy(policy);
     try {
-      logger.info('[ScanScheduler] Starting scheduled scan');
+      logger.info('[ScanScheduler] Starting scheduled comprehensive scan');
       const result = await orchestrator.runScan(
         subscriptionIds.length ? { subscriptionIds } : {},
       );
       policy.lastStatus = 'completed';
-      logger.info(`[ScanScheduler] Scheduled scan complete: scanId=${result.scanId}, machines=${result.machineCount}, findings=${result.findingCount}, open=${result.openCount}, durationMs=${Date.now() - start}`);
+      logger.info(`[ScanScheduler] Scheduled comprehensive scan complete: scanId=${result.scanId}, machines=${result.machineCount}, findings=${result.findingCount}, open=${result.openCount}, assessments=${result.assessments.completed}/${result.assessments.attempted}, assessmentFailures=${result.assessments.failed}, durationMs=${Date.now() - start}`);
     } catch (err: any) {
       policy.lastStatus = 'failed';
       policy.lastError = String(err?.message ?? err).slice(0, 2000);

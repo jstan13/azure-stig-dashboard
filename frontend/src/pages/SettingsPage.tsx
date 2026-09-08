@@ -43,7 +43,7 @@ export default function SettingsPage() {
         <PivotItem itemKey="power" headerText="Business hours" itemIcon="PowerButton">
           <Stack styles={{ root: { paddingTop: 18 } }}><PowerSchedulePage /></Stack>
         </PivotItem>
-        <PivotItem itemKey="scans" headerText="Scan schedule" itemIcon="Calendar">
+        <PivotItem itemKey="scans" headerText="Comprehensive scans" itemIcon="Calendar">
           <Stack styles={{ root: { paddingTop: 18 } }}><ScanSchedulePage /></Stack>
         </PivotItem>
         <PivotItem itemKey="updates" headerText="Updates" itemIcon="Sync">

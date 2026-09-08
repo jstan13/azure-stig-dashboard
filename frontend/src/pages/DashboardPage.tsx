@@ -84,11 +84,14 @@ export default function DashboardPage() {
     })();
   }, []);
 
-  async function triggerFullScan() {
+  async function triggerComprehensiveScan() {
     setScanning(true); setScanMessage(null);
     try {
       const res = await api.post('/api/scan/trigger', {});
-      setScanMessage(`OK Scan started (ID: ${res.data.scanId})`);
+      const assessments = res.data.assessments;
+      setScanMessage(
+        `OK Comprehensive scan complete (ID: ${res.data.scanId}; assessments ${assessments?.completed ?? 0}/${assessments?.attempted ?? 0})`,
+      );
     } catch (e: any) {
       setScanMessage(`X Scan failed: ${e.message}`);
     } finally {
@@ -131,7 +134,7 @@ export default function DashboardPage() {
             </MessageBar>
           )}
           <DefaultButton text="Cloud Explorer" iconProps={{ iconName: 'AzureLogo' }} onClick={() => navigate('/explorer')} />
-          <PrimaryButton text={scanning ? 'Scanning...' : 'Trigger Full Scan'} disabled={scanning} onClick={triggerFullScan} iconProps={{ iconName: 'Refresh' }} />
+          <PrimaryButton text={scanning ? 'Scanning...' : 'Run Comprehensive Scan'} disabled={scanning} onClick={triggerComprehensiveScan} iconProps={{ iconName: 'Refresh' }} />
         </Stack>
       </Stack>
 

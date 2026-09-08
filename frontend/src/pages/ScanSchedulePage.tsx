@@ -100,8 +100,8 @@ export default function ScanSchedulePage() {
       setSaved(response.data);
       setDraft(response.data);
       setNotice(response.data.enabled
-        ? `Schedule saved. Next scan: ${new Date(response.data.nextRunAt!).toLocaleString()}.`
-        : 'Automatic scans are disabled.');
+        ? `Schedule saved. Next comprehensive scan: ${new Date(response.data.nextRunAt!).toLocaleString()}.`
+        : 'Automatic comprehensive scans are disabled.');
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'Could not save the scan schedule');
     } finally {
@@ -114,9 +114,9 @@ export default function ScanSchedulePage() {
   return (
     <Stack tokens={{ childrenGap: 18 }} styles={{ root: { maxWidth: 820 } }}>
       <Stack tokens={{ childrenGap: 4 }}>
-        <Text variant="xxLarge" style={{ fontWeight: 700 }}>Scan schedule</Text>
+        <Text variant="xxLarge" style={{ fontWeight: 700 }}>Comprehensive scan schedule</Text>
         <Text style={{ color: '#605e5c' }}>
-          Refresh inventory and compliance data automatically. Manual scans remain available on the Overview page.
+          Refresh Azure inventory, collect control-plane signals, and assess every supported active OS STIG applicable to each online machine.
         </Text>
       </Stack>
 
@@ -126,7 +126,7 @@ export default function ScanSchedulePage() {
       {draft && (
         <Stack tokens={{ childrenGap: 16 }} styles={{ root: { background: '#fff', border: '1px solid #edebe9', borderRadius: 8, padding: 20 } }}>
           <Toggle
-            label="Automatic scans"
+            label="Automatic comprehensive scans"
             checked={draft.enabled}
             disabled={!canManage || saving}
             onText="Enabled"
@@ -182,7 +182,7 @@ export default function ScanSchedulePage() {
           </Stack>
 
           <Stack tokens={{ childrenGap: 4 }}>
-            <Text>Next scheduled scan: <strong>{draft.nextRunAt ? new Date(draft.nextRunAt).toLocaleString() : 'Not scheduled'}</strong></Text>
+            <Text>Next comprehensive scan: <strong>{draft.nextRunAt ? new Date(draft.nextRunAt).toLocaleString() : 'Not scheduled'}</strong></Text>
             <Text>
               Last scheduled attempt: <strong>{draft.lastScheduledRunAt ? new Date(draft.lastScheduledRunAt).toLocaleString() : 'Never'}</strong>
               {draft.lastStatus ? ` (${draft.lastStatus})` : ''}

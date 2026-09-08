@@ -94,7 +94,11 @@ export async function fetchStigCatalog(): Promise<CatalogResult> {
     return { entries, fetchedAt: new Date() };
   } catch (err: any) {
     logger.error('[STIGCatalog] Failed to fetch catalog:', err.message);
-    throw new Error(`Failed to fetch DISA STIG catalog: ${err.message}`);
+    const catalogError = new Error(`Failed to fetch DISA STIG catalog: ${err.message}`) as Error & {
+      cause: unknown;
+    };
+    catalogError.cause = err;
+    throw catalogError;
   }
 }
 

@@ -48,7 +48,10 @@ router.get('/', async (req, res, next) => {
   // ── Real DB-backed path ─────────────────────────────────────────────
   try {
     const repo = AppDataSource.getRepository(MachineEntity);
-    const qb = repo.createQueryBuilder('m').orderBy('m.name', 'ASC');
+    const qb = repo
+      .createQueryBuilder('m')
+      .where('m.isActive = :isActive', { isActive: true })
+      .orderBy('m.name', 'ASC');
     if (q) {
       qb.andWhere('(m.name ILIKE :q OR m.resourceGroupName ILIKE :q)', {
         q: `%${String(q)}%`,

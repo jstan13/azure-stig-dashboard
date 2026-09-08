@@ -576,22 +576,24 @@ After signing in, the left rail groups every page into three sections.
 | **eMASS Sync**       | `/emass`       | Push all open POA&Ms or upload a CKLB checklist for a specific machine to eMASS. The page reports connector configuration status; if PEMs / API key are missing it explains exactly which App Settings to add. |
 | **Audit Log**        | `/audit`       | Immutable log of every privileged action (scan triggered, status changed, POA&M edited, eMASS pushed, remediation job submitted). Filter by user, action, or date range. |
 | **Users**            | `/users`       | View Entra-assigned roles (admin / operator / auditor). Role assignment itself is done in the Entra portal. |
-| **Scan schedule**    | `/scan-schedule` | Enable automatic scans; choose an hourly, daily, or weekly cadence, time, and time zone; and see the next run and latest scheduled result. |
+| **Comprehensive scans** | `/scan-schedule` | Schedule inventory refresh, Azure signal collection, applicable OS STIG assessments, and immediate compliance rollups. |
 | **Updates**          | `/updates`     | Choose whether releases are reported or installed automatically, with approval and maintenance-window controls. |
 
 ### Common workflows
 
-**1. Run a scan right now.**
-Open *Machine Inventory* → select machines → **Trigger scan**. The orchestrator chooses PowerSTIG (Windows) or OpenSCAP (Linux) automatically. Or hit `POST /api/scan/trigger` from a CI pipeline.
+**1. Run a comprehensive scan right now.**
+On the Overview page, choose **Run Comprehensive Scan**. It refreshes inventory and Azure Policy/Defender/Guest Configuration signals, resolves each online machine's applicable active OS STIG from its discovered OS metadata, runs PowerSTIG for Windows or OpenSCAP for Arc Linux, and immediately recomputes compliance. On a machine page, **Assess Machine** runs the same flow for that host. CI can call `POST /api/scan/trigger`.
 
-**1a. Schedule automatic refreshes (how often *you* decide).**
-The dashboard is a **database that is refreshed by scans**, not a live query against Azure, so it only changes when a scan runs. Automated scans are **off by default**. Open **Administration → Scan schedule**, enable automatic scans, then choose hourly, daily, or weekly, the run time, and your time zone. The page shows the calculated next run and the latest scheduled result. Changes take effect without restarting or redeploying the app.
+Application, browser, and database STIGs are not inferred merely because their platform says Windows or Linux. They require trustworthy installed-product inventory and a product-specific assessment runner; until those exist, the scheduler deliberately limits automatic applicability to supported operating-system benchmarks rather than reporting false coverage.
+
+**1a. Schedule comprehensive scans (how often *you* decide).**
+The dashboard is a **database that is refreshed by scans**, not a live query against Azure, so it only changes when a scan runs. Automatic comprehensive scans are **off by default**. Open **Settings → Comprehensive scans**, enable the schedule, then choose hourly, daily, or weekly, the run time, and your time zone. The page shows the calculated next run and latest result. Changes take effect without restarting or redeploying the app.
 
 Pick hourly for active remediation, daily for steady-state monitoring, or weekly for slow-changing estates and audit preparation.
 
-> **Resource overhead.** Each run is a **batch pull** across Resource Graph, Policy, Defender, ARM, and Guest Configuration. Cost scales with fleet size — roughly a few API calls per subscription plus per VM, so a few hundred VMs is a few minutes of work and a brief CPU/network spike on the backend container. Calls are **read-only** but count against ARM/Resource Graph throttling limits, so prefer **hourly-or-slower** on large fleets (very frequent schedules can hit HTTP 429). Each run also writes a `Scan` row + a compliance-history snapshot, so the DB grows slowly and linearly with frequency. **Overlapping runs are skipped** — if a scan is still going when the next tick fires, the tick is logged and dropped rather than stacking concurrent scans.
+> **Resource overhead.** Each run pulls Resource Graph, Policy, Defender, ARM, and Guest Configuration data, then executes applicable in-guest OS assessments. Duration scales with machines and benchmarks and may be substantial, so weekly is the preferred steady-state cadence. Each run writes scan evidence and findings. **Overlapping runs are skipped** rather than stacked.
 
-> **First-time fill-in can take days.** The scheduler only surfaces what Azure has *already evaluated*. On a brand-new deployment the dashboard populates **gradually**: inventory (machines/OS/RGs) appears on the **first run**; Azure Policy + Defender posture (~5–15% of a STIG) appears once Azure finishes evaluating assignments (**~30 min, up to ~24 h**); and the bulk of a STIG (~80–90%) only after **Guest Configuration is deployed to the VMs and reports back** — which can take **hours to days** to fully populate across a fleet. Scanning more often does **not** speed up Azure's own evaluation; it just refreshes what is ready. Expect the compliance picture to climb over the first few days, then stabilise.
+> **Assessment prerequisites.** The applicable STIG must have an active imported version. Windows assessment uses PowerSTIG through VM/Arc Run Command; Arc Linux uses OpenSCAP and the imported benchmark content URL. Offline hosts are skipped and per-host failures do not prevent the rest of the fleet from completing. Azure Policy and Defender signals can still take up to 24 hours to appear.
 
 For business-hours gating, retries, and bundling vulnerability sync + history snapshots, the [Azure Functions timer](functions/README.md) (`scheduledScan`) is an alternative that calls the same endpoint from outside the app.
 

@@ -1,7 +1,8 @@
 import { ResourceGraphConnector } from '../connectors/resourceGraphConnector';
 import { PolicyConnector } from '../connectors/policyConnector';
 import { DefenderConnector } from '../connectors/defenderConnector';
-import { ARMConnector } from '../connectors/armConnector';
+import { ARMConnector, normalizeMachineStatus } from '../connectors/armConnector';
+import { shouldReconcileInventory } from '../connectors/scanOrchestrator';
 import { mockStore } from '../database/dataSource';
 import { seedMock } from '../database/mockSeed';
 
@@ -85,5 +86,33 @@ describe('ARMConnector (mock mode)', () => {
     for (const vm of result.data) {
       expect(vm.osType).toBeTruthy();
     }
+  });
+});
+
+describe('normalizeMachineStatus', () => {
+  it.each([
+    ['PowerState/running', 'online'],
+    ['VM running', 'online'],
+    ['Connected', 'online'],
+    ['PowerState/deallocated', 'offline'],
+    ['VM stopped', 'offline'],
+    ['Disconnected', 'offline'],
+    [undefined, 'unknown'],
+  ])('maps %s to %s', (input, expected) => {
+    expect(normalizeMachineStatus(input)).toBe(expected);
+  });
+});
+
+describe('shouldReconcileInventory', () => {
+  it('reconciles a full unfiltered scan', () => {
+    expect(shouldReconcileInventory({})).toBe(true);
+  });
+
+  it.each([
+    { since: new Date() },
+    { resourceIds: ['/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm'] },
+    { resourceGroupNames: ['rg'] },
+  ])('does not reconcile a targeted or incremental scan', (options) => {
+    expect(shouldReconcileInventory(options)).toBe(false);
   });
 });

@@ -174,7 +174,7 @@ export default function StigDetailPage() {
     setScanMessage(null);
     try {
       await api.post(`/api/stigs/${benchmarkId}/scan`, {});
-      setScanMessage('Scan triggered — results will appear in machine findings as checks complete.');
+      setScanMessage('STIG assessment queued for applicable machines. Results will update machine findings and compliance scores.');
     } catch (e: any) {
       setScanMessage(`Error: ${e.message}`);
     } finally {
@@ -210,7 +210,7 @@ export default function StigDetailPage() {
   const commandItems: ICommandBarItemProps[] = [
     {
       key: 'scan',
-      text: 'Run Scan',
+      text: 'Run STIG Assessment',
       iconProps: { iconName: 'PlaySolid' },
       disabled: scanBusy,
       onClick: () => { void handleScan(); },

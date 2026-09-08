@@ -11,7 +11,7 @@
  */
 
 import { Router } from 'express';
-import { ILike, In } from 'typeorm';
+import { In } from 'typeorm';
 import { AppDataSource } from '../database/dataSource';
 import { StigBenchmarkEntity } from '../models/StigBenchmark';
 import { StigVersionEntity } from '../models/StigVersion';
@@ -24,11 +24,8 @@ import { parsePage, parsePageSize } from '../utils/paging';
 import { logger } from '../utils/logger';
 import { importStigs, ImportResult } from '../stigs/stigImporter';
 import { fetchStigCatalog } from '../stigs/stigCatalog';
-import { checkForUpdates, runQuarterlyImport } from '../stigs/stigUpdateScheduler';
-import { runPowerStigAudit } from '../scanning/powerStigRunner';
-import { parseStigResults } from '../scanning/dscResultParser';
-import { runOpenScapScan } from '../scanning/openScapRunner';
-import { ScanEntity } from '../models/Scan';
+import { checkForUpdates } from '../stigs/stigUpdateScheduler';
+import { assessApplicableStigs, resolveApplicableStigs } from '../services/stigAssessmentService';
 
 const router = Router();
 
@@ -436,13 +433,9 @@ router.post(
   async (req, res, next) => {
     try {
       const { benchmarkId } = req.params;
-      const { machineIds, version, benchmarkXccdfUrl, profileName } = req.body as {
+      const { machineIds, version } = req.body as {
         machineIds?: string[];
         version?: string;
-        /** For Linux openSCAP: full HTTPS URL of an XCCDF zip on an allow-listed DISA host. */
-        benchmarkXccdfUrl?: string;
-        /** For Linux openSCAP: XCCDF profile id (defaults to CAT_I_II_III). */
-        profileName?: string;
       };
 
       const MOCK = process.env.MOCK_MODE === 'true';
@@ -483,102 +476,46 @@ router.post(
       // Get machines to scan (no OS filter — we dispatch per-OS below)
       const machineRepo = AppDataSource.getRepository(MachineEntity);
       const machines = machineIds
-        ? await machineRepo.findBy({ id: In(machineIds) })
-        : await machineRepo.find();
+        ? await machineRepo.findBy({ id: In(machineIds), isActive: true })
+        : await machineRepo.findBy({ isActive: true });
 
       if (machines.length === 0) {
         return res.json({ message: 'No machines found to scan', machinesQueued: 0 });
       }
 
+      const applicableMachines: MachineEntity[] = [];
+      for (const machine of machines) {
+        if ((await resolveApplicableStigs(AppDataSource, machine, benchmarkId, stigVersion.version)).length) {
+          applicableMachines.push(machine);
+        }
+      }
+      if (applicableMachines.length === 0) {
+        return res.status(422).json({
+          message: `No active machines are applicable to ${benchmarkId}`,
+          machinesQueued: 0,
+        });
+      }
+
       // Queue scans — respond immediately
       res.status(202).json({
-        message: `Scan triggered for ${machines.length} machines`,
-        machinesQueued: machines.length,
+        message: `STIG assessment triggered for ${applicableMachines.length} applicable machine(s)`,
+        machinesQueued: applicableMachines.length,
         benchmarkId,
         version: stigVersion.version,
       });
 
-      // Run scans in background
-      (async () => {
-        const scanRepo = AppDataSource.getRepository(ScanEntity);
-        for (const machine of machines) {
-          const isLinux = (machine.osType ?? '').toLowerCase().startsWith('linux')
-            || /(rhel|ubuntu|centos|debian|suse|amazon)/i.test(machine.osType ?? '');
-
-          try {
-            if (isLinux) {
-              if (!benchmarkXccdfUrl) {
-                logger.warn(
-                  `[StigsRoute] Skipping Linux machine ${machine.name}: benchmarkXccdfUrl not supplied in request body`,
-                );
-                continue;
-              }
-              const scan = await scanRepo.save(
-                scanRepo.create({
-                  machineId: machine.id,
-                  machineName: machine.name,
-                  subscriptionId: machine.subscriptionId,
-                  resourceGroupName: machine.resourceGroupName,
-                  triggeredBy: 'stig.scan',
-                  scanType: 'on-demand',
-                  status: 'running',
-                  startedAt: new Date(),
-                }),
-              );
-              try {
-                await runOpenScapScan(
-                  machine,
-                  scan,
-                  {
-                    benchmarkXccdfUrl,
-                    profileName:
-                      profileName ?? 'xccdf_mil.disa.stig_profile_CAT_I_II_III',
-                    dataStream: benchmarkId,
-                  },
-                  AppDataSource,
-                );
-                scan.status = 'completed';
-                scan.completedAt = new Date();
-                await scanRepo.save(scan);
-              } catch (innerErr: any) {
-                scan.status = 'failed';
-                scan.errorMessage = innerErr?.message ?? String(innerErr);
-                scan.completedAt = new Date();
-                await scanRepo.save(scan);
-                throw innerErr;
-              }
-              continue;
-            }
-
-            const result = await runPowerStigAudit({
-              machineId:       machine.id,
-              machineName:     machine.name,
-              resourceGroupName: machine.resourceGroupName ?? '',
-              subscriptionId:  machine.subscriptionId ?? process.env.AZURE_SUBSCRIPTION_ID ?? '',
-              benchmarkId,
-              stigVersion:     stigVersion.version,
-              osType:          machine.osType ?? 'Windows',
-              isArcConnected:  machine.isArcConnected ?? false,
-            });
-
-            if (result.status === 'succeeded' && result.rawOutput) {
-              await parseStigResults(
-                {
-                  rawOutput:      result.rawOutput,
-                  machineId:      machine.id,
-                  stigVersionId:  stigVersion.id,
-                  runCommandJobId: result.jobId,
-                },
-                AppDataSource,
-              );
-            } else {
-              logger.warn(`[StigsRoute] Scan ${result.status} for ${machine.name}: ${result.error ?? ''}`);
-            }
-          } catch (err: any) {
-            logger.error(`[StigsRoute] Scan failed for ${machine.name}: ${err.message}`);
-          }
-        }
-      })();
+      void assessApplicableStigs(
+        AppDataSource,
+        applicableMachines,
+        benchmarkId,
+        stigVersion.version,
+      ).then((summary) => {
+        logger.info(
+          `[StigsRoute] Assessment ${benchmarkId} complete: completed=${summary.completed}, failed=${summary.failed}, skipped=${summary.skipped}`,
+        );
+      }).catch((error: any) => {
+        logger.error(`[StigsRoute] Assessment ${benchmarkId} failed: ${error?.message ?? error}`);
+      });
     } catch (err) {
       next(err);
     }

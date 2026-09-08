@@ -136,7 +136,7 @@ export default function MachinePage() {
       },
     },
     ...(has('scan:trigger')
-      ? [{ key: 'scan', text: 'Scan Now', iconProps: { iconName: 'Refresh' }, onClick: () => { void api.post('/api/scan/trigger', { resourceIds: [machine?.resourceId] }); } } as ICommandBarItemProps]
+      ? [{ key: 'scan', text: 'Assess Machine', iconProps: { iconName: 'PlaySolid' }, onClick: () => { void api.post('/api/scan/trigger', { resourceIds: [machine?.resourceId] }); } } as ICommandBarItemProps]
       : []),
   ];
 

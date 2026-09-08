@@ -36,6 +36,7 @@ import {
   syncGcReportToDb,
 } from '../scanning/guestConfigDeployer';
 import { reapplyAllForMachine } from '../services/manualAnswers';
+import { assessApplicableStigs, AssessmentSummary } from '../services/stigAssessmentService';
 import { logger } from '../utils/logger';
 import { randomUUID as uuidv4 } from 'crypto';
 
@@ -47,6 +48,11 @@ export interface OrchestrationResult {
   findingCount: number;
   openCount: number;
   durationMs: number;
+  assessments: AssessmentSummary;
+}
+
+export function shouldReconcileInventory(options: ScanOptions): boolean {
+  return !options.since && !options.resourceIds?.length && !options.resourceGroupNames?.length;
 }
 
 export class ScanOrchestrator {
@@ -94,6 +100,7 @@ export class ScanOrchestrator {
         findingCount: mockStore.findings.length,
         openCount,
         durationMs: Date.now() - start,
+        assessments: { attempted: 0, completed: 0, failed: 0, skipped: 0 },
       };
     }
 
@@ -114,9 +121,10 @@ export class ScanOrchestrator {
 
       // ── Step 5: Persist Subscriptions / ResourceGroups / Machines ──────
       const armByResourceId = new Map<string, VMMetadata>();
-      for (const m of armResult.data) armByResourceId.set(m.resourceId, m);
+      for (const m of armResult.data) armByResourceId.set(m.resourceId.toLowerCase(), m);
 
-      const machines = await persistMachines(rgResult.data, armByResourceId);
+      const reconcileInventory = shouldReconcileInventory(options);
+      const machines = await persistMachines(rgResult.data, armByResourceId, reconcileInventory);
       logger.info(`[Orchestrator] Upserted ${machines.length} machine(s)`);
 
       // ── Step 6: Normalize Policy + Defender results into Findings ──────
@@ -151,7 +159,17 @@ export class ScanOrchestrator {
         }
       }
 
-      // ── Step 6c: Inherit shared manual answers (pool / platform) ───────
+      // ── Step 6c: Run applicable in-guest STIG assessments ──────────────
+      // Applicability is derived conservatively from the discovered OS and
+      // active imported benchmark metadata. Failures are isolated per
+      // machine/benchmark so one offline or misconfigured host does not stop
+      // the rest of the fleet assessment.
+      const assessments = await assessApplicableStigs(AppDataSource, machines);
+      logger.info(
+        `[Orchestrator] STIG assessments: attempted=${assessments.attempted}, completed=${assessments.completed}, failed=${assessments.failed}, skipped=${assessments.skipped}`,
+      );
+
+      // ── Step 6d: Inherit shared manual answers (pool / platform) ───────
       // Manual STIG answers authored once at a pool or platform scope are
       // re-applied here so newly-discovered machines inherit them and edits
       // re-propagate. Machine-specific answers always take precedence.
@@ -218,6 +236,7 @@ export class ScanOrchestrator {
         findingCount: totals.total,
         openCount: totals.open,
         durationMs: Date.now() - start,
+        assessments,
       };
     } catch (err: any) {
       logger.error('[Orchestrator] Scan failed:', err.message);
@@ -240,6 +259,7 @@ interface FindingTotals {
 async function persistMachines(
   rgEntries: ResourceGraphEntry[],
   armByResourceId: Map<string, VMMetadata>,
+  reconcileInventory: boolean,
 ): Promise<MachineEntity[]> {
   const subRepo = AppDataSource.getRepository(SubscriptionEntity);
   const rgRepo = AppDataSource.getRepository(ResourceGroupEntity);
@@ -284,10 +304,15 @@ async function persistMachines(
     }
   }
 
-  // Upsert machines (keyed by resourceId)
+  // Upsert machines (Azure resource IDs are case-insensitive).
   const machines: MachineEntity[] = [];
+  const existingMachines = await machineRepo.find();
+  const existingByResourceId = new Map(
+    existingMachines.map((machine) => [machine.resourceId.toLowerCase(), machine]),
+  );
   for (const e of rgEntries) {
-    const arm = armByResourceId.get(e.id);
+    const resourceId = e.id.toLowerCase();
+    const arm = armByResourceId.get(resourceId);
     const osType =
       arm?.osType ||
       e.properties?.storageProfile?.osDisk?.osType ||
@@ -296,11 +321,11 @@ async function persistMachines(
     const osVersion =
       arm?.osVersion || e.properties?.osSku || undefined;
 
-    const existing = await machineRepo.findOne({ where: { resourceId: e.id } });
+    const existing = existingByResourceId.get(resourceId);
     const row =
       existing ??
       machineRepo.create({
-        resourceId: e.id,
+        resourceId,
         name: e.name,
         subscriptionId: e.subscriptionId,
         resourceGroupName: e.resourceGroupName,
@@ -309,6 +334,7 @@ async function persistMachines(
         osVersion,
         tags: e.tags,
         status: arm?.powerState || arm?.arcStatus || 'unknown',
+        isActive: true,
       });
 
     // Always refresh mutable fields
@@ -319,11 +345,24 @@ async function persistMachines(
     row.osType = osType;
     if (osVersion) row.osVersion = osVersion;
     row.tags = e.tags ?? row.tags;
+    row.isActive = true;
     if (arm?.powerState || arm?.arcStatus) {
       row.status = (arm.powerState || arm.arcStatus) as string;
     }
 
     machines.push(await machineRepo.save(row));
+  }
+
+  if (reconcileInventory) {
+    const discoveredIds = machines.map((machine) => machine.id);
+    const staleQuery = machineRepo
+      .createQueryBuilder()
+      .update(MachineEntity)
+      .set({ isActive: false });
+    if (discoveredIds.length) {
+      staleQuery.where('id NOT IN (:...discoveredIds)', { discoveredIds });
+    }
+    await staleQuery.execute();
   }
 
   return machines;

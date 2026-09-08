@@ -47,6 +47,20 @@ export interface VMExtension {
   // Relevant STIG-related extensions: MicrosoftMonitoringAgent, AzurePolicyforWindows, etc.
 }
 
+export function normalizeMachineStatus(status?: string): 'online' | 'offline' | 'unknown' {
+  const value = status?.toLowerCase().trim();
+  if (!value) return 'unknown';
+  if (value === 'connected' || value.endsWith('/running') || value === 'vm running') return 'online';
+  if (
+    value === 'disconnected' ||
+    value.endsWith('/stopped') ||
+    value.endsWith('/deallocated') ||
+    value === 'vm stopped' ||
+    value === 'vm deallocated'
+  ) return 'offline';
+  return 'unknown';
+}
+
 export class ARMConnector extends BaseConnector {
   private clients: Map<string, ComputeManagementClient> = new Map();
   private hybridClients: Map<string, HybridComputeManagementClient> = new Map();
@@ -125,6 +139,18 @@ export class ARMConnector extends BaseConnector {
         for await (const vm of vmIterator) {
           const rgName = vm.id?.split('/resourceGroups/')[1]?.split('/')[0] || '';
 
+          let powerState: string | undefined;
+          let instanceOsName: string | undefined;
+          try {
+            const instanceView = await client.virtualMachines.instanceView(rgName, vm.name || '');
+            instanceOsName = instanceView.osName;
+            powerState = instanceView.statuses?.find((status) =>
+              status.code?.toLowerCase().startsWith('powerstate/'),
+            )?.code;
+          } catch {
+            // Instance view is best-effort; inventory metadata is still useful without it.
+          }
+
           // Optionally fetch extensions
           const extensions: VMExtension[] = [];
           try {
@@ -148,9 +174,13 @@ export class ARMConnector extends BaseConnector {
             resourceGroupName: rgName,
             location: vm.location || '',
             osType: vm.storageProfile?.osDisk?.osType || 'Unknown',
-            osVersion: vm.storageProfile?.imageReference?.exactVersion,
+            osVersion:
+              instanceOsName ||
+              vm.storageProfile?.imageReference?.sku ||
+              vm.storageProfile?.imageReference?.exactVersion,
             vmSize: vm.hardwareProfile?.vmSize,
             provisioningState: vm.provisioningState,
+            powerState: normalizeMachineStatus(powerState),
             isArcConnected: false,
             extensions,
             tags: vm.tags as any,
@@ -196,7 +226,9 @@ export class ARMConnector extends BaseConnector {
               provisioningState: (machine as any).provisioningState || (machine as any).properties?.provisioningState,
               isArcConnected: true,
               arcAgentVersion: (machine as any).agentVersion || (machine as any).properties?.agentVersion,
-              arcStatus: (machine as any).status || (machine as any).properties?.status,
+              arcStatus: normalizeMachineStatus(
+                (machine as any).status || (machine as any).properties?.status,
+              ),
               extensions,
               tags: machine.tags as any,
             });

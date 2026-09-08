@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "10711991593498822137"
+      "templateHash": "13260110506935232530"
     }
   },
   "parameters": {
@@ -132,9 +132,9 @@
     },
     "remediationTargetResourceGroupName": {
       "type": "string",
-      "defaultValue": "",
+      "defaultValue": "[resourceGroup().name]",
       "metadata": {
-        "description": "Optional resource group name containing VMs/Arc machines that this app may remediate"
+        "description": "Resource group containing VMs/Arc machines that this app may assess and remediate"
       }
     },
     "enableScheduler": {
