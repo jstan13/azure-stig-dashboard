@@ -41,7 +41,7 @@
     "winston": "^3.11.0",
     "xml2js": "^0.6.2",
     "yamljs": "^0.3.0",
-    "zod": "^3.23.8"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
