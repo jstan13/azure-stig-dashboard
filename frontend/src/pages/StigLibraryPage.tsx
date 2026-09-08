@@ -29,10 +29,10 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../hooks/useApi';
 
 interface StigBenchmark {
-  benchmarkId: string;
-  title: string;
-  category: string;
-  platform: string;
+  benchmarkId: string | null;
+  title: string | null;
+  category: string | null;
+  platform: string | null;
   latestInstalledVersion: string | null;
   latestAvailableVersion: string | null;
   updateAvailable: boolean;
@@ -84,12 +84,15 @@ const categoryColor: Record<string, string> = {
   'Database':         '#ca5010',
 };
 
+const PAGE_SIZE = 25;
+
 export default function StigLibraryPage() {
   const navigate = useNavigate();
 
   const [benchmarks, setBenchmarks] = useState<StigBenchmark[]>([]);
   const [total, setTotal] = useState(0);
   const [q, setQ] = useState('');
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [updateStatus, setUpdateStatus] = useState<UpdateCheckStatus | null>(null);
@@ -169,11 +172,12 @@ export default function StigLibraryPage() {
     if (!q) return true;
     const lower = q.toLowerCase();
     return (
-      b.title.toLowerCase().includes(lower) ||
-      b.benchmarkId.toLowerCase().includes(lower) ||
-      b.category.toLowerCase().includes(lower)
+      (b.title ?? '').toLowerCase().includes(lower) ||
+      (b.benchmarkId ?? '').toLowerCase().includes(lower) ||
+      (b.category ?? '').toLowerCase().includes(lower)
     );
   });
+  const visibleBenchmarks = filtered.slice(0, visibleCount);
 
   async function handleUpdateCheck() {
     setActionBusy(true);
@@ -249,13 +253,15 @@ export default function StigLibraryPage() {
       minWidth: 280,
       isResizable: true,
       onRender: (item: StigBenchmark) => (
-        <a
-          href="#"
-          style={{ color: '#0078d4', fontWeight: 600 }}
-          onClick={(e) => { e.preventDefault(); navigate(`/stigs/${item.benchmarkId}`); }}
-        >
-          {item.title}
-        </a>
+        item.benchmarkId ? (
+          <a
+            href="#"
+            style={{ color: '#0078d4', fontWeight: 600 }}
+            onClick={(e) => { e.preventDefault(); navigate(`/stigs/${item.benchmarkId}`); }}
+          >
+            {item.title ?? item.benchmarkId}
+          </a>
+        ) : <Text>{item.title ?? 'Untitled STIG'}</Text>
       ),
     },
     {
@@ -266,14 +272,14 @@ export default function StigLibraryPage() {
       onRender: (item: StigBenchmark) => (
         <span
           style={{
-            background: categoryColor[item.category] ?? '#605e5c',
+            background: (item.category && categoryColor[item.category]) ?? '#605e5c',
             color:       '#fff',
             padding:     '2px 8px',
             borderRadius: 4,
             fontSize:    12,
           }}
         >
-          {item.category}
+          {item.category ?? 'Uncategorized'}
         </span>
       ),
     },
@@ -314,7 +320,8 @@ export default function StigLibraryPage() {
           text="Detail"
           iconProps={{ iconName: 'OpenInNewWindow' }}
           styles={{ root: { height: 24, fontSize: 12 } }}
-          onClick={() => navigate(`/stigs/${item.benchmarkId}`)}
+          disabled={!item.benchmarkId}
+          onClick={() => item.benchmarkId && navigate(`/stigs/${item.benchmarkId}`)}
         />
       ),
     },
@@ -356,8 +363,14 @@ export default function StigLibraryPage() {
       <SearchBox
         placeholder="Search by title, ID, or category…"
         value={q}
-        onChange={(_e, v) => setQ(v || '')}
-        onClear={() => setQ('')}
+        onChange={(_e, v) => {
+          setQ(v || '');
+          setVisibleCount(PAGE_SIZE);
+        }}
+        onClear={() => {
+          setQ('');
+          setVisibleCount(PAGE_SIZE);
+        }}
         styles={{ root: { maxWidth: 400 } }}
       />
 
@@ -366,13 +379,26 @@ export default function StigLibraryPage() {
       {loading ? (
         <Spinner size={SpinnerSize.large} label="Loading STIG library…" />
       ) : (
-        <DetailsList
-          items={filtered}
-          columns={columns}
-          layoutMode={DetailsListLayoutMode.justified}
-          selectionMode={SelectionMode.none}
-          isHeaderVisible
-        />
+        <Stack tokens={{ childrenGap: 12 }}>
+          <DetailsList
+            items={visibleBenchmarks}
+            columns={columns}
+            layoutMode={DetailsListLayoutMode.justified}
+            selectionMode={SelectionMode.none}
+            isHeaderVisible
+          />
+          {visibleCount < filtered.length && (
+            <DefaultButton
+              text={`Show more (${filtered.length - visibleCount} remaining)`}
+              iconProps={{ iconName: 'ChevronDown' }}
+              onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
+              styles={{ root: { alignSelf: 'center' } }}
+            />
+          )}
+          <Text style={{ color: '#605e5c', fontSize: 13, textAlign: 'center' }}>
+            Showing {Math.min(visibleCount, filtered.length)} of {filtered.length} STIGs
+          </Text>
+        </Stack>
       )}
 
       {/* Update check results panel */}
