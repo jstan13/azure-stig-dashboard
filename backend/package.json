@@ -13,7 +13,7 @@
     "@azure/arm-compute": "^21.0.0",
     "@azure/arm-guestconfiguration": "1.0.0-beta.1",
     "@azure/arm-hybridcompute": "^4.0.0",
-    "@azure/arm-policy": "^5.1.0",
+    "@azure/arm-policy": "^7.0.1",
     "@azure/arm-resourcegraph": "^5.0.0",
     "@azure/arm-resources": "^5.2.0",
     "@azure/arm-security": "^5.0.0",
