@@ -285,7 +285,7 @@ paths:
 
   /stigs/{benchmarkId}/scan:
     post:
-      summary: Trigger PowerSTIG audit scan for this STIG on all machines
+      summary: Assess an operating-system STIG on applicable active machines
       tags: [STIGs]
       security:
         - bearerAuth: []
@@ -300,13 +300,14 @@ paths:
                 machineIds:
                   type: array
                   items: { type: string }
-                  description: Specific machine IDs to scan (omit for all Windows machines)
+                  description: Specific active machine IDs to assess (omit for all applicable machines)
                 version:
                   type: string
                   description: 'STIG version to use e.g. V2R8 (defaults to active)'
       responses:
         '202': { description: Scan triggered }
         '404': { description: Benchmark not found }
+        '422': { description: No active machines are applicable to this operating-system STIG }
 
   /updates:
     get:
@@ -533,6 +534,9 @@ components:
         latestInstalledVersion: { type: string, nullable: true, example: 'V2R8' }
         latestAvailableVersion: { type: string, nullable: true, example: 'V2R9' }
         updateAvailable:        { type: boolean }
+        automaticAssessmentSupported:
+          type: boolean
+          description: Whether this benchmark can be assessed automatically from its detail page
         lastContentUpdate:      { type: string, format: date-time, nullable: true }
         active:                 { type: boolean }
 

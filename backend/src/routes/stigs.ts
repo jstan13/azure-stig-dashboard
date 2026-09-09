@@ -25,7 +25,11 @@ import { logger } from '../utils/logger';
 import { importStigs, ImportResult } from '../stigs/stigImporter';
 import { fetchStigCatalog } from '../stigs/stigCatalog';
 import { checkForUpdates } from '../stigs/stigUpdateScheduler';
-import { assessApplicableStigs, resolveApplicableStigs } from '../services/stigAssessmentService';
+import {
+  assessApplicableStigs,
+  isOperatingSystemBenchmark,
+  resolveApplicableStigs,
+} from '../services/stigAssessmentService';
 
 const router = Router();
 
@@ -122,7 +126,10 @@ router.get('/', async (req, res, next) => {
     const MOCK = process.env.MOCK_MODE === 'true';
     if (MOCK) {
       return res.json({
-        data: MOCK_BENCHMARKS,
+        data: MOCK_BENCHMARKS.map((benchmark) => ({
+          ...benchmark,
+          automaticAssessmentSupported: isOperatingSystemBenchmark(benchmark),
+        })),
         total: MOCK_BENCHMARKS.length,
       });
     }
@@ -135,6 +142,7 @@ router.get('/', async (req, res, next) => {
 
     const data = benchmarks.map((b) => ({
       ...b,
+      automaticAssessmentSupported: isOperatingSystemBenchmark(b),
       updateAvailable:
         b.latestAvailableVersion !== null &&
         b.latestAvailableVersion !== b.latestInstalledVersion,
@@ -181,7 +189,10 @@ router.get('/:benchmarkId', async (req, res, next) => {
     if (MOCK) {
       const bm = MOCK_BENCHMARKS.find((b) => b.benchmarkId === benchmarkId);
       if (!bm) return next(createError('Benchmark not found', 404, 'NOT_FOUND'));
-      return res.json(bm);
+      return res.json({
+        ...bm,
+        automaticAssessmentSupported: isOperatingSystemBenchmark(bm),
+      });
     }
 
     const bmRepo = AppDataSource.getRepository(StigBenchmarkEntity);
@@ -195,7 +206,11 @@ router.get('/:benchmarkId', async (req, res, next) => {
       order: { benchmarkDate: 'DESC' },
     });
 
-    return res.json({ ...benchmark, versions });
+    return res.json({
+      ...benchmark,
+      versions,
+      automaticAssessmentSupported: isOperatingSystemBenchmark(benchmark),
+    });
   } catch (err) {
     next(err);
   }

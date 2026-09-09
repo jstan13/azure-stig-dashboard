@@ -13,10 +13,11 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import axios from 'axios';
-import AdmZip from 'adm-zip';
+import { unzipSync } from 'fflate';
 import { logger } from '../utils/logger';
 
 const CACHE_DIR = process.env.STIG_CACHE_DIR || path.join(process.cwd(), '.stig-cache');
+const MAX_XCCDF_BYTES = 50 * 1024 * 1024;
 
 export interface DownloadResult {
   xccdfXml: string;
@@ -58,7 +59,7 @@ export async function downloadStigZip(url: string, knownHash?: string): Promise<
     const cachedHash = sha256File(zipPath);
     if (knownHash && cachedHash === knownHash) {
       logger.info(`[STIGDownloader] Cache hit for ${filename}`);
-      const xccdfXml = extractXccdf(zipPath);
+      const xccdfXml = extractXccdfArchive(fs.readFileSync(zipPath));
       return { xccdfXml, filename, sha256: cachedHash, fromCache: true };
     }
     // Hash mismatch or no known hash — re-download
@@ -82,7 +83,7 @@ export async function downloadStigZip(url: string, knownHash?: string): Promise<
   const sha256 = sha256File(zipPath);
   logger.info(`[STIGDownloader] Downloaded ${filename} (${(response.data.byteLength / 1024).toFixed(0)} KB, sha256=${sha256.substring(0, 12)}…)`);
 
-  const xccdfXml = extractXccdf(zipPath);
+  const xccdfXml = extractXccdfArchive(fs.readFileSync(zipPath));
   return { xccdfXml, filename, sha256, fromCache: false };
 }
 
@@ -90,21 +91,35 @@ export async function downloadStigZip(url: string, knownHash?: string): Promise<
  * Extract the XCCDF XML file from a STIG ZIP.
  * DISA ZIPs typically contain one *-xccdf.xml file; some have sub-directories.
  */
-function extractXccdf(zipPath: string): string {
-  const zip = new AdmZip(zipPath);
-  const entries = zip.getEntries();
+export function extractXccdfArchive(zipData: Uint8Array): string {
+  const entryNames: string[] = [];
+  const oversizedEntries: string[] = [];
+  const entries = unzipSync(zipData, {
+    filter: (entry) => {
+      entryNames.push(entry.name);
+      const isXml = entry.name.toLowerCase().endsWith('.xml');
+      if (isXml && entry.originalSize > MAX_XCCDF_BYTES) {
+        oversizedEntries.push(entry.name);
+        return false;
+      }
+      return isXml;
+    },
+  });
+  const extractedNames = Object.keys(entries);
 
   // Prefer Manual XCCDF over automated SCAP content
-  const xccdfEntry =
-    entries.find((e) => e.entryName.endsWith('-xccdf.xml') && e.entryName.includes('Manual')) ||
-    entries.find((e) => e.entryName.endsWith('-xccdf.xml')) ||
-    entries.find((e) => e.entryName.endsWith('.xml') && !e.entryName.includes('cpe'));
+  const xccdfEntryName =
+    extractedNames.find((name) => name.endsWith('-xccdf.xml') && name.includes('Manual')) ||
+    extractedNames.find((name) => name.endsWith('-xccdf.xml')) ||
+    extractedNames.find((name) => name.endsWith('.xml') && !name.includes('cpe'));
 
-  if (!xccdfEntry) {
-    const names = entries.map((e) => e.entryName).join(', ');
-    throw new Error(`No XCCDF file found in ZIP. Contents: ${names}`);
+  if (!xccdfEntryName) {
+    if (oversizedEntries.length) {
+      throw new Error(`XCCDF file exceeds the ${MAX_XCCDF_BYTES / 1024 / 1024} MB extraction limit: ${oversizedEntries.join(', ')}`);
+    }
+    throw new Error(`No XCCDF file found in ZIP. Contents: ${entryNames.join(', ')}`);
   }
 
-  logger.debug(`[STIGDownloader] Extracting XCCDF: ${xccdfEntry.entryName}`);
-  return xccdfEntry.getData().toString('utf-8');
+  logger.debug(`[STIGDownloader] Extracting XCCDF: ${xccdfEntryName}`);
+  return Buffer.from(entries[xccdfEntryName]).toString('utf-8');
 }

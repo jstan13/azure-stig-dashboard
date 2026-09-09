@@ -40,6 +40,7 @@ interface StigBenchmarkDetail {
   latestInstalledVersion: string | null;
   latestAvailableVersion: string | null;
   lastContentUpdate: string | null;
+  automaticAssessmentSupported: boolean;
   versions: StigVersionSummary[];
 }
 
@@ -176,7 +177,7 @@ export default function StigDetailPage() {
       await api.post(`/api/stigs/${benchmarkId}/scan`, {});
       setScanMessage('STIG assessment queued for applicable machines. Results will update machine findings and compliance scores.');
     } catch (e: any) {
-      setScanMessage(`Error: ${e.message}`);
+      setScanMessage(`Error: ${e.response?.data?.message ?? e.message}`);
     } finally {
       setScanBusy(false);
     }
@@ -212,7 +213,12 @@ export default function StigDetailPage() {
       key: 'scan',
       text: 'Run STIG Assessment',
       iconProps: { iconName: 'PlaySolid' },
-      disabled: scanBusy,
+      disabled: scanBusy || !benchmark?.automaticAssessmentSupported,
+      tooltipHostProps: {
+        content: benchmark?.automaticAssessmentSupported
+          ? 'Assess this operating-system STIG on matching active machines'
+          : 'Automatic assessment is currently available for operating-system STIGs only',
+      },
       onClick: () => { void handleScan(); },
     },
     {
@@ -342,6 +348,13 @@ export default function StigDetailPage() {
           onDismiss={() => setScanMessage(null)}
         >
           {scanMessage}
+        </MessageBar>
+      )}
+
+      {!benchmark.automaticAssessmentSupported && (
+        <MessageBar messageBarType={MessageBarType.info}>
+          Automatic assessment is currently available for operating-system STIGs only. This benchmark remains
+          available for control review and manual assessment evidence.
         </MessageBar>
       )}
 

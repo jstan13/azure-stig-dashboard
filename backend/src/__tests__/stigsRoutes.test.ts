@@ -18,6 +18,8 @@ describe('STIG detail routes', () => {
     id: '727d0908-72ae-469a-bc3f-8cd1aa93e324',
     benchmarkId: 'Active_Directory_Forest',
     title: 'Active Directory Forest',
+    category: 'Application',
+    platform: 'Windows',
   };
 
   beforeEach(() => {
@@ -27,6 +29,19 @@ describe('STIG detail routes', () => {
 
   afterAll(() => {
     process.env.MOCK_MODE = 'true';
+  });
+
+  it('reports automatic assessment support in mock benchmark details', async () => {
+    process.env.MOCK_MODE = 'true';
+    const app = express();
+    app.use('/api/stigs', stigsRouter);
+    app.use(errorHandler);
+
+    const osResponse = await request(app).get('/api/stigs/Windows_Server_2022_STIG');
+    const browserResponse = await request(app).get('/api/stigs/MS_Edge_STIG');
+
+    expect(osResponse.body.automaticAssessmentSupported).toBe(true);
+    expect(browserResponse.body.automaticAssessmentSupported).toBe(false);
   });
 
   it('queries version history using the benchmark UUID', async () => {
@@ -48,6 +63,7 @@ describe('STIG detail routes', () => {
     expect(versionRepo.find).toHaveBeenCalledWith(expect.objectContaining({
       where: { benchmarkId: benchmark.id },
     }));
+    expect(response.body.automaticAssessmentSupported).toBe(false);
   });
 
   it('resolves controls using the benchmark UUID', async () => {
