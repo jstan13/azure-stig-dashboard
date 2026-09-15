@@ -47,7 +47,7 @@ export async function machineIdsForScope(
   scopeId: string,
 ): Promise<string[]> {
   if (scopeType === 'platform') {
-    const machines = await ds.getRepository(MachineEntity).find();
+    const machines = await ds.getRepository(MachineEntity).find({ where: { isActive: true } });
     return machines.filter((m) => platformOf(m) === scopeId).map((m) => m.id);
   }
 
@@ -58,7 +58,7 @@ export async function machineIdsForScope(
   const ids = new Set(memberRows.map((r) => r.machineId));
 
   if (pool.selectionMode === 'tag' && pool.tagRule && Object.keys(pool.tagRule).length) {
-    const machines = await ds.getRepository(MachineEntity).find();
+    const machines = await ds.getRepository(MachineEntity).find({ where: { isActive: true } });
     for (const m of machines) {
       const tags = m.tags ?? {};
       const matches = Object.entries(pool.tagRule).every(([k, v]) => tags[k] === v);

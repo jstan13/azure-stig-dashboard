@@ -376,7 +376,17 @@ async function persistFindings(
   const findingRepo = AppDataSource.getRepository(FindingEntity);
   const mappingRepo = AppDataSource.getRepository(ControlMappingEntity);
 
-  const machineByResourceId = new Map(machines.map((m) => [m.resourceId, m]));
+  const machineByResourceId = new Map(
+    machines.map((m) => [normalizeAzureId(m.resourceId), m]),
+  );
+  const mappings = await mappingRepo.find();
+  const mappingsBySource = new Map<string, ControlMappingEntity[]>();
+  for (const mapping of mappings) {
+    const key = `${mapping.sourceType.toLowerCase()}|${normalizeAzureId(mapping.sourceId)}`;
+    const sourceMappings = mappingsBySource.get(key) ?? [];
+    sourceMappings.push(mapping);
+    mappingsBySource.set(key, sourceMappings);
+  }
 
   let total = 0;
   let open = 0;
@@ -385,16 +395,16 @@ async function persistFindings(
 
   // ── Policy → Finding ─────────────────────────────────────────────────────
   for (const p of policyResults) {
-    const machine = machineByResourceId.get(p.resourceId);
+    const machine = machineByResourceId.get(normalizeAzureId(p.resourceId));
     if (!machine) continue;
 
     // Look up STIG control(s) mapped to this policy definition.
-    const mappings = await mappingRepo.find({
-      where: { sourceType: 'azure-policy', sourceId: p.policyDefinitionId },
-    });
-    if (!mappings.length) continue;
+    const policyMappings = mappingsBySource.get(
+      `azure-policy|${normalizeAzureId(p.policyDefinitionId)}`,
+    ) ?? [];
+    if (!policyMappings.length) continue;
 
-    for (const mapping of mappings) {
+    for (const mapping of policyMappings) {
       const status = mapPolicyState(p.complianceState);
       const result = await upsertFinding(findingRepo, {
         machineId: machine.id,
@@ -418,22 +428,19 @@ async function persistFindings(
 
   // ── Defender → Finding ───────────────────────────────────────────────────
   for (const d of defenderResults) {
-    const machine = machineByResourceId.get(d.resourceId);
+    const machine = machineByResourceId.get(normalizeAzureId(d.resourceId));
     if (!machine) continue;
 
     // Mappings keyed by defender assessment ID OR assessment name
     const sourceCandidates = [d.id, d.assessmentName, d.defenderRuleId].filter(
       (x): x is string => !!x,
     );
-    const mappings = await mappingRepo.find({
-      where: sourceCandidates.map((sourceId) => ({
-        sourceType: 'defender',
-        sourceId,
-      })),
-    });
-    if (!mappings.length) continue;
+    const defenderMappings = sourceCandidates.flatMap(
+      (sourceId) => mappingsBySource.get(`defender|${normalizeAzureId(sourceId)}`) ?? [],
+    );
+    if (!defenderMappings.length) continue;
 
-    for (const mapping of mappings) {
+    for (const mapping of defenderMappings) {
       const status = mapDefenderState(d.status);
       const result = await upsertFinding(findingRepo, {
         machineId: machine.id,
@@ -516,6 +523,10 @@ async function updateMachineRollups(
     m.lastScanDate = completedAt;
     await machineRepo.save(m);
   }
+}
+
+export function normalizeAzureId(value: string): string {
+  return value.trim().replace(/\/+$/, '').toLowerCase();
 }
 
 interface PersistScansArgs {

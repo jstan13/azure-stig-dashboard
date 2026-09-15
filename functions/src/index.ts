@@ -16,7 +16,7 @@
  * backend is configured to accept it (NOT recommended for prod).
  */
 
-import { app, InvocationContext, Timer } from '@azure/functions';
+import { app, HttpRequest, HttpResponseInit, InvocationContext, Timer } from '@azure/functions';
 import axios from 'axios';
 
 const BACKEND_BASE_URL  = (process.env.BACKEND_BASE_URL || '').replace(/\/$/, '');
@@ -33,9 +33,16 @@ const ARM_ENDPOINT = (process.env.AZURE_ARM_ENDPOINT || 'https://management.azur
 const BACKEND_APP_RESOURCE_ID = process.env.BACKEND_APP_RESOURCE_ID || '';
 const FRONTEND_APP_RESOURCE_ID = process.env.FRONTEND_APP_RESOURCE_ID || '';
 const POSTGRES_SERVER_RESOURCE_ID = process.env.POSTGRES_SERVER_RESOURCE_ID || '';
+// Additional VMs (e.g. STIG test hosts) that ride along with the business-hours
+// schedule but aren't part of the app's own App Service / PostgreSQL trio.
+const EXTRA_VM_RESOURCE_IDS = String(process.env.EXTRA_VM_RESOURCE_IDS || '')
+  .split(',')
+  .map((id) => id.trim())
+  .filter(Boolean);
 const FRONTEND_BASE_URL = (process.env.FRONTEND_BASE_URL || '').replace(/\/$/, '');
 const UPDATE_REPO = process.env.UPDATE_SOURCE_REPO || 'jstan13/azure-stig-dashboard';
 const WEB_API_VERSION = '2023-01-01';
+const VM_API_VERSION = '2023-09-01';
 // Small deployments get this Function App solely to install updates. Scanning
 // stays off there, so the flag is separate from whether the app exists at all.
 const SCHEDULED_SCAN_ENABLED = String(process.env.SCHEDULED_SCAN_ENABLED ?? 'true').toLowerCase() !== 'false';
@@ -84,7 +91,7 @@ async function armHeaders(): Promise<Record<string, string>> {
   return { Authorization: `Bearer ${token.token}` };
 }
 
-async function callArmAction(resourceId: string, action: 'start' | 'stop', apiVersion: string, ctx: InvocationContext): Promise<void> {
+async function callArmAction(resourceId: string, action: 'start' | 'stop' | 'deallocate', apiVersion: string, ctx: InvocationContext): Promise<void> {
   if (!resourceId) return;
   const headers = await armHeaders();
   const url = `${ARM_ENDPOINT}${resourceId}/${action}?api-version=${apiVersion}`;
@@ -92,25 +99,30 @@ async function callArmAction(resourceId: string, action: 'start' | 'stop', apiVe
   ctx.log(`[functions] ARM ${action} ${resourceId} -> ${res.status}`);
 }
 
-async function postJson(path: string, body: unknown, ctx: InvocationContext): Promise<void> {
+async function postJson(
+  path: string,
+  body: unknown,
+  ctx: InvocationContext,
+  timeout = 60_000,
+): Promise<void> {
   if (!BACKEND_BASE_URL) {
     ctx.warn(`[functions] BACKEND_BASE_URL not set; skipping ${path}`);
     return;
   }
   const headers = await backendHeaders();
-  const res = await axios.post(`${BACKEND_BASE_URL}${path}`, body, { headers, timeout: 60_000 });
+  const res = await axios.post(`${BACKEND_BASE_URL}${path}`, body, { headers, timeout });
   ctx.log(`[functions] POST ${path} -> ${res.status}`);
 }
 
 async function postJsonForResult<T = any>(
-  path: string, body: unknown, ctx: InvocationContext,
+  path: string, body: unknown, ctx: InvocationContext, timeout = 60_000,
 ): Promise<T | null> {
   if (!BACKEND_BASE_URL) {
     ctx.warn(`[functions] BACKEND_BASE_URL not set; skipping ${path}`);
     return null;
   }
   const headers = await backendHeaders();
-  const res = await axios.post(`${BACKEND_BASE_URL}${path}`, body, { headers, timeout: 60_000 });
+  const res = await axios.post(`${BACKEND_BASE_URL}${path}`, body, { headers, timeout });
   ctx.log(`[functions] POST ${path} -> ${res.status}`);
   return res.data as T;
 }
@@ -121,6 +133,39 @@ async function getJson<T = any>(path: string, ctx: InvocationContext): Promise<T
   const res = await axios.get(`${BACKEND_BASE_URL}${path}`, { headers, timeout: 30_000 });
   return res.data as T;
 }
+
+app.http('powerStigCatalogImport', {
+  methods: ['POST'],
+  authLevel: 'function',
+  handler: async (_request: HttpRequest, ctx: InvocationContext): Promise<HttpResponseInit> => {
+    try {
+      const result = await postJsonForResult(
+        '/api/stigs/import/powerstig-server-2022-ms',
+        {},
+        ctx,
+        5 * 60_000,
+      );
+      return { status: 201, jsonBody: result };
+    } catch (error: any) {
+      ctx.error(`[powerStigCatalogImport] failed: ${error.message}`);
+      return { status: 502, jsonBody: { error: error.message } };
+    }
+  },
+});
+
+app.http('complianceStatus', {
+  methods: ['GET'],
+  authLevel: 'function',
+  handler: async (_request: HttpRequest, ctx: InvocationContext): Promise<HttpResponseInit> => {
+    try {
+      const result = await getJson('/api/machines?pageSize=100', ctx);
+      return { status: 200, jsonBody: result };
+    } catch (error: any) {
+      ctx.error(`[complianceStatus] failed: ${error.message}`);
+      return { status: 502, jsonBody: { error: error.message } };
+    }
+  },
+});
 
 // ── Scheduled scan: every night at 06:00 UTC ───────────────────────────────
 app.timer('scheduledScan', {
@@ -138,7 +183,7 @@ app.timer('scheduledScan', {
 
     ctx.log('[scheduledScan] starting nightly scan');
     try {
-      await postJson('/api/scan/trigger', { scanType: 'full' }, ctx);
+      await postJson('/api/scan/trigger', { scanType: 'full' }, ctx, 15 * 60_000);
       await postJson('/api/vulnerabilities/sync', {}, ctx);
       await postJson('/api/compliance-history/snapshot', {}, ctx);
       ctx.log('[scheduledScan] complete');
@@ -351,6 +396,17 @@ async function isPostgresRunning(resourceId: string): Promise<boolean | null> {
   return state === null ? null : state === 'ready';
 }
 
+/** VM power state lives under instanceView, not the top-level `properties.state` the other resource types use. */
+async function isVmRunning(resourceId: string): Promise<boolean | null> {
+  if (!resourceId) return null;
+  const headers = await armHeaders();
+  const url = `${ARM_ENDPOINT}${resourceId}?api-version=${VM_API_VERSION}&$expand=instanceView`;
+  const res = await axios.get(url, { headers, timeout: 30_000 });
+  const statuses: any[] = (res.data as any)?.properties?.instanceView?.statuses ?? [];
+  const power = statuses.find((s) => typeof s?.code === 'string' && s.code.startsWith('PowerState/'));
+  return power ? power.code === 'PowerState/running' : null;
+}
+
 app.timer('powerScheduleReconcile', {
   schedule: '0 */5 * * * *',
   handler: async (_t: Timer, ctx: InvocationContext) => {
@@ -398,14 +454,18 @@ app.timer('powerScheduleReconcile', {
       return;
     }
 
-    const [backendRunning, frontendRunning, pgRunning] = await Promise.all([
+    const [backendRunning, frontendRunning, pgRunning, vmRunning] = await Promise.all([
       isWebAppRunning(BACKEND_APP_RESOURCE_ID),
       isWebAppRunning(FRONTEND_APP_RESOURCE_ID),
       isPostgresRunning(POSTGRES_SERVER_RESOURCE_ID),
+      Promise.all(EXTRA_VM_RESOURCE_IDS.map((id) => isVmRunning(id))),
     ]);
 
     if (desired === 'running') {
-      if (backendRunning !== false && frontendRunning !== false && pgRunning !== false) {
+      if (
+        backendRunning !== false && frontendRunning !== false && pgRunning !== false
+        && vmRunning.every((r) => r !== false)
+      ) {
         ctx.log('[powerSchedule] within hours and already running');
         return;
       }
@@ -419,11 +479,22 @@ app.timer('powerScheduleReconcile', {
       if (frontendRunning === false) {
         await callArmAction(FRONTEND_APP_RESOURCE_ID, 'start', WEB_API_VERSION, ctx);
       }
+      for (const [i, id] of EXTRA_VM_RESOURCE_IDS.entries()) {
+        if (vmRunning[i] !== false) continue;
+        try {
+          await callArmAction(id, 'start', VM_API_VERSION, ctx);
+        } catch (err: any) {
+          ctx.warn(`[powerSchedule] failed to start VM ${id}: ${err?.message || err}`);
+        }
+      }
       ctx.log('[powerSchedule] started resources for business hours');
       return;
     }
 
-    if (backendRunning !== true && frontendRunning !== true && pgRunning !== true) {
+    if (
+      backendRunning !== true && frontendRunning !== true && pgRunning !== true
+      && vmRunning.every((r) => r !== true)
+    ) {
       ctx.log('[powerSchedule] outside hours and already stopped');
       return;
     }
@@ -461,6 +532,15 @@ app.timer('powerScheduleReconcile', {
     }
     if (pgRunning === true) {
       await callArmAction(POSTGRES_SERVER_RESOURCE_ID, 'stop', PG_API_VERSION, ctx);
+    }
+    // Deallocate (not just power off) so compute stops being billed.
+    for (const [i, id] of EXTRA_VM_RESOURCE_IDS.entries()) {
+      if (vmRunning[i] !== true) continue;
+      try {
+        await callArmAction(id, 'deallocate', VM_API_VERSION, ctx);
+      } catch (err: any) {
+        ctx.warn(`[powerSchedule] failed to stop VM ${id}: ${err?.message || err}`);
+      }
     }
     ctx.log('[powerSchedule] stopped resources outside business hours');
   },

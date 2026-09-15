@@ -12,9 +12,8 @@
 
 import { ComputeManagementClient } from '@azure/arm-compute';
 import { HybridComputeManagementClient } from '@azure/arm-hybridcompute';
-import { DefaultAzureCredential } from '@azure/identity';
 import { BaseConnector, ConnectorResult, ScanOptions } from './baseConnector';
-import { azureClientOptions } from './azureClientOptions';
+import { azureClientOptions, azureCredential } from './azureClientOptions';
 import { logger } from '../utils/logger';
 import { mockStore } from '../database/dataSource';
 
@@ -69,7 +68,7 @@ export class ARMConnector extends BaseConnector {
     if (!this.clients.has(subscriptionId)) {
       this.clients.set(
         subscriptionId,
-        new ComputeManagementClient(new DefaultAzureCredential(), subscriptionId, azureClientOptions()),
+        new ComputeManagementClient(azureCredential(), subscriptionId, azureClientOptions()),
       );
     }
     return this.clients.get(subscriptionId)!;
@@ -79,7 +78,7 @@ export class ARMConnector extends BaseConnector {
     if (!this.hybridClients.has(subscriptionId)) {
       this.hybridClients.set(
         subscriptionId,
-        new HybridComputeManagementClient(new DefaultAzureCredential(), subscriptionId, azureClientOptions()),
+        new HybridComputeManagementClient(azureCredential(), subscriptionId, azureClientOptions()),
       );
     }
     return this.hybridClients.get(subscriptionId)!;

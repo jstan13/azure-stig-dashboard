@@ -28,7 +28,8 @@ resource remediationRunCommandRole 'Microsoft.Authorization/roleDefinitions@2022
           'Microsoft.Compute/virtualMachines/read'
           'Microsoft.Compute/virtualMachines/runCommand/action'
           'Microsoft.HybridCompute/machines/read'
-          'Microsoft.HybridCompute/machines/runCommand/action'
+          'Microsoft.HybridCompute/machines/runcommands/read'
+          'Microsoft.HybridCompute/machines/runcommands/write'
         ]
         notActions: []
         dataActions: []

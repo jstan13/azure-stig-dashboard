@@ -22,7 +22,11 @@ import { recordAudit } from '../auth';
 import { createError } from '../middleware/errorHandler';
 import { parsePage, parsePageSize } from '../utils/paging';
 import { logger } from '../utils/logger';
-import { importStigs, ImportResult } from '../stigs/stigImporter';
+import {
+  importPowerStigServer2022MemberServer,
+  importStigs,
+  ImportResult,
+} from '../stigs/stigImporter';
 import { fetchStigCatalog } from '../stigs/stigCatalog';
 import { checkForUpdates } from '../stigs/stigUpdateScheduler';
 import {
@@ -379,6 +383,26 @@ router.post(
           importStatus.error = err.message;
           logger.error(`[StigsRoute] Import job ${jobId} failed: ${err.message}`);
         });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post(
+  '/import/powerstig-server-2022-ms',
+  requirePermission('stig:import'),
+  async (req, res, next) => {
+    try {
+      const result = await importPowerStigServer2022MemberServer(AppDataSource);
+      await recordAudit(req, {
+        action: 'stig.imported',
+        entityType: 'stig_benchmark',
+        entityId: result.benchmarkId,
+        after: result,
+        result: 'Success',
+      });
+      return res.status(201).json(result);
     } catch (err) {
       next(err);
     }

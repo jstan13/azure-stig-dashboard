@@ -27,12 +27,12 @@
 
 import { GuestConfigurationClient } from '@azure/arm-guestconfiguration';
 import { PolicyClient } from '@azure/arm-policy';
-import { DefaultAzureCredential } from '@azure/identity';
 import { DataSource } from 'typeorm';
 import { FindingEntity } from '../models/Finding';
 import { ControlEntity } from '../models/Control';
 import { shouldReplaceFinding } from './sourceFidelity';
 import { logger } from '../utils/logger';
+import { azureCredential } from '../connectors/azureClientOptions';
 
 const GC_STORAGE_CONTAINER = process.env.GC_STORAGE_CONTAINER ?? 'stig-gc-packages';
 const GC_RESOURCE_GROUP    = process.env.GC_RESOURCE_GROUP ?? 'stig-tracker-rg';
@@ -61,14 +61,14 @@ const polClients = new Map<string, PolicyClient>();
 
 function getGcClient(subId: string): GuestConfigurationClient {
   if (!gcClients.has(subId)) {
-    gcClients.set(subId, new GuestConfigurationClient(new DefaultAzureCredential(), subId));
+    gcClients.set(subId, new GuestConfigurationClient(azureCredential(), subId));
   }
   return gcClients.get(subId)!;
 }
 
 function getPolicyClient(subId: string): PolicyClient {
   if (!polClients.has(subId)) {
-    polClients.set(subId, new PolicyClient(new DefaultAzureCredential(), subId));
+    polClients.set(subId, new PolicyClient(azureCredential(), subId));
   }
   return polClients.get(subId)!;
 }

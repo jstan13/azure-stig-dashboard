@@ -5,6 +5,7 @@
   "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc",
+    "package:deploy": "node scripts/package-deploy.mjs",
     "start": "func start",
     "watch": "tsc -w"
   },

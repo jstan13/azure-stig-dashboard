@@ -80,7 +80,7 @@ router.get('/:id/compliance', async (req, res, next) => {
 
     // "all" → list every distinct resource group with rolled-up scores
     if (groupName === 'all') {
-      const machines = await machineRepo.find();
+      const machines = await machineRepo.find({ where: { isActive: true } });
       const byRg = new Map<string, MachineEntity[]>();
       for (const m of machines) {
         if (!byRg.has(m.resourceGroupName)) byRg.set(m.resourceGroupName, []);
@@ -97,7 +97,7 @@ router.get('/:id/compliance', async (req, res, next) => {
     }
 
     const machines = await machineRepo.find({
-      where: { resourceGroupName: groupName },
+      where: { resourceGroupName: groupName, isActive: true },
     });
     if (!machines.length) {
       return res.json({

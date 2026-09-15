@@ -4,8 +4,11 @@ node_modules/
 
 # Build outputs
 backend/dist/
+backend/.azd-deploy/
+backend/node_modules.tar.gz
 frontend/dist/
 functions/dist/
+functions/.azd-deploy/
 packages/*/dist/
 e2e/test-results/
 e2e/playwright-report/

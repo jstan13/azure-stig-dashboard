@@ -19,7 +19,7 @@ async function loadData(): Promise<{ machines: any[]; findings: any[] }> {
   if (isMock()) {
     return { machines: mockStore.machines, findings: mockStore.findings };
   }
-  const machines = await AppDataSource.getRepository(MachineEntity).find();
+  const machines = await AppDataSource.getRepository(MachineEntity).find({ where: { isActive: true } });
   const findings = await AppDataSource.getRepository(FindingEntity).find();
   return { machines, findings };
 }

@@ -82,6 +82,9 @@ param businessHoursEndHour int = 18
 @description('When true, the Function App will stop the web apps + PostgreSQL outside business hours and start them before business hours')
 param autoShutdownOutsideBusinessHours bool = false
 
+@description('Comma-separated names of additional VMs in this resource group (e.g. STIG test hosts) to start/deallocate on the same business-hours schedule as the web apps + PostgreSQL. Leave empty to manage none.')
+param powerScheduleExtraVmNames string = ''
+
 @description('Start schedule for business-hours auto-start (NCRONTAB with seconds, UTC). Default: 07:45 UTC weekdays')
 param businessHoursStartCron string = '0 45 7 * * 1-5'
 
@@ -174,6 +177,11 @@ var effectiveEnableScheduler = scheduledScansEnabled || autoUpdateEnabled
 var enableBusinessHoursShutdown = effectiveEnableScheduler && businessHoursMode && autoShutdownOutsideBusinessHours
 // One custom role covers both jobs the Function performs against ARM.
 var needsSchedulerOpsRole = enableBusinessHoursShutdown || autoUpdateEnabled
+// Resolved from names (not declared as `existing` resources) so this works whether
+// or not the VM was created by this template — it only needs to live in this RG.
+var powerScheduleExtraVmNamesSplit = [for n in split(powerScheduleExtraVmNames, ','): trim(n)]
+var powerScheduleExtraVmNamesTrimmed = filter(powerScheduleExtraVmNamesSplit, n => !empty(n))
+var powerScheduleExtraVmResourceIds = [for n in powerScheduleExtraVmNamesTrimmed: resourceId('Microsoft.Compute/virtualMachines', n)]
 
 // ── App Service Plan ───────────────────────────────────────────────────────────
 resource appServicePlan 'Microsoft.Web/serverfarms@2023-01-01' = {
@@ -336,7 +344,8 @@ var backendAppSettings = concat([
   { name: 'FRONTEND_URL',                   value: 'https://${frontendName}.${appHostSuffix}'     }
 ], dbAppSettings, empty(backendImage) ? [
   { name: 'WEBSITE_NODE_DEFAULT_VERSION',   value: '~20'                                          }
-  { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT', value: 'true'                                         }
+  { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT', value: 'false'                                        }
+  { name: 'ENABLE_ORYX_BUILD',               value: 'false'                                        }
 ] : [
   { name: 'WEBSITES_PORT',                  value: '3001'                                         }
   { name: 'DOCKER_REGISTRY_SERVER_URL',     value: backendRegistryUrl                             }
@@ -560,6 +569,8 @@ resource funcApp 'Microsoft.Web/sites@2023-01-01' = if (effectiveEnableScheduler
         { name: 'FUNCTIONS_EXTENSION_VERSION',         value: '~4' }
         { name: 'FUNCTIONS_WORKER_RUNTIME',            value: 'node' }
         { name: 'WEBSITE_NODE_DEFAULT_VERSION',        value: '~20' }
+        { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT',      value: 'false' }
+        { name: 'ENABLE_ORYX_BUILD',                    value: 'false' }
         { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
         { name: 'BACKEND_BASE_URL',                    value: 'https://${backendApp.properties.defaultHostName}' }
         { name: 'BACKEND_API_AUDIENCE',                value: 'api://${azureClientId}' }
@@ -579,6 +590,7 @@ resource funcApp 'Microsoft.Web/sites@2023-01-01' = if (effectiveEnableScheduler
         { name: 'BACKEND_APP_RESOURCE_ID',             value: backendApp.id }
         { name: 'FRONTEND_APP_RESOURCE_ID',            value: frontendApp.id }
         { name: 'POSTGRES_SERVER_RESOURCE_ID',         value: mockMode ? '' : pgServer.id }
+        { name: 'EXTRA_VM_RESOURCE_IDS',               value: join(powerScheduleExtraVmResourceIds, ',') }
         { name: 'SCHEDULED_SCAN_ENABLED',              value: scheduledScansEnabled ? 'true' : 'false' }
         { name: 'FRONTEND_BASE_URL',                   value: 'https://${frontendApp.properties.defaultHostName}' }
         { name: 'UPDATE_SOURCE_REPO',                  value: updateSourceRepo }
@@ -593,7 +605,7 @@ resource schedulerOpsRole 'Microsoft.Authorization/roleDefinitions@2022-05-01-pr
   scope: resourceGroup()
   properties: {
     roleName: '${baseName}-ops-scheduler'
-    description: 'Least-privilege role so the scheduler Function can start/stop dashboard web apps and PostgreSQL, and swap container images when installing an update.'
+    description: 'Least-privilege role so the scheduler Function can start/stop dashboard web apps, PostgreSQL, and any configured extra VMs, and swap container images when installing an update.'
     type: 'CustomRole'
     assignableScopes: [
       resourceGroup().id
@@ -613,6 +625,9 @@ resource schedulerOpsRole 'Microsoft.Authorization/roleDefinitions@2022-05-01-pr
           'Microsoft.DBforPostgreSQL/flexibleServers/read'
           'Microsoft.DBforPostgreSQL/flexibleServers/start/action'
           'Microsoft.DBforPostgreSQL/flexibleServers/stop/action'
+          'Microsoft.Compute/virtualMachines/read'
+          'Microsoft.Compute/virtualMachines/start/action'
+          'Microsoft.Compute/virtualMachines/deallocate/action'
         ]
         notActions: []
         dataActions: []

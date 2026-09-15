@@ -22,6 +22,7 @@
     "businessHoursStartHour": { "value": "${BUSINESS_HOURS_START_HOUR=8}" },
     "businessHoursEndHour": { "value": "${BUSINESS_HOURS_END_HOUR=18}" },
     "autoShutdownOutsideBusinessHours": { "value": "${AUTO_SHUTDOWN_OUTSIDE_BUSINESS_HOURS=false}" },
+    "powerScheduleExtraVmNames": { "value": "${POWER_SCHEDULE_EXTRA_VM_NAMES=}" },
     "businessHoursStartCron": { "value": "${BUSINESS_HOURS_START_CRON=0 45 7 * * 1-5}" },
     "businessHoursStopCron": { "value": "${BUSINESS_HOURS_STOP_CRON=0 15 18 * * 1-5}" }
   }

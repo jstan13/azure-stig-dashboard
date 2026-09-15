@@ -27,6 +27,15 @@ services:
     project: ./backend
     language: ts
     host: appservice
+    dist: .azd-deploy
+    hooks:
+      prepackage:
+        windows:
+          run: npm run package:deploy
+          shell: pwsh
+        posix:
+          run: npm run package:deploy
+          shell: sh
   frontend:
     project: ./frontend
     language: ts
@@ -36,7 +45,15 @@ services:
     project: ./functions
     language: ts
     host: function
-    dist: dist
+    dist: .azd-deploy
+    hooks:
+      prepackage:
+        windows:
+          run: npm run package:deploy
+          shell: pwsh
+        posix:
+          run: npm run package:deploy
+          shell: sh
 hooks:
   preprovision:
     posix:

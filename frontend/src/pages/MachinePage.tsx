@@ -9,13 +9,40 @@ import {
   DefaultButton, PrimaryButton, DetailsList, DetailsListLayoutMode,
   SelectionMode, IColumn, CommandBar, ICommandBarItemProps,
   Panel, PanelType, Label, Dropdown, IDropdownOption, TextField,
-  ChoiceGroup, IChoiceGroupOption,
+  ChoiceGroup, IChoiceGroupOption, SearchBox,
 } from '@fluentui/react';
 import { api } from '../hooks/useApi';
 import { usePermissions } from '../auth/AuthzProvider';
 import ComplianceDonut from '../components/ComplianceDonut';
 import ComplianceBadge from '../components/ComplianceBadge';
 import type { MachineDetail, Finding } from '../types';
+
+const FINDINGS_PAGE_SIZE = 50;
+
+type FindingSortKey = 'vulnId' | 'stigId' | 'title' | 'severity' | 'status';
+
+const SEVERITY_ORDER: Record<Finding['severity'], number> = {
+  high: 0,
+  medium: 1,
+  low: 2,
+  informational: 3,
+};
+
+const FILTER_STATUS_OPTIONS: IDropdownOption[] = [
+  { key: '', text: 'All statuses' },
+  { key: 'open', text: 'Open' },
+  { key: 'not_a_finding', text: 'Not a Finding' },
+  { key: 'not_applicable', text: 'Not Applicable' },
+  { key: 'not_reviewed', text: 'Not Reviewed' },
+];
+
+const SEVERITY_OPTIONS: IDropdownOption[] = [
+  { key: '', text: 'All severities' },
+  { key: 'high', text: 'High' },
+  { key: 'medium', text: 'Medium' },
+  { key: 'low', text: 'Low' },
+  { key: 'informational', text: 'Informational' },
+];
 
 const STATUS_OPTIONS: IDropdownOption[] = [
   { key: 'open', text: 'Open' },
@@ -54,6 +81,12 @@ export default function MachinePage() {
   const [applyScope, setApplyScope] = useState<'machine' | 'pool' | 'platform'>('machine');
   const [applyPoolId, setApplyPoolId] = useState<string>('');
   const [saving, setSaving] = useState(false);
+  const [visibleFindingCount, setVisibleFindingCount] = useState(FINDINGS_PAGE_SIZE);
+  const [findingSearch, setFindingSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [severityFilter, setSeverityFilter] = useState('');
+  const [sortKey, setSortKey] = useState<FindingSortKey | null>(null);
+  const [sortDescending, setSortDescending] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -67,7 +100,14 @@ export default function MachinePage() {
     }
   }
 
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => {
+    setVisibleFindingCount(FINDINGS_PAGE_SIZE);
+    void load();
+  }, [id]);
+
+  useEffect(() => {
+    setVisibleFindingCount(FINDINGS_PAGE_SIZE);
+  }, [findingSearch, statusFilter, severityFilter, sortKey, sortDescending]);
 
   async function handleExport(format: 'ckl' | 'json' | 'csv') {
     setExporting(true);
@@ -142,12 +182,30 @@ export default function MachinePage() {
 
   const canEditFindings = has('findings:write');
 
+  function sortByColumn(column: IColumn): void {
+    const nextKey = column.key as FindingSortKey;
+    if (sortKey === nextKey) {
+      setSortDescending((descending) => !descending);
+    } else {
+      setSortKey(nextKey);
+      setSortDescending(false);
+    }
+  }
+
+  function sortableColumn(key: FindingSortKey) {
+    return {
+      isSorted: sortKey === key,
+      isSortedDescending: sortKey === key && sortDescending,
+      onColumnClick: (_event: React.MouseEvent<HTMLElement>, column: IColumn) => sortByColumn(column),
+    };
+  }
+
   const columns: IColumn[] = [
-    { key: 'vulnId', name: 'Vuln ID', minWidth: 80, onRender: (f: Finding) => f.control?.id || f.controlId },
-    { key: 'stigId', name: 'Rule', minWidth: 110, onRender: (f: Finding) => f.control?.stigId || '-' },
-    { key: 'title', name: 'Title', minWidth: 260, isResizable: true, onRender: (f: Finding) => <span title={f.control?.title}>{f.control?.title?.slice(0, 70)}…</span> },
-    { key: 'severity', name: 'Sev', minWidth: 60, onRender: (f: Finding) => f.severity },
-    { key: 'status', name: 'Status', minWidth: 110, onRender: (f: Finding) => (
+    { key: 'vulnId', name: 'Vuln ID', minWidth: 80, ...sortableColumn('vulnId'), onRender: (f: Finding) => f.control?.id || f.controlId },
+    { key: 'stigId', name: 'Rule', minWidth: 110, ...sortableColumn('stigId'), onRender: (f: Finding) => f.control?.stigId || '-' },
+    { key: 'title', name: 'Title', minWidth: 260, isResizable: true, ...sortableColumn('title'), onRender: (f: Finding) => <span title={f.control?.title}>{f.control?.title?.slice(0, 70)}…</span> },
+    { key: 'severity', name: 'Sev', minWidth: 60, ...sortableColumn('severity'), onRender: (f: Finding) => f.severity },
+    { key: 'status', name: 'Status', minWidth: 110, ...sortableColumn('status'), onRender: (f: Finding) => (
       <Stack horizontal verticalAlign="center" tokens={{ childrenGap: 6 }}>
         {statusBadge(f.status)}
         {(f.manualAnswerScope === 'pool' || f.manualAnswerScope === 'platform') && (
@@ -175,6 +233,35 @@ export default function MachinePage() {
   if (!machine) return null;
 
   const { summary } = machine;
+  const normalizedSearch = findingSearch.trim().toLowerCase();
+  const filteredFindings = machine.findings.filter((finding) => {
+    const matchesSearch = !normalizedSearch || [
+      finding.control?.id,
+      finding.controlId,
+      finding.control?.stigId,
+      finding.control?.title,
+    ].some((value) => value?.toLowerCase().includes(normalizedSearch));
+    return matchesSearch
+      && (!statusFilter || finding.status === statusFilter)
+      && (!severityFilter || finding.severity === severityFilter);
+  });
+  const sortedFindings = [...filteredFindings].sort((left, right) => {
+    if (!sortKey) return 0;
+    const values: Record<FindingSortKey, [string | number, string | number]> = {
+      vulnId: [left.control?.id || left.controlId, right.control?.id || right.controlId],
+      stigId: [left.control?.stigId || '', right.control?.stigId || ''],
+      title: [left.control?.title || '', right.control?.title || ''],
+      severity: [SEVERITY_ORDER[left.severity], SEVERITY_ORDER[right.severity]],
+      status: [left.status, right.status],
+    };
+    const [leftValue, rightValue] = values[sortKey];
+    const comparison = typeof leftValue === 'number' && typeof rightValue === 'number'
+      ? leftValue - rightValue
+      : String(leftValue).localeCompare(String(rightValue), undefined, { numeric: true });
+    return sortDescending ? -comparison : comparison;
+  });
+  const visibleFindings = sortedFindings.slice(0, visibleFindingCount);
+  const remainingFindings = sortedFindings.length - visibleFindings.length;
 
   return (
     <Stack tokens={{ childrenGap: 20 }}>
@@ -208,29 +295,96 @@ export default function MachinePage() {
         {/* Summary chips */}
         <Stack tokens={{ childrenGap: 8 }} verticalAlign="center">
           {[
-            { label: 'Open', value: summary.open, color: '#a4262c', bg: '#fde7e9' },
-            { label: 'Not a Finding', value: summary.notAFinding, color: '#107c10', bg: '#dff6dd' },
-            { label: 'Not Applicable', value: summary.notApplicable, color: '#605e5c', bg: '#f3f2f1' },
-            { label: 'Not Reviewed', value: summary.notReviewed, color: '#835b00', bg: '#fff4ce' },
+            { status: 'open', label: 'Open', value: summary.open, color: '#a4262c', bg: '#fde7e9' },
+            { status: 'not_a_finding', label: 'Not a Finding', value: summary.notAFinding, color: '#107c10', bg: '#dff6dd' },
+            { status: 'not_applicable', label: 'Not Applicable', value: summary.notApplicable, color: '#605e5c', bg: '#f3f2f1' },
+            { status: 'not_reviewed', label: 'Not Reviewed', value: summary.notReviewed, color: '#835b00', bg: '#fff4ce' },
           ].map((s) => (
-            <div key={s.label} style={{ background: s.bg, color: s.color, padding: '6px 16px', borderRadius: 6, fontWeight: 600 }}>
+            <button
+              key={s.label}
+              type="button"
+              aria-pressed={statusFilter === s.status}
+              onClick={() => setStatusFilter((current) => current === s.status ? '' : s.status)}
+              style={{
+                background: s.bg,
+                color: s.color,
+                padding: '6px 16px',
+                borderRadius: 6,
+                border: statusFilter === s.status ? `2px solid ${s.color}` : '1px solid transparent',
+                fontWeight: 600,
+                cursor: 'pointer',
+                textAlign: 'left',
+              }}
+            >
               {s.value} {s.label}
-            </div>
+            </button>
           ))}
         </Stack>
       </Stack>
 
       {/* Findings table */}
       <div style={{ background: '#fff', border: '1px solid #edebe9', borderRadius: 8 }}>
-        <div style={{ padding: '16px 20px 0' }}>
+        <div style={{ padding: '16px 20px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 16 }}>
           <Text variant="large" style={{ fontWeight: 600 }}>Control Findings ({machine.findings.length})</Text>
+          <Text style={{ color: '#605e5c', fontSize: 12 }}>
+            Showing {visibleFindings.length} of {sortedFindings.length}
+          </Text>
         </div>
+        <Stack horizontal wrap tokens={{ childrenGap: 12 }} styles={{ root: { padding: '12px 20px 8px' } }}>
+          <SearchBox
+            placeholder="Filter by control, rule, or title"
+            value={findingSearch}
+            onChange={(_event, value) => setFindingSearch(value || '')}
+            onClear={() => setFindingSearch('')}
+            styles={{ root: { width: 320, maxWidth: '100%' } }}
+          />
+          <Dropdown
+            ariaLabel="Filter by status"
+            selectedKey={statusFilter}
+            options={FILTER_STATUS_OPTIONS}
+            onChange={(_event, option) => setStatusFilter(String(option?.key ?? ''))}
+            styles={{ root: { width: 180 } }}
+          />
+          <Dropdown
+            ariaLabel="Filter by severity"
+            selectedKey={severityFilter}
+            options={SEVERITY_OPTIONS}
+            onChange={(_event, option) => setSeverityFilter(String(option?.key ?? ''))}
+            styles={{ root: { width: 160 } }}
+          />
+          {(findingSearch || statusFilter || severityFilter) && (
+            <DefaultButton
+              text="Clear filters"
+              iconProps={{ iconName: 'ClearFilter' }}
+              onClick={() => {
+                setFindingSearch('');
+                setStatusFilter('');
+                setSeverityFilter('');
+              }}
+            />
+          )}
+        </Stack>
         <DetailsList
-          items={machine.findings}
+          items={visibleFindings}
           columns={columns}
           layoutMode={DetailsListLayoutMode.justified}
           selectionMode={SelectionMode.none}
+          onShouldVirtualize={() => false}
         />
+        {sortedFindings.length === 0 && (
+          <div style={{ padding: '24px 20px', color: '#605e5c', textAlign: 'center' }}>
+            No findings match the current filters.
+          </div>
+        )}
+        {remainingFindings > 0 && (
+          <div style={{ padding: '12px 20px 16px', borderTop: '1px solid #edebe9', textAlign: 'center' }}>
+            <DefaultButton
+              text={`Show more (${remainingFindings} remaining)`}
+              iconProps={{ iconName: 'ChevronDown' }}
+              onClick={() => setVisibleFindingCount((count) => count + FINDINGS_PAGE_SIZE)}
+            />
+          </div>
+        )}
       </div>
 
       {/* Edit finding panel */}

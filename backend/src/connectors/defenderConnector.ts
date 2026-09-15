@@ -8,11 +8,12 @@
  */
 
 import { SecurityCenter } from '@azure/arm-security';
-import { DefaultAzureCredential } from '@azure/identity';
 import { BaseConnector, ConnectorResult, ScanOptions } from './baseConnector';
-import { azureClientOptions } from './azureClientOptions';
+import { azureClientOptions, azureCredential } from './azureClientOptions';
 import { logger } from '../utils/logger';
 import { mockStore } from '../database/dataSource';
+
+const DEFENDER_SCAN_TIMEOUT_MS = Number(process.env.DEFENDER_SCAN_TIMEOUT_MS || 60_000);
 
 export interface DefenderFinding {
   id: string;
@@ -34,7 +35,7 @@ export class DefenderConnector extends BaseConnector {
     if (!this.clients.has(subscriptionId)) {
       this.clients.set(
         subscriptionId,
-        new SecurityCenter(new DefaultAzureCredential(), subscriptionId, azureClientOptions()),
+        new SecurityCenter(azureCredential(), subscriptionId, azureClientOptions()),
       );
     }
     return this.clients.get(subscriptionId)!;
@@ -79,7 +80,8 @@ export class DefenderConnector extends BaseConnector {
         logger.info(`[Defender] Scanning subscription ${subId}`);
         const client = this.getClient(subId);
 
-        for await (const assessment of client.assessments.list('/subscriptions/' + subId)) {
+        const abortSignal = AbortSignal.timeout(DEFENDER_SCAN_TIMEOUT_MS);
+        for await (const assessment of client.assessments.list('/subscriptions/' + subId, { abortSignal })) {
           const status = assessment.status?.code;
           const meta = assessment.metadata;
           results.push({

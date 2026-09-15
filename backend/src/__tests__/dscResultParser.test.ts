@@ -6,6 +6,7 @@
  */
 
 import { extractJson, RawAuditOutput } from '../scanning/dscResultParser';
+import { gzipSync } from 'zlib';
 
 const VALID_JSON_OUTPUT = `
 Invoke-DscResource output:
@@ -88,6 +89,28 @@ describe('extractJson', () => {
     const crlf = VALID_JSON_OUTPUT.replace(/\n/g, '\r\n');
     const result = extractJson(crlf);
     expect(result).not.toBeNull();
+  });
+
+  test('decodes a gzip Base64 payload from Azure Run Command output', () => {
+    const payload = JSON.stringify({
+      Machine: 'WIN10-TEST-01',
+      StigId: 'Windows_10_STIG',
+      Version: 'V2R8',
+      CheckedAt: '2024-01-15T08:00:00Z',
+      Results: Array.from({ length: 208 }, (_, index) => ({
+        RuleId: `V-${220700 + index}`,
+        CheckType: 'RegistryCheck',
+        Result: index === 207 ? 'Fail' : 'Pass',
+        Reason: 'Configuration state',
+        Properties: {},
+      })),
+    });
+    const output = `Enable succeeded: STIG_GZIP_BASE64:${gzipSync(payload).toString('base64')}`;
+
+    const result = extractJson(output);
+
+    expect(result?.Results).toHaveLength(208);
+    expect(result?.Results[207].Result).toBe('Fail');
   });
 
   test('includes scan metadata', () => {

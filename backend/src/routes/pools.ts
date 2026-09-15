@@ -98,7 +98,7 @@ function avgScore(machines: Pick<MachineEntity, 'complianceScore'>[]): number {
 router.get('/platforms', requirePermission('dashboard:read'), async (_req, res, next) => {
   try {
     ensureDb();
-    const machines = await AppDataSource.getRepository(MachineEntity).find();
+    const machines = await AppDataSource.getRepository(MachineEntity).find({ where: { isActive: true } });
     const counts = new Map<string, number>();
     for (const m of machines) {
       const key = platformOf(m);

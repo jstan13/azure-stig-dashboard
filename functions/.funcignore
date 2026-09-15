@@ -1,5 +1,4 @@
 # Function App build artifacts that should not be deployed
-node_modules
 test
 tests
 .git*

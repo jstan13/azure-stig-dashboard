@@ -2,7 +2,7 @@ import { ResourceGraphConnector } from '../connectors/resourceGraphConnector';
 import { PolicyConnector } from '../connectors/policyConnector';
 import { DefenderConnector } from '../connectors/defenderConnector';
 import { ARMConnector, normalizeMachineStatus } from '../connectors/armConnector';
-import { shouldReconcileInventory } from '../connectors/scanOrchestrator';
+import { normalizeAzureId, shouldReconcileInventory } from '../connectors/scanOrchestrator';
 import { mockStore } from '../database/dataSource';
 import { seedMock } from '../database/mockSeed';
 
@@ -51,6 +51,15 @@ describe('PolicyConnector (mock mode)', () => {
     for (const entry of result.data) {
       expect(validStates).toContain(entry.complianceState);
     }
+  });
+});
+
+describe('Azure ID normalization', () => {
+  it('matches Resource Graph IDs with lowercase Policy Insights IDs', () => {
+    const resourceGraphId = '/subscriptions/sub/resourceGroups/ASD/providers/Microsoft.Compute/virtualMachines/STIGTEST/';
+    const policyInsightsId = '/subscriptions/sub/resourcegroups/asd/providers/microsoft.compute/virtualmachines/stigtest';
+
+    expect(normalizeAzureId(resourceGraphId)).toBe(normalizeAzureId(policyInsightsId));
   });
 });
 

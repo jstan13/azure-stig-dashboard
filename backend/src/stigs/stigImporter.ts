@@ -9,6 +9,9 @@
  */
 
 import { DataSource } from 'typeorm';
+import axios from 'axios';
+import crypto from 'crypto';
+import { unzipSync } from 'fflate';
 import { StigBenchmarkEntity } from '../models/StigBenchmark';
 import { StigVersionEntity } from '../models/StigVersion';
 import { ControlEntity } from '../models/Control';
@@ -38,6 +41,44 @@ export interface ImportResult {
   controlsUpdated: number;
   skipped: boolean;
   error?: string;
+}
+
+const POWERSTIG_PACKAGE_VERSION = '4.30.0';
+const POWERSTIG_PACKAGE_URL =
+  `https://www.powershellgallery.com/api/v2/package/PowerSTIG/${POWERSTIG_PACKAGE_VERSION}`;
+const POWERSTIG_SERVER_2022_MS_XCCDF =
+  'StigData/Archive/Windows.Server.2022/U_MS_Windows_Server_2022_MS_STIG_V2R8_Manual-xccdf.xml';
+
+export async function importPowerStigServer2022MemberServer(
+  dataSource: DataSource,
+): Promise<ImportResult> {
+  logger.info(`[STIGImporter] Downloading PowerSTIG ${POWERSTIG_PACKAGE_VERSION}`);
+  const response = await axios.get(POWERSTIG_PACKAGE_URL, {
+    responseType: 'arraybuffer',
+    timeout: 120_000,
+    headers: { 'User-Agent': 'azure-stig-dashboard/1.0' },
+  });
+  const entries = unzipSync(new Uint8Array(response.data), {
+    filter: (entry) => entry.name === POWERSTIG_SERVER_2022_MS_XCCDF,
+  });
+  const xccdf = entries[POWERSTIG_SERVER_2022_MS_XCCDF];
+  if (!xccdf) {
+    throw new Error(
+      `PowerSTIG ${POWERSTIG_PACKAGE_VERSION} does not contain ${POWERSTIG_SERVER_2022_MS_XCCDF}`,
+    );
+  }
+
+  const parsed = parseXccdf(Buffer.from(xccdf).toString('utf-8'));
+  if (parsed.benchmarkId !== 'MS_Windows_Server_2022_MS_STIG' || parsed.version !== 'V2R8') {
+    throw new Error(`Unexpected embedded PowerSTIG benchmark ${parsed.benchmarkId} ${parsed.version}`);
+  }
+  const sha256 = crypto.createHash('sha256').update(xccdf).digest('hex');
+  return persistParsedBenchmark(
+    parsed,
+    sha256,
+    `PowerSTIG-${POWERSTIG_PACKAGE_VERSION}/${POWERSTIG_SERVER_2022_MS_XCCDF}`,
+    dataSource,
+  );
 }
 
 export async function importStigs(options: ImportOptions = {}): Promise<ImportResult[]> {

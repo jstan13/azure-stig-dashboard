@@ -13,8 +13,25 @@
  *   import { azureClientOptions } from '../connectors/azureClientOptions';
  *   new ResourceGraphClient(new DefaultAzureCredential(), azureClientOptions());
  */
+import {
+  DefaultAzureCredential,
+  ManagedIdentityCredential,
+  TokenCredential,
+} from '@azure/identity';
+
 export interface AzureClientOptions {
   endpoint?: string;
+}
+
+let credential: TokenCredential | undefined;
+
+export function azureCredential(): TokenCredential {
+  if (!credential) {
+    credential = process.env.IDENTITY_ENDPOINT
+      ? new ManagedIdentityCredential()
+      : new DefaultAzureCredential();
+  }
+  return credential;
 }
 
 export function azureClientOptions(): AzureClientOptions {

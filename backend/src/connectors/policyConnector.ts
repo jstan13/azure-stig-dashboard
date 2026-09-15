@@ -8,10 +8,9 @@
  * SDK: @azure/arm-policy
  */
 
-import { PolicyClient } from '@azure/arm-policy';
-import { DefaultAzureCredential } from '@azure/identity';
+import { PolicyInsightsClient } from '@azure/arm-policyinsights';
 import { BaseConnector, ConnectorResult, ScanOptions } from './baseConnector';
-import { azureClientOptions } from './azureClientOptions';
+import { azureClientOptions, azureCredential } from './azureClientOptions';
 import { logger } from '../utils/logger';
 import { mockStore } from '../database/dataSource';
 
@@ -27,13 +26,13 @@ export interface PolicyComplianceResult {
 }
 
 export class PolicyConnector extends BaseConnector {
-  private clients: Map<string, PolicyClient> = new Map();
+  private clients: Map<string, PolicyInsightsClient> = new Map();
 
-  private getClient(subscriptionId: string): PolicyClient {
+  private getClient(subscriptionId: string): PolicyInsightsClient {
     if (!this.clients.has(subscriptionId)) {
       this.clients.set(
         subscriptionId,
-        new PolicyClient(new DefaultAzureCredential(), subscriptionId, azureClientOptions()),
+        new PolicyInsightsClient(azureCredential(), subscriptionId, azureClientOptions()),
       );
     }
     return this.clients.get(subscriptionId)!;
@@ -77,7 +76,7 @@ export class PolicyConnector extends BaseConnector {
           ? `ResourceGroupName eq '${options.resourceGroupNames[0]}'`
           : undefined;
 
-        for await (const state of (client as any).policyStates.listQueryResultsForSubscription(
+        for await (const state of client.policyStates.listQueryResultsForSubscription(
           'latest',
           subId,
           { queryOptions: { filter } },

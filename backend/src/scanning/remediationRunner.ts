@@ -11,7 +11,7 @@
 
 import { ComputeManagementClient } from '@azure/arm-compute';
 import { HybridComputeManagementClient } from '@azure/arm-hybridcompute';
-import { DefaultAzureCredential } from '@azure/identity';
+import { azureCredential } from '../connectors/azureClientOptions';
 import { AppDataSource, mockStore } from '../database/dataSource';
 import { RemediationJobEntity } from '../models/RemediationJob';
 import { FindingEntity } from '../models/Finding';
@@ -219,11 +219,10 @@ if ($svc) {
 // ─── Azure execution ──────────────────────────────────────────────────────────
 
 async function executeScript(machine: MachineEntity, script: string, _strategy: string): Promise<string> {
-  const credential = new DefaultAzureCredential();
   const isArc = (machine as any).isArcConnected === true || !machine.subscriptionId;
 
   if (isArc) {
-    const client = new HybridComputeManagementClient(credential, machine.subscriptionId);
+    const client = new HybridComputeManagementClient(azureCredential(), machine.subscriptionId);
     const result = await (client.machines as any).beginRunCommandAndWait(
       machine.resourceGroupName,
       machine.name,
@@ -235,7 +234,7 @@ async function executeScript(machine: MachineEntity, script: string, _strategy: 
     );
     return JSON.stringify(result?.value?.[0]?.message ?? '');
   } else {
-    const client = new ComputeManagementClient(credential, machine.subscriptionId);
+    const client = new ComputeManagementClient(azureCredential(), machine.subscriptionId);
     const result = await client.virtualMachines.beginRunCommandAndWait(
       machine.resourceGroupName,
       machine.name,

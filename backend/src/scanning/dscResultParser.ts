@@ -32,6 +32,7 @@
  */
 
 import { DataSource } from 'typeorm';
+import { gunzipSync } from 'zlib';
 import { PowerStigResultEntity } from '../models/PowerStigResult';
 import { FindingEntity } from '../models/Finding';
 import { ControlEntity } from '../models/Control';
@@ -222,6 +223,15 @@ export async function parseStigResults(
  */
 export function extractJson(text: string): RawAuditOutput | null {
   if (!text) return null;
+
+  const compressed = text.match(/STIG_GZIP_BASE64:([A-Za-z0-9+/=]+)/)?.[1];
+  if (compressed) {
+    try {
+      return JSON.parse(gunzipSync(Buffer.from(compressed, 'base64')).toString('utf-8')) as RawAuditOutput;
+    } catch {
+      return null;
+    }
+  }
 
   // Find first '{' and last '}' to bound the JSON block
   const start = text.indexOf('{');

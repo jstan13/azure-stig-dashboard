@@ -4,7 +4,12 @@ import { StigBenchmarkEntity } from '../models/StigBenchmark';
 import { StigVersionEntity } from '../models/StigVersion';
 import { ScanEntity } from '../models/Scan';
 import { FindingEntity } from '../models/Finding';
-import { runPowerStigAudit } from '../scanning/powerStigRunner';
+import {
+  isPowerStigVersionSupported,
+  powerStigBenchmarkKey,
+  resolvePowerStigBenchmark,
+  runPowerStigAudit,
+} from '../scanning/powerStigRunner';
 import { parseStigResults } from '../scanning/dscResultParser';
 import { runOpenScapScan } from '../scanning/openScapRunner';
 import { logger } from '../utils/logger';
@@ -68,6 +73,8 @@ export function benchmarkAppliesToMachine(
     if (benchmarkRelease && !new RegExp(`(?:^|\\s)${benchmarkRelease}(?:\\s|$)`).test(machineOs)) {
       return false;
     }
+
+    if (!resolvePowerStigBenchmark(benchmark.benchmarkId)) return false;
   }
 
   const distros = [
@@ -96,18 +103,39 @@ export async function resolveApplicableStigs(
   benchmarkId?: string,
   versionName?: string,
 ): Promise<ApplicableStig[]> {
-  const benchmarks = await dataSource.getRepository(StigBenchmarkEntity).find({
-    where: { active: true },
-    relations: ['versions'],
-  });
+  const benchmarks = await dataSource.getRepository(StigBenchmarkEntity).find({ relations: ['versions'] });
+  const activeBenchmarks = benchmarks.filter((benchmark) => benchmark.active);
+  const selectedPowerStigFamilies = new Set<string>();
 
-  return benchmarks.flatMap((benchmark) => {
+  return activeBenchmarks.flatMap((benchmark) => {
     if (benchmarkId && benchmark.benchmarkId !== benchmarkId) return [];
     if (!benchmarkAppliesToMachine(machine, benchmark)) return [];
-    const version = benchmark.versions
-      .filter((candidate) => versionName ? candidate.version === versionName : candidate.status === 'active')
-      .sort((left, right) => right.importedAt.getTime() - left.importedAt.getTime())[0];
-    return version ? [{ benchmark, version }] : [];
+    const powerStigBenchmark = resolvePowerStigBenchmark(benchmark.benchmarkId);
+    const familyKey = powerStigBenchmarkKey(benchmark.benchmarkId);
+    if (!benchmarkId && familyKey && selectedPowerStigFamilies.has(familyKey)) return [];
+
+    const candidates = powerStigBenchmark && !benchmarkId && !versionName
+      ? benchmarks.filter((candidate) =>
+          powerStigBenchmarkKey(candidate.benchmarkId) === familyKey
+          && benchmarkAppliesToMachine(machine, candidate),
+        )
+      : [benchmark];
+    const selection = candidates
+      .flatMap((candidateBenchmark) => candidateBenchmark.versions.map((version) => ({
+        benchmark: candidateBenchmark,
+        version,
+      })))
+      .filter(({ benchmark: candidateBenchmark, version }) => {
+        if (versionName) return version.version === versionName;
+        if (powerStigBenchmark) {
+          return isPowerStigVersionSupported(candidateBenchmark.benchmarkId, version.version);
+        }
+        return version.status === 'active';
+      })
+      .sort((left, right) => right.version.importedAt.getTime() - left.version.importedAt.getTime())[0];
+
+    if (selection && familyKey) selectedPowerStigFamilies.add(familyKey);
+    return selection ? [selection] : [];
   });
 }
 
