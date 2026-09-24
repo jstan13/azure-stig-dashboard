@@ -30,13 +30,15 @@ const ENV_KEYS = {
 } as const;
 
 let mockSavedConfig: EmassConfigEntity | null = null;
+// Demo mode keeps saved config in memory only, so a per-process key suffices.
+let mockEncryptionKey: Buffer | null = null;
 const isMock = () => process.env.MOCK_MODE === 'true';
 
 function encryptionKey(): Buffer {
-  const root = process.env.EMASS_CONFIG_ENCRYPTION_KEY
-    || process.env.AZURE_CLIENT_SECRET
-    || process.env.DB_PASSWORD;
-  if (!root) {
+  const root = process.env.EMASS_CONFIG_ENCRYPTION_KEY;
+  // 'not-configured' is the Key Vault placeholder written when no key was supplied.
+  if (!root || root === 'not-configured') {
+    if (isMock()) return (mockEncryptionKey ??= randomBytes(32));
     throw new Error('EMASS_CONFIG_ENCRYPTION_KEY must be set before saving eMASS credentials');
   }
   return createHash('sha256').update(`stig-dashboard:emass:v1:${root}`).digest();

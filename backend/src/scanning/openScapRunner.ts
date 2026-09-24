@@ -15,7 +15,7 @@
 
 import { HybridComputeManagementClient } from '@azure/arm-hybridcompute';
 import { BlobServiceClient } from '@azure/storage-blob';
-import { azureCredential } from '../connectors/azureClientOptions';
+import { azureClientOptions, azureCredential } from '../connectors/azureClientOptions';
 import { DataSource } from 'typeorm';
 import { MachineEntity } from '../models/Machine';
 import { ScanEntity } from '../models/Scan';
@@ -144,7 +144,7 @@ fi`;
 // ─── Azure Arc execution ─────────────────────────────────────────────────────
 
 async function executeOnArcLinux(machine: MachineEntity, script: string): Promise<string> {
-  const client = new HybridComputeManagementClient(azureCredential(), machine.subscriptionId);
+  const client = new HybridComputeManagementClient(azureCredential(), machine.subscriptionId, azureClientOptions());
 
   const result = await (client.machines as any).beginRunCommandAndWait(
     machine.resourceGroupName,

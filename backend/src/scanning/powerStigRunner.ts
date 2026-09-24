@@ -24,7 +24,7 @@
 import { ComputeManagementClient } from '@azure/arm-compute';
 import { HybridComputeManagementClient } from '@azure/arm-hybridcompute';
 import { logger } from '../utils/logger';
-import { azureCredential } from '../connectors/azureClientOptions';
+import { azureClientOptions, azureCredential } from '../connectors/azureClientOptions';
 
 export interface PowerStigRunOptions {
   machineId: string;
@@ -56,14 +56,14 @@ const hybridClients = new Map<string, HybridComputeManagementClient>();
 
 function getComputeClient(subId: string): ComputeManagementClient {
   if (!computeClients.has(subId)) {
-    computeClients.set(subId, new ComputeManagementClient(azureCredential(), subId));
+    computeClients.set(subId, new ComputeManagementClient(azureCredential(), subId, azureClientOptions()));
   }
   return computeClients.get(subId)!;
 }
 
 function getHybridClient(subId: string): HybridComputeManagementClient {
   if (!hybridClients.has(subId)) {
-    hybridClients.set(subId, new HybridComputeManagementClient(azureCredential(), subId));
+    hybridClients.set(subId, new HybridComputeManagementClient(azureCredential(), subId, azureClientOptions()));
   }
   return hybridClients.get(subId)!;
 }
@@ -247,6 +247,8 @@ function normalizePowerStigVersion(version: string): string {
 
 export function buildAuditScript(opts: PowerStigRunOptions): string {
   const moduleVersion = '4.30.0';
+  const moduleRepository = process.env.POWERSTIG_REPOSITORY || 'PSGallery';
+  const allowModuleInstall = process.env.POWERSTIG_ALLOW_INSTALL !== 'false';
   const benchmark = resolvePowerStigBenchmark(opts.benchmarkId);
   if (!benchmark) {
     throw new Error(`PowerSTIG does not support benchmark ${opts.benchmarkId}`);
@@ -257,6 +259,10 @@ export function buildAuditScript(opts: PowerStigRunOptions): string {
     ? `            OsVersion = ${psSingleQuote(benchmark.osVersion)}\n            OsRole = ${psSingleQuote(benchmark.osRole)}`
     : `            OsVersion = ${psSingleQuote(benchmark.osVersion)}`;
   const ruleFilter = buildRuleFilter(opts.targetRuleIds);
+  const installModule = allowModuleInstall
+    ? `    Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null
+    Install-Module -Name PowerSTIG -RequiredVersion ${moduleVersion} -Repository ${psSingleQuote(moduleRepository)} -Force -SkipPublisherCheck -Scope AllUsers`
+    : `    throw 'PowerSTIG ${moduleVersion} is not installed and automatic installation is disabled. Preinstall the module from an approved offline source.'`;
 
   return `
 #Requires -RunAsAdministrator
@@ -266,8 +272,7 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process -Force
 # ── 1. Ensure PowerSTIG is installed ─────────────────────────────────────────
 if (-not (Get-Module -ListAvailable -Name PowerSTIG | Where-Object { $_.Version -ge '${moduleVersion}' })) {
     Write-Host "Installing PowerSTIG ${moduleVersion}..."
-    Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null
-    Install-Module -Name PowerSTIG -RequiredVersion ${moduleVersion} -Force -SkipPublisherCheck -Scope AllUsers
+${installModule}
 }
 Import-Module PowerSTIG -RequiredVersion ${moduleVersion} -Force
 

@@ -84,6 +84,12 @@ Write-Host ''
 if (-not (Test-Cmd az))  { Write-Error "Azure CLI not found. Install: https://aka.ms/installazurecli"; exit 1 }
 if (-not (Test-Cmd azd)) { Write-Error "Azure Developer CLI not found. Install: https://aka.ms/install-azd"; exit 1 }
 
+$azureCliCloud = if ($CloudEnvironment -eq 'AzureCloud') { 'AzureCloud' } else { 'AzureUSGovernment' }
+az cloud set --name $azureCliCloud
+if ($LASTEXITCODE -ne 0) { Write-Error "Azure CLI does not support cloud $azureCliCloud."; exit $LASTEXITCODE }
+azd config set cloud.name $azureCliCloud
+if ($LASTEXITCODE -ne 0) { Write-Error "Azure Developer CLI does not support cloud $azureCliCloud."; exit $LASTEXITCODE }
+
 $account = az account show --only-show-errors -o json 2>$null | ConvertFrom-Json
 if (-not $account) {
   Write-Host 'Not signed in to az. Launching device-code login...'
@@ -95,7 +101,10 @@ Write-Host ''
 
 # ── 2. Gather inputs ─────────────────────────────────────────────────────────
 if (-not $OrgName)  { $OrgName  = Read-Required 'Organization name (3-14 lowercase letters/digits)' 'stigdash' '^[a-z][a-z0-9]{2,13}$' }
-if (-not $Location) { $Location = Read-Required 'Azure region (e.g. eastus, usgovvirginia)' 'eastus' }
+if (-not $Location) {
+  $defaultLocation = if ($CloudEnvironment -eq 'AzureCloud') { 'eastus' } else { 'usgovvirginia' }
+  $Location = Read-Required 'Azure region (e.g. eastus, usgovvirginia)' $defaultLocation
+}
 
 # Database password — generated, never typed. Stored in azd env (encrypted).
 $dbPassword = -join ((65..90) + (97..122) + (48..57) + (33,35,36,37,38,42) | Get-Random -Count 24 | ForEach-Object {[char]$_})
@@ -127,6 +136,15 @@ azd env set AZURE_TENANT_ID      $reg.tenantId       | Out-Null
 azd env set AZURE_CLIENT_ID      $reg.clientId       | Out-Null
 azd env set AZURE_CLIENT_SECRET  $reg.clientSecret   | Out-Null
 azd env set DB_ADMIN_PASSWORD    $dbPassword         | Out-Null
+# Generated once and reused: rotating it would strand saved eMASS credentials.
+$emassKey = azd env get-value EMASS_CONFIG_ENCRYPTION_KEY 2>$null
+if ($LASTEXITCODE -ne 0 -or -not $emassKey -or $emassKey -match '^ERROR') {
+  $keyBytes = New-Object byte[] 32
+  $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+  try { $rng.GetBytes($keyBytes) } finally { $rng.Dispose() }
+  azd env set EMASS_CONFIG_ENCRYPTION_KEY ([Convert]::ToBase64String($keyBytes)) | Out-Null
+  Write-Host 'Generated eMASS configuration encryption key (saved to azd env, never displayed).'
+}
 azd env set MOCK_MODE            'false'             | Out-Null
 azd env set APP_SERVICE_SKU      $AppServiceSku      | Out-Null
 azd env set AUTO_SIZE_BY_TRACKED_HOSTS ($AutoSizeByTrackedHosts.ToString().ToLowerInvariant()) | Out-Null
@@ -136,6 +154,7 @@ azd env set ORG_NAME             $OrgName            | Out-Null
 azd env set AZURE_BASE_NAME      "$OrgName-stig"     | Out-Null
 azd env set CLOUD_ENVIRONMENT    $CloudEnvironment   | Out-Null
 azd env set AZURE_CLOUD_ENVIRONMENT $CloudEnvironment | Out-Null
+azd env set AZURE_CLOUD         $azureCliCloud       | Out-Null
 azd env set ENABLE_SCHEDULER     ($EnableScheduler.ToString().ToLowerInvariant()) | Out-Null
 azd env set ENABLE_DIAGNOSTICS   ($EnableDiagnostics.ToString().ToLowerInvariant()) | Out-Null
 azd env set BUSINESS_HOURS_MODE  ($BusinessHoursMode.ToString().ToLowerInvariant()) | Out-Null
@@ -158,7 +177,8 @@ $functionPrincipalId = $outputs.FUNCTION_PRINCIPAL_ID
   -BackendClientId     $reg.clientId `
   -BackendPrincipalId  $backendPrincipalId `
   -FunctionPrincipalId $functionPrincipalId `
-  -SubscriptionId      $account.id
+  -SubscriptionId      $account.id `
+  -CloudEnvironment    $CloudEnvironment
 
 Write-Host ''
 Write-Host '═══ Done ══════════════════════════════════════════════════════════'

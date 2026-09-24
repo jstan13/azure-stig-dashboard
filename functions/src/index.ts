@@ -41,6 +41,8 @@ const EXTRA_VM_RESOURCE_IDS = String(process.env.EXTRA_VM_RESOURCE_IDS || '')
   .filter(Boolean);
 const FRONTEND_BASE_URL = (process.env.FRONTEND_BASE_URL || '').replace(/\/$/, '');
 const UPDATE_REPO = process.env.UPDATE_SOURCE_REPO || 'jstan13/azure-stig-dashboard';
+const GITHUB_API_BASE_URL = (process.env.GITHUB_API_BASE_URL || 'https://api.github.com').replace(/\/$/, '');
+const GITHUB_RAW_BASE_URL = (process.env.GITHUB_RAW_BASE_URL || 'https://raw.githubusercontent.com').replace(/\/$/, '');
 const WEB_API_VERSION = '2023-01-01';
 const VM_API_VERSION = '2023-09-01';
 // Small deployments get this Function App solely to install updates. Scanning
@@ -557,7 +559,7 @@ interface ReleaseInfo { version: string; notes: string }
 
 async function latestRelease(ctx: InvocationContext): Promise<ReleaseInfo | null> {
   const res = await axios.get(
-    `https://api.github.com/repos/${UPDATE_REPO}/releases/latest`,
+    `${GITHUB_API_BASE_URL}/repos/${UPDATE_REPO}/releases/latest`,
     {
       timeout: 30_000,
       headers: { Accept: 'application/vnd.github+json' },
@@ -577,7 +579,7 @@ async function latestRelease(ctx: InvocationContext): Promise<ReleaseInfo | null
 async function imagesForRelease(
   version: string,
 ): Promise<{ backend: string; frontend: string }> {
-  const url = `https://raw.githubusercontent.com/${UPDATE_REPO}/deploy-templates/${version}/azuredeploy.json`;
+  const url = `${GITHUB_RAW_BASE_URL}/${UPDATE_REPO}/deploy-templates/${version}/azuredeploy.json`;
   const res = await axios.get(url, { timeout: 30_000 });
   const params = res.data?.parameters ?? {};
   const backend = String(params.backendImage?.defaultValue ?? '');

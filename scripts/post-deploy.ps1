@@ -36,15 +36,27 @@
 .PARAMETER SubscriptionId
   Subscription to grant the backend MI Reader + Security Reader on. Defaults
   to the currently-selected `az account` subscription.
+
+.PARAMETER CloudEnvironment
+  AzureCloud, AzureUSGovernment, or AzureUSGovernmentDoD. Selects the Microsoft
+  Graph endpoint. Defaults to the AZURE_CLOUD_ENVIRONMENT azd env value.
 #>
 param(
   [string]$BackendClientId      = $env:AZURE_CLIENT_ID,
   [string]$FunctionPrincipalId  = $env:FUNCTION_PRINCIPAL_ID,
   [string]$BackendPrincipalId   = $env:BACKEND_PRINCIPAL_ID,
-  [string]$SubscriptionId       = $null
+  [string]$SubscriptionId       = $null,
+  # The azd postdeploy hook passes no arguments, so default from the azd env.
+  [ValidateSet('AzureCloud','AzureUSGovernment','AzureUSGovernmentDoD')]
+  [string]$CloudEnvironment     = $(if ($env:AZURE_CLOUD_ENVIRONMENT) { $env:AZURE_CLOUD_ENVIRONMENT } else { 'AzureCloud' })
 )
 
 $ErrorActionPreference = 'Stop'
+$graphEndpoint = switch ($CloudEnvironment) {
+  'AzureUSGovernment'    { 'https://graph.microsoft.us' }
+  'AzureUSGovernmentDoD' { 'https://dod-graph.microsoft.us' }
+  default                { 'https://graph.microsoft.com' }
+}
 
 # ── 0. Subscription-scope RBAC for backend Azure credentials ─────────────────
 $backendPrincipals = @()
@@ -117,7 +129,8 @@ if (-not $operatorRole) {
 
 # Check if assignment already exists
 $existing = az rest --method GET `
-  --uri "https://graph.microsoft.com/v1.0/servicePrincipals/$FunctionPrincipalId/appRoleAssignments" `
+  --uri "$graphEndpoint/v1.0/servicePrincipals/$FunctionPrincipalId/appRoleAssignments" `
+  --resource $graphEndpoint `
   --query "value[?appRoleId=='$($operatorRole.id)' && resourceId=='$($backendSp.id)'] | [0]" -o json 2>$null
 
 if ($existing -and $existing -ne 'null') {
@@ -132,7 +145,8 @@ if ($existing -and $existing -ne 'null') {
   Set-Content -Path $assignmentFile -Value $body -Encoding utf8
 
   az rest --method POST `
-    --uri "https://graph.microsoft.com/v1.0/servicePrincipals/$FunctionPrincipalId/appRoleAssignments" `
+    --uri "$graphEndpoint/v1.0/servicePrincipals/$FunctionPrincipalId/appRoleAssignments" `
+    --resource $graphEndpoint `
     --headers 'Content-Type=application/json' `
     --body "@$assignmentFile" | Out-Null
   $assignmentExitCode = $LASTEXITCODE

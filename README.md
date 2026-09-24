@@ -195,17 +195,36 @@ The ARM template provisions:
 
 ### Sovereign cloud support (Azure US Gov / DoD)
 
-The template is fully cloud-aware. Selecting `AzureUSGovernment` or `AzureUSGovernmentDoD` in the wizard automatically substitutes:
+The deployment has explicit Commercial, Azure Government, and DoD endpoint profiles. Commercial Azure is the tested release path. Azure Government and DoD are configurable in the code and templates, but this project does not claim certification in those clouds without deployment and authorization testing in the target tenant.
 
-| Resource | Commercial | Azure US Gov |
-|---|---|---|
-| App Service hostname | `*.azurewebsites.net` | `*.azurewebsites.us` |
-| PostgreSQL DNS | `*.postgres.database.azure.com` | `*.postgres.database.usgovcloudapi.net` |
-| Microsoft Entra authority | `login.microsoftonline.com` | `login.microsoftonline.us` |
-| ARM endpoint | `management.azure.com` | `management.usgovcloudapi.net` |
-| Microsoft Graph | `graph.microsoft.com` | `graph.microsoft.us` |
+| Resource | Commercial / GCC | GCC High | DoD |
+|---|---|---|---|
+| Cloud selection | `AzureCloud` | `AzureUSGovernment` | `AzureUSGovernmentDoD` |
+| App Service hostname | `*.azurewebsites.net` | `*.azurewebsites.us` | `*.azurewebsites.us` |
+| PostgreSQL DNS | `*.postgres.database.azure.com` | `*.postgres.database.usgovcloudapi.net` | `*.postgres.database.usgovcloudapi.net` |
+| Microsoft Entra authority | `login.microsoftonline.com` | `login.microsoftonline.us` | `login.microsoftonline.us` |
+| ARM endpoint | `management.azure.com` | `management.usgovcloudapi.net` | `management.usgovcloudapi.net` |
+| Microsoft Graph | `graph.microsoft.com` | `graph.microsoft.us` | `dod-graph.microsoft.us` |
 
-The backend reads `AZURE_AUTHORITY_HOST`, `AZURE_ARM_ENDPOINT`, and `AZURE_GRAPH_ENDPOINT` from app settings, so JWT validation, JWKS fetches, and Azure SDK clients all target the correct sovereign endpoints automatically.
+The backend reads `AZURE_AUTHORITY_HOST`, `AZURE_ARM_ENDPOINT`, and `AZURE_GRAPH_ENDPOINT` from app settings. The deployment and app-registration scripts also switch Azure CLI, `azd`, Graph, and App Service hostnames to the selected profile.
+
+**Disconnected Azure Stack Hub is not supported by this deployment.** Endpoint replacement alone is insufficient: this topology depends on services and control-plane APIs such as App Service, PostgreSQL Flexible Server, Azure Functions, Application Insights, Defender, Policy Insights, Resource Graph, and Entra ID that may be absent or materially different in a disconnected Stack Hub installation. Supporting it requires a separate infrastructure profile and authentication/inventory implementation validated against that installation.
+
+For restricted networks that can reach approved internal mirrors:
+
+```pwsh
+azd env set POWERSTIG_PACKAGE_URL https://packages.example.mil/PowerSTIG/4.30.0
+azd env set POWERSTIG_REPOSITORY ApprovedPowerShellRepository
+
+# Or preinstall PowerSTIG 4.30.0 on assessed hosts and forbid downloads.
+azd env set POWERSTIG_ALLOW_INSTALL false
+
+# Disable public release checks, or point them at a GitHub Enterprise-compatible mirror.
+azd env set AUTO_UPDATE_MODE off
+# azd env set UPDATE_SOURCE_REPO security/azure-stig-dashboard
+# azd env set GITHUB_API_BASE_URL https://github.example.mil/api/v3
+# azd env set GITHUB_RAW_BASE_URL https://raw.github.example.mil
+```
 
 **Before deploying** you must:
 1. Complete the [Azure AD app registration](#azure-ad-app-registration) steps **inside the matching tenant** (Commercial AAD vs Gov AAD — they are separate directories).
@@ -258,8 +277,14 @@ azd env set APP_SERVICE_SKU     S1                   # see sizing table below
 # azd env set BUSINESS_HOURS_END_HOUR 18
 # azd env set AUTO_SHUTDOWN_OUTSIDE_BUSINESS_HOURS true
 
+# Recommended — stable key for eMASS credentials saved from Settings. Set once and
+# never change it; scripts/deploy.ps1 does this for you.
+# azd env set EMASS_CONFIG_ENCRYPTION_KEY "$([Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)))"
+
 # Optional sovereign cloud (Azure US Gov / DoD)
-# azd env set AZURE_CLOUD AzureUSGovernment
+# az cloud set --name AzureUSGovernment
+# azd config set cloud.name AzureUSGovernment
+# azd env set AZURE_CLOUD_ENVIRONMENT AzureUSGovernment # or AzureUSGovernmentDoD
 # azd config set defaults.location usgovvirginia
 
 azd up                              # provisions infra + builds + deploys
@@ -268,7 +293,7 @@ azd up                              # provisions infra + builds + deploys
 `azd up` will:
 
 1. Provision the resource group + every resource defined in [infra/main.bicep](infra/main.bicep) (~10–15 min) including the **scheduled-scan Function App**, **Storage account**, and **Log Analytics workspace** for SIEM forwarding.
-2. Store `AZURE-CLIENT-SECRET` and `DB-PASSWORD` in **Key Vault**, wired into App Service via Key Vault references — secrets are never logged.
+2. Store `AZURE-CLIENT-SECRET`, `DB-PASSWORD`, and `EMASS-CONFIG-ENCRYPTION-KEY` in **Key Vault**, wired into App Service via Key Vault references — secrets are never logged.
 3. Grant the backend's system-assigned managed identity the **Key Vault Secrets User** role.
 4. Build the backend (`tsc`), frontend (`vite build`), and Function App (`tsc`) and deploy all three.
 5. Run the post-deploy hook ([scripts/post-deploy.ps1](scripts/post-deploy.ps1)) which grants the Function App MI the **operator** app role on the backend Entra registration via Microsoft Graph and verifies the `api://` Application ID URI is set.

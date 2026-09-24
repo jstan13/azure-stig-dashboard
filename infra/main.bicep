@@ -34,6 +34,10 @@ param dbAdminLogin string = 'stigadmin'
 @secure()
 param dbAdminPassword string = ''
 
+@description('Stable, high-entropy key that encrypts eMASS credentials saved from Settings. Keep it constant across deployments; changing it makes saved eMASS credentials undecryptable. When empty, the client secret is used for compatibility with earlier releases.')
+@secure()
+param emassConfigEncryptionKey string = ''
+
 @description('Demo mode — serves seeded sample data, disables sign-in and accepts every API request unauthenticated. Never enable for a deployment holding real data.')
 param mockMode bool = false
 
@@ -141,6 +145,21 @@ param frontendImage string = ''
 @description('Public URL of the scheduler Function zip package. Leave empty to deploy code from source (azd).')
 param schedulerPackageUrl string = ''
 
+@description('PowerSTIG 4.30.0 package URL. Point this at an approved internal mirror in restricted networks.')
+param powerStigPackageUrl string = 'https://www.powershellgallery.com/api/v2/package/PowerSTIG/4.30.0'
+
+@description('PowerShell repository used to install PowerSTIG on assessed machines.')
+param powerStigRepository string = 'PSGallery'
+
+@description('Allow assessed machines to install PowerSTIG. Set false when the module is preinstalled from an offline source.')
+param powerStigAllowInstall bool = true
+
+@description('GitHub-compatible API base URL used for update checks. Only used when auto-update is enabled.')
+param githubApiBaseUrl string = 'https://api.github.com'
+
+@description('GitHub-compatible raw-content base URL used to retrieve release templates. Only used when auto-update is enabled.')
+param githubRawBaseUrl string = 'https://raw.githubusercontent.com'
+
 // ── Variables ─────────────────────────────────────────────────────────────────
 var planName     = '${baseName}-plan'
 var backendName  = '${baseName}-api'
@@ -157,7 +176,7 @@ var kvSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6'
 var isGov = cloudEnvironment == 'AzureUSGovernment' || cloudEnvironment == 'AzureUSGovernmentDoD'
 var appHostSuffix = isGov ? 'azurewebsites.us' : 'azurewebsites.net'
 var authorityHost = isGov ? 'https://login.microsoftonline.us' : 'https://login.microsoftonline.com'
-var graphHost = isGov ? 'https://graph.microsoft.us' : 'https://graph.microsoft.com'
+var graphHost = cloudEnvironment == 'AzureUSGovernmentDoD' ? 'https://dod-graph.microsoft.us' : (isGov ? 'https://graph.microsoft.us' : 'https://graph.microsoft.com')
 var armHost = isGov ? 'https://management.usgovcloudapi.net' : 'https://management.azure.com'
 var backendLinuxFxVersion  = empty(backendImage)  ? 'NODE|20-lts' : 'DOCKER|${backendImage}'
 var frontendLinuxFxVersion = empty(frontendImage) ? 'NODE|20-lts' : 'DOCKER|${frontendImage}'
@@ -237,6 +256,19 @@ resource kvSecretDbPassword 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   parent: keyVault
   name: 'DB-PASSWORD'
   properties: { value: empty(dbAdminPassword) ? 'not-configured' : dbAdminPassword }
+}
+
+// Separate from AZURE-CLIENT-SECRET so client-secret rotation does not strand
+// saved eMASS credentials. Outside demo mode the backend refuses the
+// 'not-configured' placeholder.
+resource kvSecretEmassKey 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVault
+  name: 'EMASS-CONFIG-ENCRYPTION-KEY'
+  properties: {
+    value: !empty(emassConfigEncryptionKey)
+      ? emassConfigEncryptionKey
+      : (empty(azureClientSecret) ? 'not-configured' : azureClientSecret)
+  }
 }
 // ── PostgreSQL Flexible Server ────────────────────────────────────
 // Demo mode serves seeded sample data from memory and never opens a connection,
@@ -335,9 +367,13 @@ var backendAppSettings = concat([
   { name: 'AZURE_AUTHORITY_HOST',           value: authorityHost                                   }
   { name: 'AZURE_GRAPH_ENDPOINT',           value: graphHost                                       }
   { name: 'AZURE_ARM_ENDPOINT',             value: armHost                                         }
+  { name: 'POWERSTIG_PACKAGE_URL',          value: powerStigPackageUrl                              }
+  { name: 'POWERSTIG_REPOSITORY',           value: powerStigRepository                              }
+  { name: 'POWERSTIG_ALLOW_INSTALL',        value: powerStigAllowInstall ? 'true' : 'false'         }
   { name: 'AZURE_TENANT_ID',                value: azureTenantId                                  }
   { name: 'AZURE_CLIENT_ID',                value: azureClientId                                  }
   { name: 'AZURE_CLIENT_SECRET',            value: '@Microsoft.KeyVault(SecretUri=${kvSecretClientSecret.properties.secretUri})' }
+  { name: 'EMASS_CONFIG_ENCRYPTION_KEY',     value: '@Microsoft.KeyVault(SecretUri=${kvSecretEmassKey.properties.secretUri})' }
   { name: 'AZURE_SUBSCRIPTION_ID',           value: subscription().subscriptionId                   }
   { name: 'AZURE_SUBSCRIPTION_IDS',          value: subscription().subscriptionId                   }
   { name: 'APPINSIGHTS_INSTRUMENTATIONKEY', value: appInsights.properties.InstrumentationKey      }
@@ -594,6 +630,8 @@ resource funcApp 'Microsoft.Web/sites@2023-01-01' = if (effectiveEnableScheduler
         { name: 'SCHEDULED_SCAN_ENABLED',              value: scheduledScansEnabled ? 'true' : 'false' }
         { name: 'FRONTEND_BASE_URL',                   value: 'https://${frontendApp.properties.defaultHostName}' }
         { name: 'UPDATE_SOURCE_REPO',                  value: updateSourceRepo }
+        { name: 'GITHUB_API_BASE_URL',                 value: githubApiBaseUrl }
+        { name: 'GITHUB_RAW_BASE_URL',                 value: githubRawBaseUrl }
         { name: 'RELEASE_TAG',                         value: releaseTag }
       ])
     }
@@ -674,4 +712,3 @@ output logAnalyticsWorkspaceId string = logAnalytics.id
 output effectiveAppServiceSku string = effectiveAppServiceSku
 output effectiveEnableScheduler bool = effectiveEnableScheduler
 output effectiveEnableDiagnostics bool = effectiveEnableDiagnostics
-

@@ -48,6 +48,16 @@ describe('STIG applicability', () => {
 });
 
 describe('PowerSTIG audit script', () => {
+  const originalAllowInstall = process.env.POWERSTIG_ALLOW_INSTALL;
+  const originalRepository = process.env.POWERSTIG_REPOSITORY;
+
+  afterEach(() => {
+    if (originalAllowInstall === undefined) delete process.env.POWERSTIG_ALLOW_INSTALL;
+    else process.env.POWERSTIG_ALLOW_INSTALL = originalAllowInstall;
+    if (originalRepository === undefined) delete process.env.POWERSTIG_REPOSITORY;
+    else process.env.POWERSTIG_REPOSITORY = originalRepository;
+  });
+
   it('maps server benchmarks to supported PowerSTIG parameters', () => {
     expect(resolvePowerStigBenchmark('MS_Windows_Server_2022_STIG')).toEqual({
       resource: 'WindowsServer',
@@ -101,5 +111,41 @@ describe('PowerSTIG audit script', () => {
       osType: 'Windows',
       isArcConnected: false,
     })).toThrow('Invalid PowerSTIG version');
+  });
+
+  it('fails clearly instead of reaching the internet when module installation is disabled', () => {
+    process.env.POWERSTIG_ALLOW_INSTALL = 'false';
+
+    const script = buildAuditScript({
+      machineId: 'machine-id',
+      machineName: 'server-01',
+      resourceGroupName: 'rg',
+      subscriptionId: 'subscription-id',
+      benchmarkId: 'MS_Windows_Server_2022_STIG',
+      stigVersion: 'V2R8',
+      osType: 'Windows',
+      isArcConnected: false,
+    });
+
+    expect(script).toContain('automatic installation is disabled');
+    expect(script).not.toContain('Install-PackageProvider');
+    expect(script).not.toContain('Install-Module -Name PowerSTIG');
+  });
+
+  it('installs from the configured PowerShell repository', () => {
+    process.env.POWERSTIG_REPOSITORY = 'ApprovedMirror';
+
+    const script = buildAuditScript({
+      machineId: 'machine-id',
+      machineName: 'server-01',
+      resourceGroupName: 'rg',
+      subscriptionId: 'subscription-id',
+      benchmarkId: 'MS_Windows_Server_2022_STIG',
+      stigVersion: 'V2R8',
+      osType: 'Windows',
+      isArcConnected: false,
+    });
+
+    expect(script).toContain("-Repository 'ApprovedMirror'");
   });
 });

@@ -11,7 +11,7 @@
 
 import { ComputeManagementClient } from '@azure/arm-compute';
 import { HybridComputeManagementClient } from '@azure/arm-hybridcompute';
-import { azureCredential } from '../connectors/azureClientOptions';
+import { azureClientOptions, azureCredential } from '../connectors/azureClientOptions';
 import { AppDataSource, mockStore } from '../database/dataSource';
 import { RemediationJobEntity } from '../models/RemediationJob';
 import { FindingEntity } from '../models/Finding';
@@ -222,7 +222,7 @@ async function executeScript(machine: MachineEntity, script: string, _strategy: 
   const isArc = (machine as any).isArcConnected === true || !machine.subscriptionId;
 
   if (isArc) {
-    const client = new HybridComputeManagementClient(azureCredential(), machine.subscriptionId);
+    const client = new HybridComputeManagementClient(azureCredential(), machine.subscriptionId, azureClientOptions());
     const result = await (client.machines as any).beginRunCommandAndWait(
       machine.resourceGroupName,
       machine.name,
@@ -234,7 +234,7 @@ async function executeScript(machine: MachineEntity, script: string, _strategy: 
     );
     return JSON.stringify(result?.value?.[0]?.message ?? '');
   } else {
-    const client = new ComputeManagementClient(azureCredential(), machine.subscriptionId);
+    const client = new ComputeManagementClient(azureCredential(), machine.subscriptionId, azureClientOptions());
     const result = await client.virtualMachines.beginRunCommandAndWait(
       machine.resourceGroupName,
       machine.name,

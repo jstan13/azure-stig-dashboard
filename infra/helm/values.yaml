@@ -149,6 +149,14 @@ postgresql:
   # secretName contains keys: username, password
   secretName: stig-db-credentials
 
+# ── eMASS credential encryption ────────────────────────────────────────────────
+# Kubernetes secret holding a stable, high-entropy key (e.g. `openssl rand -base64 32`).
+# Without it, eMASS values can still come from EMASS_* env vars but cannot be
+# saved from Settings.
+emass:
+  encryptionKeySecretName: stig-emass-config
+  encryptionKeySecretKey: encryption-key
+
 # ── Azure Key Vault CSI secrets ────────────────────────────────────────────────
 keyVault:
   enabled: false

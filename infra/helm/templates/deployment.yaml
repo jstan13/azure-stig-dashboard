@@ -65,6 +65,14 @@ spec:
               value: {{ .Values.postgresql.port | quote }}
             - name: DB_SSL
               value: "true"
+            # Required to save eMASS credentials from Settings. Keep the value
+            # stable: changing it makes previously saved credentials undecryptable.
+            - name: EMASS_CONFIG_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.emass.encryptionKeySecretName }}
+                  key: {{ .Values.emass.encryptionKeySecretKey }}
+                  optional: true
           livenessProbe:
             {{- toYaml .Values.backend.livenessProbe | nindent 12 }}
           readinessProbe:

@@ -32,7 +32,7 @@ import { FindingEntity } from '../models/Finding';
 import { ControlEntity } from '../models/Control';
 import { shouldReplaceFinding } from './sourceFidelity';
 import { logger } from '../utils/logger';
-import { azureCredential } from '../connectors/azureClientOptions';
+import { azureClientOptions, azureCredential } from '../connectors/azureClientOptions';
 
 const GC_STORAGE_CONTAINER = process.env.GC_STORAGE_CONTAINER ?? 'stig-gc-packages';
 const GC_RESOURCE_GROUP    = process.env.GC_RESOURCE_GROUP ?? 'stig-tracker-rg';
@@ -61,7 +61,7 @@ const polClients = new Map<string, PolicyClient>();
 
 function getGcClient(subId: string): GuestConfigurationClient {
   if (!gcClients.has(subId)) {
-    gcClients.set(subId, new GuestConfigurationClient(azureCredential(), subId));
+    gcClients.set(subId, new GuestConfigurationClient(azureCredential(), subId, azureClientOptions()));
   }
   return gcClients.get(subId)!;
 }

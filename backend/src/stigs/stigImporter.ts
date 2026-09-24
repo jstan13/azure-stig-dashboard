@@ -44,7 +44,7 @@ export interface ImportResult {
 }
 
 const POWERSTIG_PACKAGE_VERSION = '4.30.0';
-const POWERSTIG_PACKAGE_URL =
+const DEFAULT_POWERSTIG_PACKAGE_URL =
   `https://www.powershellgallery.com/api/v2/package/PowerSTIG/${POWERSTIG_PACKAGE_VERSION}`;
 const POWERSTIG_SERVER_2022_MS_XCCDF =
   'StigData/Archive/Windows.Server.2022/U_MS_Windows_Server_2022_MS_STIG_V2R8_Manual-xccdf.xml';
@@ -52,8 +52,9 @@ const POWERSTIG_SERVER_2022_MS_XCCDF =
 export async function importPowerStigServer2022MemberServer(
   dataSource: DataSource,
 ): Promise<ImportResult> {
+  const packageUrl = process.env.POWERSTIG_PACKAGE_URL || DEFAULT_POWERSTIG_PACKAGE_URL;
   logger.info(`[STIGImporter] Downloading PowerSTIG ${POWERSTIG_PACKAGE_VERSION}`);
-  const response = await axios.get(POWERSTIG_PACKAGE_URL, {
+  const response = await axios.get(packageUrl, {
     responseType: 'arraybuffer',
     timeout: 120_000,
     headers: { 'User-Agent': 'azure-stig-dashboard/1.0' },

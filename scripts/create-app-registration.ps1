@@ -76,6 +76,11 @@ $appHostSuffix = switch ($CloudEnvironment) {
   'AzureUSGovernmentDoD' { 'azurewebsites.us' }
   default                { 'azurewebsites.net' }
 }
+$graphEndpoint = switch ($CloudEnvironment) {
+  'AzureUSGovernment'    { 'https://graph.microsoft.us' }
+  'AzureUSGovernmentDoD' { 'https://dod-graph.microsoft.us' }
+  default                { 'https://graph.microsoft.com' }
+}
 $frontendUri = "https://$OrgName-stig-web.$appHostSuffix"
 
 Write-Host ''
@@ -118,7 +123,8 @@ $spaFile = New-TemporaryFile
   }
 } | ConvertTo-Json -Depth 4 | Set-Content -Path $spaFile -Encoding utf8
 az rest --method PATCH `
-  --uri "https://graph.microsoft.com/v1.0/applications/$objectId" `
+  --uri "$graphEndpoint/v1.0/applications/$objectId" `
+  --resource $graphEndpoint `
   --headers 'Content-Type=application/json' `
   --body "@$spaFile" `
   --only-show-errors | Out-Null
@@ -235,7 +241,8 @@ if ($GrantAdminToSelf) {
     $adminRoleIdEffective = ($appFresh.appRoles | Where-Object { $_.value -eq 'admin' } | Select-Object -First 1).id
 
     $existingAssignment = az rest --method GET `
-      --uri "https://graph.microsoft.com/v1.0/users/$($me.id)/appRoleAssignments" `
+      --uri "$graphEndpoint/v1.0/users/$($me.id)/appRoleAssignments" `
+      --resource $graphEndpoint `
       --only-show-errors -o json | ConvertFrom-Json
     $already = $existingAssignment.value | Where-Object { $_.appRoleId -eq $adminRoleIdEffective -and $_.resourceId -eq $spObjectId }
 
@@ -248,7 +255,8 @@ if ($GrantAdminToSelf) {
       $assignmentFile = New-TemporaryFile
       Set-Content -Path $assignmentFile -Value $body -Encoding utf8
       az rest --method POST `
-        --uri "https://graph.microsoft.com/v1.0/users/$($me.id)/appRoleAssignments" `
+        --uri "$graphEndpoint/v1.0/users/$($me.id)/appRoleAssignments" `
+        --resource $graphEndpoint `
         --headers 'Content-Type=application/json' `
         --body "@$assignmentFile" --only-show-errors | Out-Null
       $assignmentExitCode = $LASTEXITCODE
