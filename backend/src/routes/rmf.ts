@@ -16,12 +16,13 @@ import {
   mapCcisToNist, ccisToNistControls,
 } from '../data/cciNistMapping';
 import { sendServerError } from '../middleware/errorHandler';
+import { requirePermission } from '../middleware/authz';
 
 const router = Router();
 const isMock = () => process.env.MOCK_MODE === 'true';
 
 // GET /api/rmf/families — family heat map data
-router.get('/families', async (_req: Request, res: Response) => {
+router.get('/families', requirePermission('dashboard:read'), async (_req: Request, res: Response) => {
   try {
     if (isMock()) {
       return res.json(buildMockFamilySummary());
@@ -56,7 +57,7 @@ router.get('/families', async (_req: Request, res: Response) => {
 });
 
 // GET /api/rmf/nist-crosswalk?status=open&machineId=x
-router.get('/nist-crosswalk', async (req: Request, res: Response) => {
+router.get('/nist-crosswalk', requirePermission('dashboard:read'), async (req: Request, res: Response) => {
   try {
     const { status, machineId } = req.query;
 
@@ -109,7 +110,7 @@ router.get('/nist-crosswalk', async (req: Request, res: Response) => {
 });
 
 // GET /api/rmf/controls/:control
-router.get('/controls/:control', async (req: Request, res: Response) => {
+router.get('/controls/:control', requirePermission('dashboard:read'), async (req: Request, res: Response) => {
   try {
     const { control } = req.params;
     const ccis = getAllCcis().filter((c) =>
@@ -122,7 +123,7 @@ router.get('/controls/:control', async (req: Request, res: Response) => {
 });
 
 // GET /api/rmf/cci/:cci
-router.get('/cci/:cci', async (req: Request, res: Response) => {
+router.get('/cci/:cci', requirePermission('dashboard:read'), async (req: Request, res: Response) => {
   try {
     const entry = lookupCci(req.params.cci);
     if (!entry) return res.status(404).json({ error: 'CCI not found' });

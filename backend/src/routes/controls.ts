@@ -15,7 +15,7 @@ import { parsePage, parsePageSize } from '../utils/paging';
 
 const router = Router();
 
-router.get('/', async (req, res, next) => {
+router.get('/', requirePermission('dashboard:read'), async (req, res, next) => {
   const { severity, q, page = 1, pageSize = 50 } = req.query;
   const p = parsePage(page);
   const ps = parsePageSize(pageSize, 50, 200);
@@ -89,7 +89,7 @@ router.post(
  * GET /api/controls/mappings/coverage
  * Report how many controls have at least one Azure source mapping.
  */
-router.get('/mappings/coverage', async (_req, res, next) => {
+router.get('/mappings/coverage', requirePermission('dashboard:read'), async (_req, res, next) => {
   if (process.env.MOCK_MODE === 'true') {
     return res.json({
       controlsTotal: mockStore.controls.length,
@@ -129,7 +129,7 @@ router.get('/mappings/coverage', async (_req, res, next) => {
   }
 });
 
-router.get('/:id', async (req, res, next) => {
+router.get('/:id', requirePermission('dashboard:read'), async (req, res, next) => {
   const MOCK_MODE = process.env.MOCK_MODE === 'true';
   if (MOCK_MODE) {
     const control = mockStore.controls.find((c: any) => c.id === req.params.id);

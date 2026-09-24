@@ -37,7 +37,7 @@ const createRemediationJobSchema = z.object({
 });
 
 // GET /api/remediation/jobs
-router.get('/jobs', async (req: Request, res: Response) => {
+router.get('/jobs', requirePermission('dashboard:read'), async (req: Request, res: Response) => {
   try {
     const { status, page = '1', limit = '20' } = req.query;
     const safeLimit = parsePageSize(limit, 20, 200);
@@ -60,7 +60,7 @@ router.get('/jobs', async (req: Request, res: Response) => {
 });
 
 // GET /api/remediation/jobs/:id
-router.get('/jobs/:id', async (req: Request, res: Response) => {
+router.get('/jobs/:id', requirePermission('dashboard:read'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     if (isMock()) {

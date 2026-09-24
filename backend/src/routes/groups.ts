@@ -8,10 +8,11 @@ import { MachineEntity } from '../models/Machine';
 import { FindingEntity } from '../models/Finding';
 import { ControlEntity } from '../models/Control';
 import { In } from 'typeorm';
+import { requirePermission } from '../middleware/authz';
 
 const router = Router();
 
-router.get('/:id/compliance', async (req, res, next) => {
+router.get('/:id/compliance', requirePermission('dashboard:read'), async (req, res, next) => {
   const groupName = req.params.id;
   const MOCK_MODE = process.env.MOCK_MODE === 'true';
 

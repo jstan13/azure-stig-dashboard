@@ -115,7 +115,7 @@ router.post(
 );
 
 // GET /api/scan
-router.get('/', async (req, res, next) => {
+router.get('/', requirePermission('dashboard:read'), async (req, res, next) => {
   const MOCK_MODE = process.env.MOCK_MODE === 'true';
   const { page = '1', pageSize = '20', machineId } = req.query as Record<string, string>;
   const p = parsePage(page);
@@ -143,7 +143,7 @@ router.get('/', async (req, res, next) => {
 });
 
 // GET /api/scan/:id
-router.get('/:id', async (req, res, next) => {
+router.get('/:id', requirePermission('dashboard:read'), async (req, res, next) => {
   const MOCK_MODE = process.env.MOCK_MODE === 'true';
   if (MOCK_MODE) {
     const scan = mockStore.scans.find((s: any) => s.id === req.params.id);

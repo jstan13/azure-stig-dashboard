@@ -20,7 +20,7 @@ const router = Router();
 const isMock = () => process.env.MOCK_MODE === 'true';
 
 // ── GET /api/vulnerabilities ────────────────────────────────────────────────
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', requirePermission('dashboard:read'), async (req: Request, res: Response) => {
   try {
     const { severity, status, machineId, exploitOnly, q, page = '1', limit = '50' } = req.query as any;
     const safeLimit = parsePageSize(limit, 50, 500);
@@ -54,7 +54,7 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // ── GET /api/vulnerabilities/summary ────────────────────────────────────────
-router.get('/summary', async (_req: Request, res: Response) => {
+router.get('/summary', requirePermission('dashboard:read'), async (_req: Request, res: Response) => {
   try {
     const rows: any[] = isMock()
       ? mockStore.vulnerabilities || []

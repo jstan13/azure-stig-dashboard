@@ -20,7 +20,7 @@ const router = Router();
 const MOCK_MODE = () => process.env.MOCK_MODE === 'true';
 
 // GET /api/machines
-router.get('/', async (req, res, next) => {
+router.get('/', requirePermission('dashboard:read'), async (req, res, next) => {
   const { page = 1, pageSize = 20, q, status, subscriptionId, resourceGroup } = req.query;
   const p = parsePage(page);
   const ps = parsePageSize(pageSize, 20, 100);
@@ -73,7 +73,7 @@ router.get('/', async (req, res, next) => {
 });
 
 // GET /api/machines/:id
-router.get('/:id', async (req, res, next) => {
+router.get('/:id', requirePermission('dashboard:read'), async (req, res, next) => {
   if (MOCK_MODE()) {
     const machine = mockStore.machines.find((m: any) => m.id === req.params.id);
     if (!machine) return next(createError('Machine not found', 404, 'NOT_FOUND'));

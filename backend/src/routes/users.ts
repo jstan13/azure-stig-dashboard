@@ -104,18 +104,24 @@ router.get('/:id', async (req: Request, res: Response) => {
     const { id } = req.params;
     const auth = (req as any).auth || {};
     const callerRoles: string[] = auth.roles || (auth.role ? [auth.role] : []);
-    const callerId: string | undefined = auth.sub || auth.oid || auth.id;
+    // Self is matched on the Entra object id: `sub` is a pairwise subject that
+    // never equals a users-table primary key, so comparing it denied everyone.
+    const callerOid: string | undefined = auth.oid || auth.sub;
     const isAdmin = callerRoles.includes('admin');
-    const isSelf  = callerId !== undefined && (callerId === id);
-    if (!isAdmin && !isSelf) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
+
     if (isMock()) {
       const user = MOCK_USERS.find((u) => u.id === id || u.oid === id);
+      if (!isAdmin && !(user && callerOid !== undefined && user.oid === callerOid)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
       return user ? res.json(user) : res.status(404).json({ error: 'User not found' });
     }
     const repo = AppDataSource.getRepository(UserEntity);
     const user = await repo.findOne({ where: { id } });
+    const isSelf = !!user && callerOid !== undefined && user.oid === callerOid;
+    if (!isAdmin && !isSelf) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
     return user ? res.json(userResponse(user)) : res.status(404).json({ error: 'User not found' });
   } catch (err: any) {
     return sendServerError(res, '[GET /users/:id]', err);

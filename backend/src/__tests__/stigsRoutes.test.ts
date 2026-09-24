@@ -12,6 +12,21 @@ import { ControlEntity } from '../models/Control';
 import { errorHandler } from '../middleware/errorHandler';
 import stigsRouter from '../routes/stigs';
 
+/**
+ * Production mounts `authenticate` on /api before the routers, so these bare
+ * apps must supply a principal or the routes' permission guards reject them.
+ */
+function buildApp() {
+  const app = express();
+  app.use((req, _res, next) => {
+    (req as any).principal = { objectId: 'test-oid', appRoles: ['admin'], groups: [] };
+    next();
+  });
+  app.use('/api/stigs', stigsRouter);
+  app.use(errorHandler);
+  return app;
+}
+
 describe('STIG detail routes', () => {
   const getRepository = AppDataSource.getRepository as jest.Mock;
   const benchmark = {
@@ -33,9 +48,7 @@ describe('STIG detail routes', () => {
 
   it('reports automatic assessment support in mock benchmark details', async () => {
     process.env.MOCK_MODE = 'true';
-    const app = express();
-    app.use('/api/stigs', stigsRouter);
-    app.use(errorHandler);
+    const app = buildApp();
 
     const osResponse = await request(app).get('/api/stigs/Windows_Server_2022_STIG');
     const browserResponse = await request(app).get('/api/stigs/MS_Edge_STIG');
@@ -53,9 +66,7 @@ describe('STIG detail routes', () => {
       throw new Error('Unexpected repository');
     });
 
-    const app = express();
-    app.use('/api/stigs', stigsRouter);
-    app.use(errorHandler);
+    const app = buildApp();
 
     const response = await request(app).get('/api/stigs/Active_Directory_Forest');
 
@@ -87,9 +98,7 @@ describe('STIG detail routes', () => {
       throw new Error('Unexpected repository');
     });
 
-    const app = express();
-    app.use('/api/stigs', stigsRouter);
-    app.use(errorHandler);
+    const app = buildApp();
 
     const response = await request(app)
       .get('/api/stigs/Active_Directory_Forest/controls?page=1&pageSize=100');

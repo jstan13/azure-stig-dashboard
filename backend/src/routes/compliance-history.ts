@@ -18,7 +18,7 @@ const router = Router();
 const isMock = () => process.env.MOCK_MODE === 'true';
 
 // GET /api/compliance-history/rollup?days=30
-router.get('/rollup', async (req: Request, res: Response) => {
+router.get('/rollup', requirePermission('dashboard:read'), async (req: Request, res: Response) => {
   try {
     const days = parseDays(req.query.days, 30);
     const since = new Date();
@@ -55,7 +55,7 @@ router.get('/rollup', async (req: Request, res: Response) => {
 });
 
 // GET /api/compliance-history/:machineId?days=90
-router.get('/:machineId', async (req: Request, res: Response) => {
+router.get('/:machineId', requirePermission('dashboard:read'), async (req: Request, res: Response) => {
   try {
     const { machineId } = req.params;
     const days = parseDays(req.query.days, 90);

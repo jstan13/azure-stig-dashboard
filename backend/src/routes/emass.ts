@@ -90,7 +90,7 @@ router.delete('/config', requirePermission('emass:configure'), async (req: Reque
 });
 
 // ── GET /api/emass/status ───────────────────────────────────────────────────
-router.get('/status', async (_req: Request, res: Response) => {
+router.get('/status', requirePermission('dashboard:read'), async (_req: Request, res: Response) => {
   try {
     const configured = await emass.isConfigured() || emass.isMock();
     if (!configured) {
@@ -108,7 +108,7 @@ router.get('/status', async (_req: Request, res: Response) => {
 });
 
 // ── GET /api/emass/systems ──────────────────────────────────────────────────
-router.get('/systems', async (_req: Request, res: Response) => {
+router.get('/systems', requirePermission('dashboard:read'), async (_req: Request, res: Response) => {
   try {
     if (!await emass.isConfigured() && !emass.isMock()) {
       return res.status(412).json({ error: 'eMASS not configured' });

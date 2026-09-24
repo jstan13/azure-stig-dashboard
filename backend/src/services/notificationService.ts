@@ -51,7 +51,8 @@ export async function dispatchNotification(
         case 'azure_monitor':  await sendAzureMonitor(cfg.destination, payload);  break;
       }
     } catch (err: any) {
-      logger.error(`[Notifications] Failed to send via ${cfg.channel} to ${cfg.destination}: ${err.message}`);
+      // Never log cfg.destination — a webhook URL embeds its own auth token.
+      logger.error(`[Notifications] Failed to send via ${cfg.channel} (config ${cfg.id}): ${err.message}`);
     }
   }
 
@@ -132,7 +133,7 @@ const DEFAULT_WEBHOOK_HOST_SUFFIXES = [
   'outlook.office365.com',
 ];
 
-function assertAllowedWebhook(webhookUrl: string): void {
+export function assertAllowedWebhook(webhookUrl: string): void {
   let url: URL;
   try {
     url = new URL(webhookUrl);

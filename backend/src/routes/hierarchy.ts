@@ -10,6 +10,7 @@ import { Router } from 'express';
 import { AppDataSource, mockStore } from '../database/dataSource';
 import { MachineEntity } from '../models/Machine';
 import { FindingEntity } from '../models/Finding';
+import { requirePermission } from '../middleware/authz';
 
 const router = Router();
 const isMock = () => process.env.MOCK_MODE === 'true';
@@ -94,7 +95,7 @@ function avgScore(machines: any[]): number {
 //       }]
 //     }]
 //   }
-router.get('/', async (_req, res, next) => {
+router.get('/', requirePermission('dashboard:read'), async (_req, res, next) => {
   try {
     const { machines, findings } = await loadData();
     const findingsByMachine: Record<string, any[]> = {};
@@ -196,7 +197,7 @@ router.get('/', async (_req, res, next) => {
 });
 
 // ── GET /api/hierarchy/kpis ───────────────────────────────────────────────────
-router.get('/kpis', async (_req, res, next) => {
+router.get('/kpis', requirePermission('dashboard:read'), async (_req, res, next) => {
   try {
     const { machines, findings } = await loadData();
     const tenants  = new Set(machines.map((m: any) => m.tenantId).filter(Boolean));
@@ -226,7 +227,7 @@ router.get('/kpis', async (_req, res, next) => {
 
 // ── GET /api/hierarchy/heatmap ────────────────────────────────────────────────
 // Returns a grid of [{ scope: "<sub>/<rg>", subscriptionName, resourceGroup, catI, catII, catIII, machines }]
-router.get('/heatmap', async (_req, res, next) => {
+router.get('/heatmap', requirePermission('dashboard:read'), async (_req, res, next) => {
   try {
     const { machines, findings } = await loadData();
     const findingsByMachine: Record<string, any[]> = {};

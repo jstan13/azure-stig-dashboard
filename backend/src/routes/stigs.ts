@@ -125,7 +125,7 @@ const MOCK_CONTROLS = Array.from({ length: 20 }, (_, i) => ({
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/stigs
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/', async (req, res, next) => {
+router.get('/', requirePermission('dashboard:read'), async (req, res, next) => {
   try {
     const MOCK = process.env.MOCK_MODE === 'true';
     if (MOCK) {
@@ -161,11 +161,11 @@ router.get('/', async (req, res, next) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/stigs/update-check/status
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/update-check/status', (_req, res) => {
+router.get('/update-check/status', requirePermission('dashboard:read'), (_req, res) => {
   res.json(updateCheckStatus);
 });
 
-router.get('/import/status', (_req, res) => {
+router.get('/import/status', requirePermission('dashboard:read'), (_req, res) => {
   res.json(importStatus);
 });
 
@@ -185,7 +185,7 @@ router.get('/catalog', requirePermission('stig:import'), async (_req, res, next)
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/stigs/:benchmarkId
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/:benchmarkId', async (req, res, next) => {
+router.get('/:benchmarkId', requirePermission('dashboard:read'), async (req, res, next) => {
   try {
     const { benchmarkId } = req.params;
     const MOCK = process.env.MOCK_MODE === 'true';
@@ -223,7 +223,7 @@ router.get('/:benchmarkId', async (req, res, next) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/stigs/:benchmarkId/controls
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/:benchmarkId/controls', async (req, res, next) => {
+router.get('/:benchmarkId/controls', requirePermission('dashboard:read'), async (req, res, next) => {
   try {
     const { benchmarkId } = req.params;
     const {

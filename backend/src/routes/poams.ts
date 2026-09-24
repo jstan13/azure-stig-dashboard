@@ -65,7 +65,7 @@ function dueDateBySeverity(severity: string): Date {
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/poams
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/', async (req, res, next) => {
+router.get('/', requirePermission('dashboard:read'), async (req, res, next) => {
   try {
     const {
       status, severity, assignedToOid, q,
@@ -129,7 +129,7 @@ router.get('/export', requirePermission('export:generate'), async (req, res, nex
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/poams/:id
 // ─────────────────────────────────────────────────────────────────────────────
-router.get('/:id', async (req, res, next) => {
+router.get('/:id', requirePermission('dashboard:read'), async (req, res, next) => {
   try {
     const { id } = req.params;
     const MOCK = process.env.MOCK_MODE === 'true';
