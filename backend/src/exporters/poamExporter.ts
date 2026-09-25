@@ -8,8 +8,11 @@
 export interface PoamRow {
   poamId: string;
   weakness: string;
-  severity?: string;
+  severity?: string | null;
   status: string;
+  controlAcronym?: string | null;
+  sourceIdentifyingControl?: string | null;
+  findingId?: string | null;
   scheduledCompletion?: Date | string | null;
   actualCompletion?: Date | string | null;
   assignedToName?: string;
@@ -17,7 +20,11 @@ export interface PoamRow {
   resourcesRequired?: string;
   delayReason?: string;
   riskAcceptanceRationale?: string;
-  milestones?: Array<{ description: string; status: string; dueDate?: string }>;
+  residualRisk?: string;
+  approvedByName?: string | null;
+  approvedByOid?: string | null;
+  approvedAt?: Date | string | null;
+  milestones?: Array<{ description: string; status: string; dueDate?: string | Date }>;
 }
 
 function esc(val: unknown): string {
@@ -41,6 +48,8 @@ export function generatePoamCsv(poams: PoamRow[]): string {
     'Weakness / Vulnerability',
     'Severity (CAT)',
     'Status',
+    'Security Control',
+    'Source Identifying Weakness',
     'Scheduled Completion',
     'Actual Completion',
     'Assigned To',
@@ -48,6 +57,9 @@ export function generatePoamCsv(poams: PoamRow[]): string {
     'Resources Required',
     'Delay Reason',
     'Risk Acceptance Rationale',
+    'Residual Risk',
+    'Risk Accepted By',
+    'Risk Accepted Date',
     'Milestones',
   ];
 
@@ -61,11 +73,15 @@ export function generatePoamCsv(poams: PoamRow[]): string {
       .map((m) => `[${m.status.toUpperCase()}] ${m.description}${m.dueDate ? ` (due ${fmtDate(m.dueDate)})` : ''}`)
       .join(' | ');
 
+    const accepted = p.status === 'risk_accepted' && !!p.approvedAt;
+
     return [
       esc(p.poamId),
       esc(p.weakness),
       esc(catLabel),
       esc(p.status),
+      esc(p.controlAcronym),
+      esc(p.sourceIdentifyingControl || (p.findingId ? 'STIG scan finding' : '')),
       esc(fmtDate(p.scheduledCompletion)),
       esc(fmtDate(p.actualCompletion)),
       esc(p.assignedToName),
@@ -73,6 +89,9 @@ export function generatePoamCsv(poams: PoamRow[]): string {
       esc(p.resourcesRequired),
       esc(p.delayReason),
       esc(p.riskAcceptanceRationale),
+      esc(p.residualRisk),
+      esc(accepted ? (p.approvedByName || p.approvedByOid) : ''),
+      esc(accepted ? fmtDate(p.approvedAt) : ''),
       esc(milestoneSummary),
     ].join(',');
   });

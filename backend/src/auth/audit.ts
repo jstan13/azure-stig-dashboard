@@ -8,8 +8,10 @@
  * concerns:
  *   - it persists via an injected `AuditWriter` (a thin wrapper over the
  *     `AuditLogEntity` repository in production)
- *   - it deduplicates entries within the same `correlationId + action +
- *     entityId` triple to make HTTP retries idempotent
+ *   - it deduplicates entries within the same `requestId + action +
+ *     entityId` triple, so one request cannot log the same event twice. The
+ *     request id is server-generated: keying on the client-supplied
+ *     correlation id would let a caller replay it to suppress later records.
  *   - it MUST NOT throw back to the caller if the underlying writer fails;
  *     audit failure is logged through the fallback sink and the request is
  *     allowed to complete, since blocking on audit-write failures would
@@ -38,6 +40,8 @@ export interface AuditEntry {
 export interface AuditInput
   extends Omit<AuditEntry, 'occurredAt'> {
   occurredAt?: Date;
+  /** Server-generated per-request id used only for dedupe; not persisted. */
+  requestId?: string;
 }
 
 export interface AuditWriter {
@@ -87,10 +91,11 @@ export class Auditor implements AuditSink {
   }
 
   async record(input: AuditInput): Promise<void> {
-    const dedupeKey = `${input.correlationId}|${input.action}|${input.entityId}`;
+    const dedupeKey = `${input.requestId ?? input.correlationId}|${input.action}|${input.entityId}`;
     if (this.seen.has(dedupeKey)) {
       return;
-    }    const entry: AuditEntry = {
+    }
+    const entry: AuditEntry = {
       actorUserId: input.actorUserId,
       actorRole: input.actorRole,
       action: input.action,
@@ -160,13 +165,19 @@ export function auditMiddleware(
   return (req, res, next) => {
     const incoming = req.headers[headerName];
     const correlationId =
-      typeof incoming === 'string' && incoming.length > 0 ? incoming : gen();
-    (req as AuditRequest).audit = opts.auditor;
+      typeof incoming === 'string' && CORRELATION_ID_RE.test(incoming) ? incoming : gen();
+    const requestId = globalThis.crypto?.randomUUID?.() ?? fallbackUuid();
+    (req as AuditRequest).audit = {
+      record: (input) => opts.auditor.record({ ...input, requestId }),
+    };
     (req as AuditRequest).correlationId = correlationId;
     res.setHeader('x-correlation-id', correlationId);
     next();
   };
 }
+
+/** Inbound correlation ids are echoed and stored, so keep them short and inert. */
+const CORRELATION_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 
 function fallbackUuid(): string {
   // RFC 4122 v4 (no crypto.randomUUID available — extremely rare on Node 20+)

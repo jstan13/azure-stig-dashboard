@@ -21,9 +21,9 @@ import {
 import { api } from '../hooks/useApi';
 import { usePermissions } from '../auth/AuthzProvider';
 import PoamFormPanel from '../components/PoamFormPanel';
-import { RUNTIME_CONFIG } from '../runtime-config';
+import RiskAcceptanceDialog from '../components/RiskAcceptanceDialog';
 
-const BASE = RUNTIME_CONFIG.API_URL;
+const ACCEPTABLE_STATUSES = ['open', 'in_remediation'];
 
 const classes = mergeStyleSets({
   overdue: { background: '#fde7e9 !important' },
@@ -69,8 +69,11 @@ export default function PoamPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
   const [notice, setNotice] = useState('');
-  const { has } = usePermissions();
+  const [accepting, setAccepting] = useState<any | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const { has, me } = usePermissions();
   const canWrite = has('poam:write');
+  const canApprove = has('poam:approve');
 
   const loadPoams = useCallback(async () => {
     setLoading(true);
@@ -179,12 +182,29 @@ export default function PoamPage() {
       })(); },
     }] : []),
     {
-      key: 'export', text: 'Export CSV', iconProps: { iconName: 'Download' },
-      onClick: () => {
-        window.open(`${BASE}/api/poams/export`, '_blank');
-      },
+      key: 'export', text: exporting ? 'Exporting…' : 'Export CSV', iconProps: { iconName: 'Download' },
+      disabled: exporting,
+      onClick: () => { void exportCsv(); },
     },
   ];
+
+  const exportCsv = async () => {
+    setExporting(true);
+    setError('');
+    try {
+      const res = await api.get('/api/poams/export', { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `poams-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setError(`Export failed: ${e?.message ?? 'unknown error'}`);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   // ── Detail panel ──────────────────────────────────────────────────────────
   const openDetail = (item: any) => { setSelected(item); setPanelOpen(true); };
@@ -195,6 +215,17 @@ export default function PoamPage() {
     void loadPoams();
     openDetail(poam);
   };
+
+  const handleAccepted = (poam: any) => {
+    setAccepting(null);
+    setNotice(`Risk accepted for ${poam.poamId}.`);
+    void loadPoams();
+    openDetail(poam);
+  };
+
+  const isCreator = (p: any) => !!me?.oid && !!p?.createdByOid && p.createdByOid === me.oid;
+  const showAccept = !!selected && canApprove && ACCEPTABLE_STATUSES.includes(selected.status);
+  const accepted = selected?.status === 'risk_accepted' && !!selected?.approvedAt;
 
   return (
     <Stack tokens={{ childrenGap: 16 }}>
@@ -257,14 +288,30 @@ export default function PoamPage() {
       >
         {selected && (
           <Stack tokens={{ childrenGap: 12 }} style={{ padding: '16px 0' }}>
-            {canWrite && (
-              <Stack horizontal>
-                <DefaultButton
-                  iconProps={{ iconName: 'Edit' }}
-                  text="Edit"
-                  onClick={() => { setEditing(selected); setPanelOpen(false); setFormOpen(true); }}
-                />
+            {(canWrite || showAccept) && (
+              <Stack horizontal tokens={{ childrenGap: 8 }} verticalAlign="center" wrap>
+                {canWrite && (
+                  <DefaultButton
+                    iconProps={{ iconName: 'Edit' }}
+                    text="Edit"
+                    onClick={() => { setEditing(selected); setPanelOpen(false); setFormOpen(true); }}
+                  />
+                )}
+                {showAccept && (
+                  <PrimaryButton
+                    iconProps={{ iconName: 'Shield' }}
+                    text="Accept risk"
+                    disabled={isCreator(selected)}
+                    title={isCreator(selected) ? 'You created this POA&M; another approver must accept the risk.' : undefined}
+                    onClick={() => { setPanelOpen(false); setAccepting(selected); }}
+                  />
+                )}
               </Stack>
+            )}
+            {showAccept && isCreator(selected) && (
+              <Text variant="small" style={{ color: '#605e5c' }}>
+                Separation of duties: another approver must accept the risk on a POA&M you created.
+              </Text>
             )}
             <PoamDetailField label="Weakness"                value={selected.weakness} />
             <PoamDetailField label="Status"                  value={selected.status?.replace(/_/g, ' ')} />
@@ -272,13 +319,24 @@ export default function PoamPage() {
             <PoamDetailField label="Security Control"        value={selected.controlAcronym ?? '—'} />
             <PoamDetailField label="Source"                  value={selected.sourceIdentifyingControl ?? (selected.findingId ? 'STIG scan finding' : '—')} />
             {selected.description && <PoamDetailField label="Description" value={selected.description} />}
-            {selected.impact && <PoamDetailField label="Impact" value={selected.impact} />}            <PoamDetailField label="Assigned To"             value={selected.assignedToName ?? 'Unassigned'} />
+            {selected.impact && <PoamDetailField label="Impact" value={selected.impact} />}
+            <PoamDetailField label="Assigned To"             value={selected.assignedToName ?? 'Unassigned'} />
             <PoamDetailField label="Scheduled Completion"    value={selected.scheduledCompletion ? new Date(selected.scheduledCompletion).toLocaleDateString() : '—'} />
             <PoamDetailField label="Actual Completion"       value={selected.actualCompletion ? new Date(selected.actualCompletion).toLocaleDateString() : '—'} />
             <PoamDetailField label="Countermeasures"         value={selected.countermeasures ?? '—'} />
             <PoamDetailField label="Resources Required"      value={selected.resourcesRequired ?? '—'} />
             {selected.delayReason && <PoamDetailField label="Delay Reason" value={selected.delayReason} />}
-            <PoamDetailField label="Risk Acceptance"         value={selected.riskAcceptanceRationale ?? '—'} />
+            <PoamDetailField label="Risk Acceptance Rationale" value={selected.riskAcceptanceRationale || '—'} />
+            {selected.residualRisk && <PoamDetailField label="Residual Risk" value={selected.residualRisk} />}
+            {accepted && (
+              <PoamDetailField
+                label="Risk Accepted By"
+                value={`${selected.approvedByName || selected.approvedByOid || 'Unknown'} on ${new Date(selected.approvedAt).toLocaleDateString()}`}
+              />
+            )}
+            {selected.riskAcceptanceRationale && !accepted && (
+              <Text variant="small" style={{ color: '#605e5c' }}>Draft rationale; not yet approved.</Text>
+            )}
 
             {selected.milestones?.length > 0 && (
               <>
@@ -301,6 +359,12 @@ export default function PoamPage() {
         poam={editing ?? undefined}
         onDismiss={() => setFormOpen(false)}
         onSaved={handleSaved}
+      />
+
+      <RiskAcceptanceDialog
+        poam={accepting}
+        onDismiss={() => setAccepting(null)}
+        onAccepted={handleAccepted}
       />
     </Stack>
   );

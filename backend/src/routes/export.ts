@@ -21,6 +21,7 @@ import { requirePermission, scopeByMachineBody } from '../middleware/authz';
 import { recordAudit } from '../auth';
 import type { AuditRequest } from '../auth';
 import { randomUUID as uuidv4 } from 'crypto';
+import { loadRiskAcceptances, withRiskAcceptance } from '../services/poamRiskAcceptance';
 
 const router = Router();
 const MOCK_MODE = () => process.env.MOCK_MODE === 'true';
@@ -125,6 +126,7 @@ router.post(
         }
       }
 
+      const accepted = await loadRiskAcceptances(rawFindings.map((f: any) => f.id));
       const findings: CKLFinding[] = rawFindings.map((f: any) => {
           const control = mockStore.controls.find((c: any) => c.id === f.controlId);
           return {
@@ -135,7 +137,7 @@ router.post(
             severity: f.severity || control?.severity || 'medium',
             status: f.status,
             findingDetails: f.findingDetails || '',
-            comments: f.comments || '',
+            comments: withRiskAcceptance(f.comments, accepted.get(f.id)),
             checkContent: control?.checkContent,
             fixText: control?.fixText,
             ccis: control?.ccis,
@@ -271,6 +273,7 @@ router.post(
         ? await controlRepo.findByIds(controlIds)
         : [];
       const controlById = new Map(controls.map((c) => [c.id, c]));
+      const accepted = await loadRiskAcceptances(rawFindings.map((f) => f.id));
 
       const findings: CKLFinding[] = rawFindings.map((f) => {
         const control = controlById.get(f.controlId);
@@ -282,7 +285,7 @@ router.post(
           severity: f.severity || control?.severity || 'medium',
           status: f.status,
           findingDetails: f.findingDetails || '',
-          comments: f.comments || '',
+          comments: withRiskAcceptance(f.comments, accepted.get(f.id)),
           checkContent: control?.checkContent,
           fixText: control?.fixText,
           ccis: control?.ccis,

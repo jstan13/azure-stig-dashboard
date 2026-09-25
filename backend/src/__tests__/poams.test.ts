@@ -294,4 +294,167 @@ describe('GET /api/poams/export', () => {
     expect(res.status).toBe(200);
     expect(res.type).toMatch(/text\/csv/);
   });
+
+  it('rejects an unknown status filter', async () => {
+    const res = await request(app).get('/api/poams/export?status=bogus');
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('Milestone updates', () => {
+  let poamId: string;
+  let milestoneId: string;
+
+  beforeAll(async () => {
+    const res = await request(app).post('/api/poams').send({ weakness: 'Milestone edits', severity: 'low' });
+    poamId = res.body.id;
+    const ms = await request(app).post(`/api/poams/${res.body.poamId}/milestones`).send({ description: 'Step 1' });
+    milestoneId = ms.body.id;
+  });
+
+  it('only applies known fields, so a milestone cannot be moved or re-keyed', async () => {
+    const res = await request(app)
+      .patch(`/api/poams/${poamId}/milestones/${milestoneId}`)
+      .send({ status: 'completed', id: 'hijacked', poamId: 'other-poam', createdAt: '1999-01-01' });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ id: milestoneId, poamId, status: 'completed' });
+    expect(res.body.completedAt).toBeTruthy();
+    expect(res.body.createdAt).not.toBe('1999-01-01');
+  });
+
+  it('rejects an unknown milestone status', async () => {
+    const res = await request(app).patch(`/api/poams/${poamId}/milestones/${milestoneId}`).send({ status: 'done' });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 404 when deleting a milestone that does not exist', async () => {
+    const res = await request(app).delete(`/api/poams/${poamId}/milestones/not-a-milestone`);
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('POST /api/poams/:id/approve (risk acceptance)', () => {
+  let poam: any;
+  let finding: any;
+
+  const handOffToAnotherAuthor = (id: string) => {
+    const stored = (mockStore.poams ?? []).find((p: any) => p.id === id);
+    stored.createdByOid = 'another-isso-oid';
+  };
+
+  beforeAll(async () => {
+    finding = mockStore.findings.find((f: any) =>
+      f.status === 'open' && !(mockStore.poams ?? []).some((p: any) => p.findingId === f.id));
+    const res = await request(app).post('/api/poams').send({ findingId: finding.id, weakness: 'Accept me' });
+    poam = res.body;
+  });
+
+  it('refuses the POA&M creator (separation of duties)', async () => {
+    const res = await request(app).post(`/api/poams/${poam.id}/approve`).send({ rationale: 'Mine' });
+    expect(res.status).toBe(403);
+  });
+
+  it('requires a rationale', async () => {
+    handOffToAnotherAuthor(poam.id);
+    const res = await request(app).post(`/api/poams/${poam.id}/approve`).send({});
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/rationale/);
+  });
+
+  it('rejects a residual risk outside the eMASS scale', async () => {
+    const res = await request(app).post(`/api/poams/${poam.id}/approve`).send({ rationale: 'x', residualRisk: 'meh' });
+    expect(res.status).toBe(400);
+  });
+
+  it('accepts the risk using the drafted rationale and records the approver', async () => {
+    const draft = await request(app).patch(`/api/poams/${poam.id}`).send({ riskAcceptanceRationale: 'Compensated by NSG deny-all' });
+    expect(draft.status).toBe(200);
+
+    const res = await request(app).post(`/api/poams/${poam.poamId}/approve`).send({ residualRisk: 'moderate' });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      status: 'risk_accepted',
+      riskAcceptanceRationale: 'Compensated by NSG deny-all',
+      residualRisk: 'Moderate',
+    });
+    expect(res.body.approvedAt).toBeTruthy();
+    expect(res.body.approvedByOid).toBeTruthy();
+    expect(res.body.approvedByName).toBeTruthy();
+  });
+
+  it('refuses a second approval', async () => {
+    const res = await request(app).post(`/api/poams/${poam.id}/approve`).send({ rationale: 'Again' });
+    expect(res.status).toBe(409);
+  });
+
+  it('locks the rationale and residual risk once accepted', async () => {
+    const r1 = await request(app).patch(`/api/poams/${poam.id}`).send({ riskAcceptanceRationale: 'Changed' });
+    const r2 = await request(app).patch(`/api/poams/${poam.id}`).send({ residualRisk: 'Low' });
+    expect(r1.status).toBe(409);
+    expect(r2.status).toBe(409);
+  });
+
+  it('freezes what the approver signed off on, but not tracking fields', async () => {
+    for (const change of [{ weakness: 'Different' }, { impact: 'Worse' }, { countermeasures: 'None' }, { controlAcronym: 'SC-7' }]) {
+      const res = await request(app).patch(`/api/poams/${poam.id}`).send(change);
+      expect(res.status).toBe(409);
+    }
+    const ok = await request(app).patch(`/api/poams/${poam.id}`).send({ assignedToName: 'Pat Owner' });
+    expect(ok.status).toBe(200);
+    expect(ok.body.approvedAt).toBeTruthy();
+  });
+
+  it('exports the acceptance in the POA&M CSV', async () => {
+    const res = await request(app).get('/api/poams/export');
+    expect(res.status).toBe(200);
+    const [header, ...rows] = res.text.split('\r\n');
+    expect(header).toContain('Risk Accepted By');
+    const row = rows.find((r) => r.startsWith(poam.poamId));
+    expect(row).toContain('Compensated by NSG deny-all');
+    expect(row).toContain('Moderate');
+    expect(row).toContain('risk_accepted');
+  });
+
+  it('writes the acceptance into the linked finding\'s CKL comments and keeps it Open', async () => {
+    const res = await request(app)
+      .post('/api/export/checklist')
+      .send({ machineId: finding.machineId, format: 'json' });
+    expect(res.status).toBe(200);
+    const exported = res.body.findings.find((f: any) => f.comments?.includes(poam.poamId));
+    expect(exported).toBeDefined();
+    expect(exported.status).toBe('open');
+    expect(exported.comments).toMatch(/Risk accepted under POA-\d{4}-\d{4} by .+ on \d{4}-\d{2}-\d{2}\. Residual risk: Moderate\. Rationale: Compensated by NSG deny-all/);
+
+    const ckl = await request(app).post('/api/export/checklist').send({ machineId: finding.machineId, format: 'ckl' });
+    expect(ckl.text).toContain(`Risk accepted under ${poam.poamId}`);
+  });
+
+  it('withdraws the acceptance when the status changes, unlocking the rationale', async () => {
+    const res = await request(app).patch(`/api/poams/${poam.id}`).send({ status: 'in_remediation' });
+    expect(res.status).toBe(200);
+    expect(res.body.approvedAt).toBeNull();
+    expect(res.body.approvedByOid).toBeNull();
+
+    const edit = await request(app).patch(`/api/poams/${poam.id}`).send({ riskAcceptanceRationale: 'Revised' });
+    expect(edit.status).toBe(200);
+
+    const json = await request(app).post('/api/export/checklist').send({ machineId: finding.machineId, format: 'json' });
+    expect(json.body.findings.some((f: any) => f.comments?.includes(poam.poamId))).toBe(false);
+  });
+
+  it('only accepts risk on open or in-remediation POA&Ms', async () => {
+    const created = await request(app).post('/api/poams').send({ weakness: 'Already fixed', severity: 'low' });
+    handOffToAnotherAuthor(created.body.id);
+    await request(app).patch(`/api/poams/${created.body.id}`).send({ status: 'closed' });
+    const res = await request(app).post(`/api/poams/${created.body.id}/approve`).send({ rationale: 'Too late' });
+    expect(res.status).toBe(409);
+  });
+
+  it('does not freeze a legacy row that kept approvedAt after leaving risk_accepted', async () => {
+    const created = await request(app).post('/api/poams').send({ weakness: 'Legacy', severity: 'low' });
+    const row = mockStore.poams.find((p: any) => p.id === created.body.id);
+    row.approvedAt = '2025-01-01T00:00:00.000Z';
+    const res = await request(app).patch(`/api/poams/${created.body.id}`).send({ weakness: 'Legacy, edited' });
+    expect(res.status).toBe(200);
+  });
 });

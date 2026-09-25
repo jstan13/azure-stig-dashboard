@@ -48,20 +48,27 @@ router.get('/', async (req, res, next) => {
     // comes exclusively from token claims and role bindings, never this row.
     if (principal.upn && AppDataSource.isInitialized) {
       const userRepo = AppDataSource.getRepository(UserEntity);
-      const existing = await userRepo.findOne({
-        where: [{ oid: principal.objectId }, { email: principal.upn }],
-      });
+      const byOid = await userRepo.findOne({ where: { oid: principal.objectId } });
+      const byEmail = byOid ? null : await userRepo.findOne({ where: { email: principal.upn } });
+      // Never move a disabled row to a different identity: the disabled oid
+      // would lose its row and come back enabled on its next sign-in.
+      const heldByDisabled = !!byEmail && byEmail.oid !== principal.objectId && byEmail.isActive === false;
+      const existing = byOid ?? byEmail;
       const primaryRole = globalRoles
         .filter((role): role is Role => role in ROLE_RANK)
         .sort((left, right) => ROLE_RANK[right] - ROLE_RANK[left])[0] ?? 'auditor';
-      const user = existing ?? userRepo.create({ oid: principal.objectId });
-      user.oid = principal.objectId;
-      user.email = principal.upn;
-      user.displayName = principal.name ?? principal.upn;
-      user.roles = [primaryRole];
-      user.isActive = true;
-      user.lastLogin = new Date();
-      await userRepo.save(user);
+      if (!heldByDisabled) {
+        const user = existing ?? userRepo.create({ oid: principal.objectId });
+        user.oid = principal.objectId;
+        user.email = principal.upn;
+        user.displayName = principal.name ?? principal.upn;
+        // Only a new registration starts enabled; signing in must not undo an
+        // administrator disabling the account (or overwrite its recorded role).
+        if (!existing) user.isActive = true;
+        if (user.isActive) user.roles = [primaryRole];
+        user.lastLogin = new Date();
+        await userRepo.save(user);
+      }
     }
 
     // Look up friendly names for the scoped collections (best-effort; skipped

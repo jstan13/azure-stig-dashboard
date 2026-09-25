@@ -11,7 +11,7 @@
 import { Router, Request, Response } from 'express';
 import { AppDataSource, mockStore } from '../database/dataSource';
 import { UserEntity } from '../models/User';
-import { requirePermission } from '../middleware/authz';
+import { requirePermission, invalidateAuthzCache } from '../middleware/authz';
 import { recordAudit } from '../auth';
 import { ROLES, isRole } from '../auth/permissions';
 import { sendServerError } from '../middleware/errorHandler';
@@ -164,6 +164,9 @@ router.patch('/:id', requirePermission('users:manage'), async (req: Request, res
     const repo = AppDataSource.getRepository(UserEntity);
     const user = await repo.findOne({ where: { id } });
     if (!user) return res.status(404).json({ error: 'User not found' });
+    if (enabled === false && user.oid === req.principal?.objectId) {
+      return res.status(400).json({ error: 'You cannot disable your own account' });
+    }
     const before = {
       displayName: user.displayName,
       role: user.roles?.[0] ?? 'auditor',
@@ -173,6 +176,8 @@ router.patch('/:id', requirePermission('users:manage'), async (req: Request, res
     if (role !== undefined)        user.roles = [role];
     if (enabled !== undefined)     user.isActive = enabled;
     const saved = await repo.save(user);
+    // Disabling takes effect on the caller's next request, not after the TTL.
+    if (enabled !== undefined) invalidateAuthzCache();
     await recordAudit(req, {
       action: 'user.updated',
       entityType: 'user',

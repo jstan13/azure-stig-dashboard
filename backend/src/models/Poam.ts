@@ -103,6 +103,9 @@ export class PoamEntity {
   /** OID of reviewer who approved risk acceptance */
   @Column({ nullable: true }) approvedByOid!: string;
 
+  /** Display name (or UPN) of the approver at the time of approval */
+  @Column({ type: 'varchar', nullable: true }) approvedByName!: string | null;
+
   @Column({ type: 'timestamp', nullable: true }) approvedAt!: Date;
 
   @OneToMany(() => PoamMilestoneEntity, (m) => m.poam, { cascade: true, eager: true })

@@ -19,6 +19,8 @@ import { FindingEntity } from '../models/Finding';
 import { ControlEntity } from '../models/Control';
 import * as emass from '../connectors/emassConnector';
 import { generateCklb } from '../exporters/cklbExporter';
+import { loadRiskAcceptances, withRiskAcceptance, riskAcceptanceNote, isRiskAccepted } from '../services/poamRiskAcceptance';
+import { safeFilename } from './export';
 import { requirePermission } from '../middleware/authz';
 import { recordAudit } from '../auth';
 import { sendServerError } from '../middleware/errorHandler';
@@ -29,6 +31,7 @@ import { z } from 'zod';
 
 const router = Router();
 const isMock = () => process.env.MOCK_MODE === 'true';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const optionalSecret = z.string().max(100_000).optional();
 const configSchema = z.object({
   baseUrl: z.string().trim().url().refine((value) => value.startsWith('https://'), 'Base URL must use HTTPS'),
@@ -167,6 +170,7 @@ router.post('/systems/:id/upload-cklb', requirePermission('emass:push'), async (
     const machineId = String(req.body?.machineId || '');
     if (!Number.isFinite(systemId)) return res.status(400).json({ error: 'systemId must be numeric' });
     if (!machineId)                  return res.status(400).json({ error: 'machineId is required' });
+    if (!isMock() && !UUID_RE.test(machineId)) return res.status(404).json({ error: 'machine not found' });
     if (!await emass.isConfigured() && !emass.isMock()) return res.status(412).json({ error: 'eMASS not configured' });
 
     let machine: any;
@@ -183,9 +187,15 @@ router.post('/systems/:id/upload-cklb', requirePermission('emass:push'), async (
     }
     if (!machine) return res.status(404).json({ error: 'machine not found' });
 
+    const accepted = await loadRiskAcceptances(findings.map((f: any) => f.id));
+    findings = findings.map((f: any) => {
+      const ra = accepted.get(f.id);
+      return ra ? { ...f, comments: withRiskAcceptance(f.comments, ra) } : f;
+    });
+
     const cklb = generateCklb(machine, findings, controls);
     const buf  = Buffer.from(JSON.stringify(cklb), 'utf-8');
-    const result = await emass.uploadCklb(systemId, buf, `${machine.name}.cklb`);
+    const result = await emass.uploadCklb(systemId, buf, `${safeFilename(machine.name)}.cklb`);
 
     await recordAudit(req as any, {
       action: 'emass.upload_cklb',
@@ -203,33 +213,62 @@ router.post('/systems/:id/upload-cklb', requirePermission('emass:push'), async (
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
+// eMASS caps POA&M free-text fields at 2000 characters.
+const EMASS_TEXT_MAX = 2000;
+const clip = (s?: string | null): string | undefined =>
+  s ? (s.length > EMASS_TEXT_MAX ? `${s.slice(0, EMASS_TEXT_MAX - 1)}…` : s) : undefined;
+const epochSeconds = (d: unknown): number | undefined => {
+  if (!d) return undefined;
+  const t = new Date(d as string).getTime();
+  return Number.isNaN(t) ? undefined : Math.floor(t / 1000);
+};
+
+/**
+ * Maps a POA&M to the eMASS POA&M item. Per the eMASS API, Risk Accepted items
+ * cannot carry a scheduled completion date or milestones and need comments;
+ * Completed items need a completion date and comments.
+ */
 export function poamToEmass(p: any): emass.EmassPoamPayload {
+  const status = mapStatus(p.status);
+  const riskAccepted = status === 'Risk Accepted';
+  const completed = status === 'Completed';
+  const completedAt = completed ? epochSeconds(p.actualCompletion ?? p.updatedAt) : undefined;
+
+  let comments: string | undefined;
+  if (riskAccepted) {
+    comments = clip(isRiskAccepted(p) ? riskAcceptanceNote(p) : p.riskAcceptanceRationale);
+  } else if (completed) {
+    const day = completedAt ? new Date(completedAt * 1000).toISOString().slice(0, 10) : undefined;
+    comments = `Closed in Azure STIG Dashboard${day ? ` on ${day}` : ''}.`;
+  }
+
   return {
     externalUid: p.poamId,
     controlAcronym: p.controlAcronym || p.controlId || 'CM-6',
     cci: p.cci,
-    status: mapStatus(p.status),
-    vulnerabilityDescription: p.weakness || p.description || '(no description)',
-    sourceIdentifyingControl: p.sourceIdentifyingControl,
+    status,
+    vulnerabilityDescription: clip(p.weakness || p.description) || '(no description)',
+    sourceIdentifyingVulnerability: clip(
+      p.sourceIdentifyingControl || (p.findingId ? 'DISA STIG compliance scan (Azure STIG Dashboard)' : undefined),
+    ),
     pocOrganization: p.pocOrganization,
     pocFirstName:    p.assignedToName?.split(' ')?.[0],
     pocLastName:     p.assignedToName?.split(' ')?.slice(1).join(' '),
     pocEmail:        p.pocEmail,
     pocPhoneNumber:  p.pocPhoneNumber,
     resources:       p.resourcesRequired,
-    scheduledCompletionDate: p.scheduledCompletion ? Math.floor(new Date(p.scheduledCompletion).getTime() / 1000) : undefined,
+    scheduledCompletionDate: riskAccepted ? undefined : epochSeconds(p.scheduledCompletion),
+    completionDate:  completedAt,
+    comments,
     severity:        toEmassRiskLevel(p.severity),
     rawSeverity:     toEmassRiskLevel(p.severity),
     residualRiskLevel: toEmassRiskLevel(p.residualRisk),
-    mitigation:      p.countermeasures,
-    recommendations: p.delayReason,
-    milestones: (p.milestones || []).map((m: any) => {
-      const due = m.dueDate ?? m.scheduledCompletion;
-      return {
-        description: m.description,
-        scheduledCompletionDate: due ? Math.floor(new Date(due).getTime() / 1000) : Math.floor(Date.now() / 1000),
-      };
-    }),
+    mitigation:      clip(p.countermeasures),
+    recommendations: clip(p.delayReason),
+    milestones: riskAccepted ? undefined : (p.milestones || []).map((m: any) => ({
+      description: clip(m.description) ?? '',
+      scheduledCompletionDate: epochSeconds(m.dueDate ?? m.scheduledCompletion) ?? Math.floor(Date.now() / 1000),
+    })),
   };
 }
 function mapStatus(s: string): emass.EmassPoamPayload['status'] {

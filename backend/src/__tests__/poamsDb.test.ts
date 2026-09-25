@@ -204,7 +204,7 @@ describe('PATCH /api/poams/:id (database)', () => {
 
   it('will not rewrite the rationale of an approved risk acceptance', async () => {
     repo.findOne.mockResolvedValueOnce({
-      id: '0f8fad5b-d9cb-469f-a165-70867728950e', approvedAt: new Date(), riskAcceptanceRationale: 'Signed off',
+      id: '0f8fad5b-d9cb-469f-a165-70867728950e', status: 'risk_accepted', approvedAt: new Date(), riskAcceptanceRationale: 'Signed off',
     });
 
     const res = await request(buildApp())
@@ -213,5 +213,123 @@ describe('PATCH /api/poams/:id (database)', () => {
 
     expect(res.status).toBe(409);
     expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('withdraws an approval when the status moves off risk_accepted', async () => {
+    repo.findOne.mockResolvedValueOnce({
+      id: 'u2', poamId: 'POA-2026-0002', status: 'risk_accepted', approvedAt: new Date(),
+      approvedByOid: 'issm-oid', approvedByName: 'Jane ISSM', riskAcceptanceRationale: 'Signed off',
+    });
+
+    const res = await request(buildApp()).patch('/api/poams/POA-2026-0002').send({ status: 'open', riskAcceptanceRationale: 'Rework' });
+
+    expect(res.status).toBe(200);
+    expect(repo.save).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'open', riskAcceptanceRationale: 'Rework', approvedAt: null, approvedByOid: null, approvedByName: null,
+    }));
+  });
+});
+
+describe('POST /api/poams/:id/approve (database)', () => {
+  const getRepository = AppDataSource.getRepository as jest.Mock;
+  let repo: { findOne: jest.Mock; save: jest.Mock };
+
+  beforeEach(() => {
+    process.env.MOCK_MODE = 'false';
+    getRepository.mockReset();
+    repo = { findOne: jest.fn(), save: jest.fn(async (v) => v) };
+    getRepository.mockReturnValue(repo);
+  });
+
+  afterAll(() => {
+    process.env.MOCK_MODE = 'true';
+  });
+
+  function approverApp(name = 'Jane ISSM') {
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+      (req as any).principal = { objectId: 'issm-oid', name, appRoles: ['issm'], groups: [] };
+      (req as any).auth = { oid: 'issm-oid' };
+      next();
+    });
+    app.use('/api/poams', poamsRouter);
+    app.use(errorHandler);
+    return app;
+  }
+
+  it('blocks the creator of the POA&M', async () => {
+    repo.findOne.mockResolvedValue({ id: 'u1', poamId: 'POA-2026-0001', status: 'open', createdByOid: 'issm-oid' });
+
+    const res = await request(approverApp()).post('/api/poams/POA-2026-0001/approve').send({ rationale: 'Mine' });
+
+    expect(res.status).toBe(403);
+    expect(repo.save).not.toHaveBeenCalled();
+    expect(repo.findOne).toHaveBeenCalledWith(expect.objectContaining({ where: [{ poamId: 'POA-2026-0001' }] }));
+  });
+
+  it('records the approver identity, name and rationale', async () => {
+    repo.findOne.mockResolvedValue({ id: 'u1', poamId: 'POA-2026-0001', status: 'in_remediation', createdByOid: 'isso-oid' });
+
+    const res = await request(approverApp()).post('/api/poams/POA-2026-0001/approve')
+      .send({ rationale: '  Mission need  ', residualRisk: 'LOW' });
+
+    expect(res.status).toBe(200);
+    expect(repo.save).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'risk_accepted',
+      riskAcceptanceRationale: 'Mission need',
+      residualRisk: 'Low',
+      approvedByOid: 'issm-oid',
+      approvedByName: 'Jane ISSM',
+      approvedAt: expect.any(Date),
+    }));
+  });
+
+  it('never locks in a residual risk the approver did not choose', async () => {
+    repo.findOne.mockResolvedValue({ id: 'u1', poamId: 'POA-2026-0001', status: 'open', createdByOid: 'isso-oid', residualRisk: 'moderate-ish legacy note' });
+    const legacy = await request(approverApp()).post('/api/poams/POA-2026-0001/approve').send({ rationale: 'ok' });
+    expect(legacy.status).toBe(200);
+    expect(repo.save).toHaveBeenLastCalledWith(expect.objectContaining({ residualRisk: null }));
+
+    repo.findOne.mockResolvedValue({ id: 'u1', poamId: 'POA-2026-0001', status: 'open', createdByOid: 'isso-oid', residualRisk: 'High' });
+    const cleared = await request(approverApp()).post('/api/poams/POA-2026-0001/approve').send({ rationale: 'ok', residualRisk: null });
+    expect(cleared.status).toBe(200);
+    expect(repo.save).toHaveBeenLastCalledWith(expect.objectContaining({ residualRisk: null }));
+  });
+});
+
+describe('Milestone routes (database)', () => {
+  const getRepository = AppDataSource.getRepository as jest.Mock;
+  let poamRepo: { findOne: jest.Mock };
+  let msRepo: { findOne: jest.Mock; save: jest.Mock; delete: jest.Mock };
+
+  beforeEach(() => {
+    process.env.MOCK_MODE = 'false';
+    getRepository.mockReset();
+    poamRepo = { findOne: jest.fn().mockResolvedValue({ id: '0f8fad5b-d9cb-469f-a165-70867728950e', poamId: 'POA-2026-0003' }) };
+    msRepo = { findOne: jest.fn(), save: jest.fn(async (v) => v), delete: jest.fn() };
+    getRepository.mockImplementation((entity) => (entity === PoamEntity ? poamRepo : msRepo));
+  });
+
+  afterAll(() => {
+    process.env.MOCK_MODE = 'true';
+  });
+
+  it('resolves a POA-style id and scopes the milestone to that POA&M', async () => {
+    const mid = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+    msRepo.findOne.mockResolvedValueOnce({ id: mid, poamId: '0f8fad5b-d9cb-469f-a165-70867728950e', status: 'planned' });
+
+    const res = await request(buildApp()).patch(`/api/poams/POA-2026-0003/milestones/${mid}`)
+      .send({ status: 'delayed', poamId: 'someone-elses-poam' });
+
+    expect(res.status).toBe(200);
+    expect(msRepo.findOne).toHaveBeenCalledWith({ where: { id: mid, poamId: '0f8fad5b-d9cb-469f-a165-70867728950e' } });
+    expect(msRepo.save).toHaveBeenCalledWith(expect.objectContaining({ status: 'delayed', poamId: '0f8fad5b-d9cb-469f-a165-70867728950e' }));
+  });
+
+  it('returns 404 for a non-uuid milestone id without querying', async () => {
+    const res = await request(buildApp()).delete('/api/poams/POA-2026-0003/milestones/abc');
+    expect(res.status).toBe(404);
+    expect(msRepo.delete).not.toHaveBeenCalled();
   });
 });

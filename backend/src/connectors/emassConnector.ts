@@ -40,7 +40,7 @@ export interface EmassPoamPayload {
   cci?: string;
   status: 'Ongoing' | 'Risk Accepted' | 'Completed' | 'Not Applicable';
   vulnerabilityDescription: string;
-  sourceIdentifyingControl?: string;
+  sourceIdentifyingVulnerability?: string;
   pocOrganization?: string;
   pocFirstName?: string;
   pocLastName?: string;
@@ -49,6 +49,10 @@ export interface EmassPoamPayload {
   resources?: string;
   identifiedInCFOAuditOrOtherReview?: 'Yes' | 'No';
   scheduledCompletionDate?: number; // epoch seconds (eMASS convention)
+  /** Required for Completed items (epoch seconds). */
+  completionDate?: number;
+  /** Required for Completed and Risk Accepted items; 2000 characters. */
+  comments?: string;
   milestones?: { description: string; scheduledCompletionDate: number }[];
   reviewStatus?: 'Not Approved' | 'Under Review' | 'Approved';
   /** eMASS rates POA&M risk on a five-point scale, not DISA CAT levels. */

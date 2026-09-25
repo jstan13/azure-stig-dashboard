@@ -13,6 +13,8 @@
  */
 import {
   Auditor,
+  auditMiddleware,
+  type AuditRequest,
   type AuditWriter,
   type AuditEntry,
 } from '../../../src/auth/audit';
@@ -154,5 +156,50 @@ describe('Auditor', () => {
     expect(writer.entries[0].occurredAt.toISOString()).toBe(
       '2026-05-07T12:30:00.000Z',
     );
+  });
+});
+
+describe('auditMiddleware', () => {
+  const entry = {
+    actorUserId: 'user-6',
+    actorRole: 'isso',
+    action: 'poam.updated',
+    entityType: 'poam',
+    entityId: 'poam-1',
+    result: 'Success' as const,
+    sourceIp: '10.0.0.6',
+  };
+
+  function runRequest(mw: ReturnType<typeof auditMiddleware>, header?: string): AuditRequest {
+    const req = { headers: header === undefined ? {} : { 'x-correlation-id': header } } as unknown as AuditRequest;
+    const res = { setHeader: jest.fn() } as any;
+    mw(req, res, () => undefined);
+    return req;
+  }
+
+  it('does not let a replayed correlation id suppress a later request\'s records', async () => {
+    const writer = makeWriter();
+    const mw = auditMiddleware({ auditor: new Auditor(writer) });
+    for (let i = 0; i < 2; i++) {
+      const req = runRequest(mw, 'replayed-id');
+      await req.audit.record({ ...entry, correlationId: req.correlationId });
+    }
+    expect(writer.entries).toHaveLength(2);
+    expect(writer.entries.every((e) => e.correlationId === 'replayed-id')).toBe(true);
+  });
+
+  it('still records an event only once within a single request', async () => {
+    const writer = makeWriter();
+    const req = runRequest(auditMiddleware({ auditor: new Auditor(writer) }), 'one-request');
+    await req.audit.record({ ...entry, correlationId: req.correlationId });
+    await req.audit.record({ ...entry, correlationId: req.correlationId });
+    expect(writer.entries).toHaveLength(1);
+  });
+
+  it('replaces a malformed inbound correlation id', () => {
+    const mw = auditMiddleware({ auditor: new Auditor(makeWriter()), generateCorrelationId: () => 'generated' });
+    expect(runRequest(mw, 'bad id\r\nX-Injected: 1').correlationId).toBe('generated');
+    expect(runRequest(mw, 'x'.repeat(129)).correlationId).toBe('generated');
+    expect(runRequest(mw, 'ok-id_1.2:3').correlationId).toBe('ok-id_1.2:3');
   });
 });

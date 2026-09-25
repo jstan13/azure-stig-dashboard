@@ -8,15 +8,15 @@
  * POST   /api/poams/:id/milestones  — add milestone
  * PATCH  /api/poams/:id/milestones/:mid — update milestone
  * DELETE /api/poams/:id/milestones/:mid — delete milestone
- * POST   /api/poams/:id/approve     — risk acceptance approval (admin/isso only)
+ * POST   /api/poams/:id/approve     — accept the risk (poam:approve, never the POA&M's creator)
  * POST   /api/poams/bulk-create     — create POA&Ms from all open findings
- * GET    /api/poams/export          — export all open POA&Ms as DISA-format XLSX/CSV
+ * GET    /api/poams/export          — export POA&Ms (all, or ?status=) as DISA-format CSV
  */
 
 import { Router } from 'express';
 import { ILike } from 'typeorm';
 import { AppDataSource, mockStore } from '../database/dataSource';
-import { PoamEntity, PoamMilestoneEntity } from '../models/Poam';
+import { PoamEntity, PoamMilestoneEntity, type PoamStatus } from '../models/Poam';
 import { FindingEntity } from '../models/Finding';
 import { ControlEntity } from '../models/Control';
 import { MachineEntity } from '../models/Machine';
@@ -36,10 +36,10 @@ const router = Router();
  * approval. Skipped in mock mode (no DB).
  */
 async function poamRequesterOid(req: import('express').Request): Promise<string | undefined> {
-  if (process.env.MOCK_MODE === 'true') return undefined;
   const { id } = req.params;
+  if (process.env.MOCK_MODE === 'true') return findMockPoam(id)?.createdByOid ?? undefined;
   const repo = AppDataSource.getRepository(PoamEntity);
-  const poam = await repo.findOne({ where: [{ id }, { poamId: id }] });
+  const poam = await repo.findOne({ where: poamWhere(id), loadEagerRelations: false });
   // Use the immutable, server-recorded creator OID for the separation-of-duties
   // check. Fall back to issoOid only for legacy rows created before createdByOid
   // existed. Never trust a client-supplied owner field for this check.
@@ -75,7 +75,12 @@ async function nextPoamIdFromDb(): Promise<string> {
 }
 
 const isUniqueViolation = (err: any) => (err?.driverError?.code ?? err?.code) === '23505';
+const POAM_STATUSES: PoamStatus[] = ['open', 'in_remediation', 'resolved', 'risk_accepted', 'false_positive', 'closed'];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Matches a POA&M by uuid or POA-YYYY-NNNN id; non-uuids never touch the uuid column. */
+const poamWhere = (id: string) => (UUID_RE.test(id) ? [{ id }, { poamId: id }] : [{ poamId: id }]);
+const findMockPoam = (id: string) => (mockStore.poams ?? []).find((x: any) => x.id === id || x.poamId === id);
 const CONTROL_RE = /^[A-Z]{2}-\d{1,2}(\(\d{1,2}\))?$/;
 const CONTROL_MESSAGE = 'controlAcronym must be a NIST SP 800-53 control such as AC-2 or AC-2(1)';
 const DATE_MESSAGE = 'scheduledCompletion must be a valid date';
@@ -109,6 +114,22 @@ const createPoamSchema = z.object({
 const clearableText = (max: number) =>
   z.string().trim().max(max).nullable().optional().transform((v) => (v === '' ? null : v));
 
+/** Residual risk uses the eMASS five-point scale so it maps onto residualRiskLevel. */
+const RESIDUAL_RISK_LEVELS = ['Very Low', 'Low', 'Moderate', 'High', 'Very High'] as const;
+const residualRiskLevel = z.string().trim()
+  .transform((v) => RESIDUAL_RISK_LEVELS.find((l) => l.toLowerCase() === v.toLowerCase()) ?? v)
+  .refine((v) => (RESIDUAL_RISK_LEVELS as readonly string[]).includes(v), {
+    message: `residualRisk must be one of ${RESIDUAL_RISK_LEVELS.join(', ')}`,
+  });
+
+const ACCEPTABLE_STATUSES: PoamStatus[] = ['open', 'in_remediation'];
+
+/** Fields an approver signed off on; frozen while a risk acceptance stands. */
+const APPROVED_TERMS = [
+  'weakness', 'description', 'impact', 'severity', 'controlAcronym', 'sourceIdentifyingControl',
+  'countermeasures', 'riskAcceptanceRationale', 'residualRisk',
+] as const;
+
 // risk_accepted is only reachable through POST /:id/approve, which enforces
 // poam:approve and separation of duties.
 const updatePoamSchema = z.object({
@@ -126,7 +147,8 @@ const updatePoamSchema = z.object({
   countermeasures: clearableText(8000),
   resourcesRequired: clearableText(4000),
   delayReason: clearableText(4000),
-  residualRisk: clearableText(200),
+  residualRisk: z.union([z.literal(''), z.null(), residualRiskLevel]).optional()
+    .transform((v) => (v === '' ? null : v)),
   riskAcceptanceRationale: clearableText(8000),
   scheduledCompletion: clearableText(40)
     .refine((v) => typeof v !== 'string' || !Number.isNaN(Date.parse(v)), { message: DATE_MESSAGE }),
@@ -151,11 +173,14 @@ function dueDateBySeverity(severity: string): Date {
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/', requirePermission('dashboard:read'), async (req, res, next) => {
   try {
-    const {
-      status, severity, assignedToOid, q,
-      page = '1', pageSize = '50',
-      overdue,
-    } = req.query as Record<string, string>;
+    const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+    const status = str(req.query.status);
+    const severity = str(req.query.severity);
+    const assignedToOid = str(req.query.assignedToOid);
+    const q = str(req.query.q);
+    const overdue = str(req.query.overdue);
+    const page = str(req.query.page) ?? '1';
+    const pageSize = str(req.query.pageSize) ?? '50';
 
     const p = parsePage(page);
     const ps = parsePageSize(pageSize, 50, 200);
@@ -179,6 +204,7 @@ router.get('/', requirePermission('dashboard:read'), async (req, res, next) => {
       .orderBy('p.scheduledCompletion', 'ASC');
 
     if (status)       qb.andWhere('p.status = :status', { status });
+    if (severity)     qb.andWhere('p.severity = :severity', { severity });
     if (assignedToOid) qb.andWhere('p.assignedToOid = :oid', { oid: assignedToOid });
     if (q)            qb.andWhere('(p.weakness ILIKE :q OR p.poamId ILIKE :q)', { q: `%${q}%` });
     if (overdue === 'true') {
@@ -196,16 +222,30 @@ router.get('/', requirePermission('dashboard:read'), async (req, res, next) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/export', requirePermission('export:generate'), async (req, res, next) => {
   try {
-    const { format = 'csv', status = 'open' } = req.query as Record<string, string>;
+    // All POA&Ms by default, so closed and risk-accepted items are included.
+    const status = typeof req.query.status === 'string' && req.query.status ? req.query.status : undefined;
+    if (status && !POAM_STATUSES.includes(status as PoamStatus)) {
+      return next(createError(`status must be one of ${POAM_STATUSES.join(', ')}`, 400, 'VALIDATION_ERROR'));
+    }
     const MOCK = process.env.MOCK_MODE === 'true';
 
     const items: any[] = MOCK
       ? (mockStore.poams ?? []).filter((x: any) => !status || x.status === status)
-      : await AppDataSource.getRepository(PoamEntity).find({ where: status ? { status: status as any } : {} });
+      : await AppDataSource.getRepository(PoamEntity).find({
+          where: status ? { status: status as PoamStatus } : {},
+          order: { poamId: 'ASC' },
+        });
 
     const csv = generatePoamCsv(items);
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="poams-${Date.now()}.csv"`);
+    await recordAudit(req, {
+      action: 'poam.exported',
+      entityType: 'poam',
+      entityId: 'export',
+      after: { format: 'csv', status: status ?? 'all', count: items.length },
+      result: 'Success',
+    });
     return res.send(csv);
   } catch (err) { next(err); }
 });
@@ -225,7 +265,7 @@ router.get('/:id', requirePermission('dashboard:read'), async (req, res, next) =
     }
 
     const poam = await AppDataSource.getRepository(PoamEntity).findOne({
-      where: [{ id }, { poamId: id }],
+      where: poamWhere(id),
       relations: ['milestones'],
     });
     if (!poam) return next(createError('POA&M not found', 404, 'NOT_FOUND'));
@@ -351,24 +391,38 @@ router.patch('/:id', requirePermission('poam:write'), async (req, res, next) => 
     );
 
     const poam: any = MOCK
-      ? (mockStore.poams ?? []).find((x: any) => x.id === id || x.poamId === id)
-      : await AppDataSource.getRepository(PoamEntity).findOne({
-          where: UUID_RE.test(id) ? [{ id }, { poamId: id }] : [{ poamId: id }],
-        });
+      ? findMockPoam(id)
+      : await AppDataSource.getRepository(PoamEntity).findOne({ where: poamWhere(id) });
     if (!poam) return next(createError('POA&M not found', 404, 'NOT_FOUND'));
 
     if (changes.severity !== undefined && poam.findingId) {
       return next(createError('Severity follows the linked finding and cannot be changed', 400, 'VALIDATION_ERROR'));
     }
-    if (changes.riskAcceptanceRationale !== undefined && poam.approvedAt
-        && changes.riskAcceptanceRationale !== poam.riskAcceptanceRationale) {
-      return next(createError('The rationale of an approved risk acceptance cannot be edited', 409, 'CONFLICT'));
+    // An approver signed off on the POA&M as it stood, so the substance of an
+    // accepted POA&M is frozen. Changing the status withdraws the acceptance
+    // (it must be approved again); until then these fields cannot change.
+    const accepted = poam.status === 'risk_accepted' && !!poam.approvedAt;
+    const revoking = accepted && changes.status !== undefined && changes.status !== poam.status;
+    if (accepted && !revoking) {
+      const edited = APPROVED_TERMS.filter((k) => changes[k] !== undefined && (changes[k] ?? null) !== (poam[k] ?? null));
+      if (edited.length) {
+        return next(createError(
+          `An accepted risk cannot be edited (${edited.join(', ')}); change the status to withdraw the acceptance first`,
+          409, 'CONFLICT',
+        ));
+      }
     }
 
     const before: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(changes)) {
       before[k] = poam[k] ?? null;
       poam[k] = k === 'scheduledCompletion' && typeof v === 'string' ? new Date(v) : v;
+    }
+    if (revoking) {
+      Object.assign(before, { approvedByOid: poam.approvedByOid ?? null, approvedByName: poam.approvedByName ?? null, approvedAt: poam.approvedAt ?? null });
+      poam.approvedByOid = null;
+      poam.approvedByName = null;
+      poam.approvedAt = null;
     }
     if ((poam.status === 'resolved' || poam.status === 'closed') && !poam.actualCompletion) {
       poam.actualCompletion = new Date();
@@ -385,11 +439,11 @@ router.patch('/:id', requirePermission('poam:write'), async (req, res, next) => 
     }
 
     await recordAudit(req, {
-      action: 'poam.updated',
+      action: revoking ? 'poam.risk_acceptance_withdrawn' : 'poam.updated',
       entityType: 'poam',
       entityId: poam.id,
       before,
-      after: changes,
+      after: revoking ? { ...changes, approvedByOid: null, approvedByName: null, approvedAt: null } : changes,
       result: 'Success',
     });
     return res.json(poam);
@@ -397,78 +451,135 @@ router.patch('/:id', requirePermission('poam:write'), async (req, res, next) => 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/poams/:id/milestones
+// Milestones
 // ─────────────────────────────────────────────────────────────────────────────
+const MILESTONE_STATUSES = ['planned', 'in_progress', 'completed', 'delayed'] as const;
+const milestoneDate = z.string().trim().max(40)
+  .refine((v) => !Number.isNaN(Date.parse(v)), { message: 'dueDate must be a valid date' });
+const createMilestoneSchema = z.object({
+  description: z.string({ message: 'description is required' }).trim().min(1, 'description is required').max(2000),
+  dueDate: milestoneDate.optional(),
+});
+const updateMilestoneSchema = z.object({
+  description: z.string().trim().min(1, 'description cannot be empty').max(2000).optional(),
+  dueDate: milestoneDate.nullable().optional(),
+  status: z.enum(MILESTONE_STATUSES, { message: `status must be one of ${MILESTONE_STATUSES.join(', ')}` }).optional(),
+});
+
+async function loadPoam(id: string): Promise<any | null> {
+  if (process.env.MOCK_MODE === 'true') return findMockPoam(id) ?? null;
+  return AppDataSource.getRepository(PoamEntity).findOne({ where: poamWhere(id), loadEagerRelations: false });
+}
+
+const validationError = (err: z.ZodError, fallback: string) =>
+  createError(err.issues[0]?.message ?? fallback, 400, 'VALIDATION_ERROR');
+
+// POST /api/poams/:id/milestones
 router.post('/:id/milestones', requirePermission('poam:write'), async (req, res, next) => {
   try {
-    const { id } = req.params;
-    const { description, dueDate } = req.body;
-    if (!description) return next(createError('description is required', 400, 'VALIDATION_ERROR'));
+    const parsed = createMilestoneSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return next(validationError(parsed.error, 'Invalid milestone'));
+    const { description, dueDate } = parsed.data;
 
-    const MOCK = process.env.MOCK_MODE === 'true';
-
-    if (MOCK) {
-      const poam = (mockStore.poams ?? []).find((x: any) => x.id === id);
-      if (!poam) return next(createError('POA&M not found', 404, 'NOT_FOUND'));
-      const milestone = { id: uuidv4(), poamId: id, description, dueDate, status: 'planned', createdAt: new Date().toISOString() };
-      poam.milestones = poam.milestones ?? [];
-      poam.milestones.push(milestone);
-      return res.status(201).json(milestone);
-    }
-
-    const poam = await AppDataSource.getRepository(PoamEntity).findOne({ where: [{ id }, { poamId: id }] });
+    const poam = await loadPoam(req.params.id);
     if (!poam) return next(createError('POA&M not found', 404, 'NOT_FOUND'));
 
-    const ms = AppDataSource.getRepository(PoamMilestoneEntity).create({
-      poamId: poam.id,
-      description,
-      dueDate,
-      status: 'planned',
+    let milestone: any;
+    if (process.env.MOCK_MODE === 'true') {
+      milestone = {
+        id: uuidv4(), poamId: poam.id, description, status: 'planned',
+        dueDate: dueDate ? new Date(dueDate).toISOString() : null,
+        createdAt: new Date().toISOString(),
+      };
+      poam.milestones = poam.milestones ?? [];
+      poam.milestones.push(milestone);
+    } else {
+      const repo = AppDataSource.getRepository(PoamMilestoneEntity);
+      milestone = await repo.save(repo.create({
+        poamId: poam.id, description, status: 'planned', ...(dueDate ? { dueDate: new Date(dueDate) } : {}),
+      }));
+    }
+    await recordAudit(req, {
+      action: 'poam.milestone_added',
+      entityType: 'poam',
+      entityId: poam.id,
+      after: { milestoneId: milestone.id, description, dueDate: dueDate ?? null },
+      result: 'Success',
     });
-    await AppDataSource.getRepository(PoamMilestoneEntity).save(ms);
-    return res.status(201).json(ms);
+    return res.status(201).json(milestone);
   } catch (err) { next(err); }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
 // PATCH /api/poams/:id/milestones/:mid
-// ─────────────────────────────────────────────────────────────────────────────
 router.patch('/:id/milestones/:mid', requirePermission('poam:write'), async (req, res, next) => {
   try {
-    const { id, mid } = req.params;
+    const parsed = updateMilestoneSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return next(validationError(parsed.error, 'Invalid milestone update'));
+    const { mid } = req.params;
     const MOCK = process.env.MOCK_MODE === 'true';
-    if (MOCK) {
-      const poam = (mockStore.poams ?? []).find((x: any) => x.id === id);
-      if (!poam) return next(createError('POA&M not found', 404, 'NOT_FOUND'));
-      const ms = (poam.milestones ?? []).find((m: any) => m.id === mid);
-      if (!ms) return next(createError('Milestone not found', 404, 'NOT_FOUND'));
-      Object.assign(ms, req.body);
-      return res.json(ms);
-    }
-    const repo = AppDataSource.getRepository(PoamMilestoneEntity);
-    const ms = await repo.findOne({ where: { id: mid, poamId: id } });
+
+    const poam = await loadPoam(req.params.id);
+    if (!poam) return next(createError('POA&M not found', 404, 'NOT_FOUND'));
+
+    const repo = MOCK ? undefined : AppDataSource.getRepository(PoamMilestoneEntity);
+    const ms: any = MOCK
+      ? (poam.milestones ?? []).find((m: any) => m.id === mid)
+      : UUID_RE.test(mid) ? await repo!.findOne({ where: { id: mid, poamId: poam.id } }) : null;
     if (!ms) return next(createError('Milestone not found', 404, 'NOT_FOUND'));
-    Object.assign(ms, req.body);
-    if (ms.status === 'completed' && !ms.completedAt) ms.completedAt = new Date();
-    await repo.save(ms);
+
+    const { description, dueDate, status } = parsed.data;
+    const before = { description: ms.description, dueDate: ms.dueDate ?? null, status: ms.status };
+    if (description !== undefined) ms.description = description;
+    if (dueDate !== undefined) ms.dueDate = dueDate === null ? null : new Date(dueDate);
+    if (status !== undefined) {
+      ms.status = status;
+      if (status === 'completed' && !ms.completedAt) ms.completedAt = new Date();
+      if (status !== 'completed') ms.completedAt = null;
+    }
+
+    if (MOCK) {
+      if (ms.dueDate instanceof Date) ms.dueDate = ms.dueDate.toISOString();
+      if (ms.completedAt instanceof Date) ms.completedAt = ms.completedAt.toISOString();
+    } else {
+      await repo!.save(ms);
+    }
+    await recordAudit(req, {
+      action: 'poam.milestone_updated',
+      entityType: 'poam',
+      entityId: poam.id,
+      before: { milestoneId: ms.id, ...before },
+      after: { milestoneId: ms.id, ...parsed.data },
+      result: 'Success',
+    });
     return res.json(ms);
   } catch (err) { next(err); }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
 // DELETE /api/poams/:id/milestones/:mid
-// ─────────────────────────────────────────────────────────────────────────────
 router.delete('/:id/milestones/:mid', requirePermission('poam:write'), async (req, res, next) => {
   try {
-    const { id, mid } = req.params;
-    const MOCK = process.env.MOCK_MODE === 'true';
-    if (MOCK) {
-      const poam = (mockStore.poams ?? []).find((x: any) => x.id === id);
-      if (!poam) return next(createError('POA&M not found', 404, 'NOT_FOUND'));
+    const { mid } = req.params;
+    const poam = await loadPoam(req.params.id);
+    if (!poam) return next(createError('POA&M not found', 404, 'NOT_FOUND'));
+
+    let removed = false;
+    if (process.env.MOCK_MODE === 'true') {
+      const before = (poam.milestones ?? []).length;
       poam.milestones = (poam.milestones ?? []).filter((m: any) => m.id !== mid);
-      return res.status(204).send();
+      removed = poam.milestones.length !== before;
+    } else if (UUID_RE.test(mid)) {
+      const result = await AppDataSource.getRepository(PoamMilestoneEntity).delete({ id: mid, poamId: poam.id });
+      removed = (result.affected ?? 0) > 0;
     }
-    await AppDataSource.getRepository(PoamMilestoneEntity).delete({ id: mid, poamId: id });
+    if (!removed) return next(createError('Milestone not found', 404, 'NOT_FOUND'));
+
+    await recordAudit(req, {
+      action: 'poam.milestone_deleted',
+      entityType: 'poam',
+      entityId: poam.id,
+      before: { milestoneId: mid },
+      result: 'Success',
+    });
     return res.status(204).send();
   } catch (err) { next(err); }
 });
@@ -476,40 +587,69 @@ router.delete('/:id/milestones/:mid', requirePermission('poam:write'), async (re
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/poams/:id/approve  — risk acceptance sign-off
 // ─────────────────────────────────────────────────────────────────────────────
+const approveSchema = z.object({
+  rationale: z.string().trim().max(8000).optional(),
+  // null or '' = not assessed; omitted = keep the drafted value if it is on the scale.
+  residualRisk: z.union([z.literal(''), z.null(), residualRiskLevel]).optional(),
+});
+
 router.post('/:id/approve', requirePermission('poam:approve'), requireDifferentActor(poamRequesterOid), async (req, res, next) => {
   try {
-    const { id } = req.params;
-    const actor = (req as any).auth;
+    const parsed = approveSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return next(validationError(parsed.error, 'Invalid risk acceptance'));
     const MOCK = process.env.MOCK_MODE === 'true';
-    if (MOCK) {
-      const poam = (mockStore.poams ?? []).find((x: any) => x.id === id);
-      if (!poam) return next(createError('POA&M not found', 404, 'NOT_FOUND'));
-      poam.status = 'risk_accepted';
-      poam.approvedByOid = actor?.oid ?? actor?.sub;
-      poam.approvedAt = new Date().toISOString();
-      poam.riskAcceptanceRationale = req.body.rationale ?? poam.riskAcceptanceRationale;
-      await recordAudit(req, {
-        action: 'poam.approved',
-        entityType: 'poam',
-        entityId: id,
-        after: { status: 'risk_accepted', approvedByOid: poam.approvedByOid, rationale: poam.riskAcceptanceRationale },
-        result: 'Success',
-      });
-      return res.json(poam);
-    }
-    const repo = AppDataSource.getRepository(PoamEntity);
-    const poam = await repo.findOne({ where: [{ id }, { poamId: id }] });
+
+    const poam: any = MOCK
+      ? findMockPoam(req.params.id)
+      : await AppDataSource.getRepository(PoamEntity).findOne({ where: poamWhere(req.params.id) });
     if (!poam) return next(createError('POA&M not found', 404, 'NOT_FOUND'));
+
+    if (poam.status === 'risk_accepted') {
+      return next(createError('This POA&M is already risk accepted', 409, 'CONFLICT'));
+    }
+    if (!ACCEPTABLE_STATUSES.includes(poam.status)) {
+      return next(createError('Only open or in-remediation POA&Ms can be risk accepted', 409, 'CONFLICT'));
+    }
+    const rationale = parsed.data.rationale || poam.riskAcceptanceRationale?.trim();
+    if (!rationale) {
+      return next(createError('A risk acceptance rationale is required', 400, 'VALIDATION_ERROR'));
+    }
+
+    const principal = req.principal;
+    const before = {
+      status: poam.status,
+      riskAcceptanceRationale: poam.riskAcceptanceRationale ?? null,
+      residualRisk: poam.residualRisk ?? null,
+    };
     poam.status = 'risk_accepted';
-    poam.approvedByOid = actor?.oid ?? actor?.sub;
-    poam.approvedAt = new Date();
-    if (req.body.rationale) poam.riskAcceptanceRationale = req.body.rationale;
-    await repo.save(poam);
+    poam.riskAcceptanceRationale = rationale;
+    // The approved terms must be exactly what the approver saw, so an
+    // off-scale legacy value is never carried into a locked acceptance.
+    const requestedRisk = parsed.data.residualRisk;
+    poam.residualRisk = requestedRisk !== undefined
+      ? (requestedRisk || null)
+      : ((RESIDUAL_RISK_LEVELS as readonly string[]).includes(poam.residualRisk) ? poam.residualRisk : null);
+    poam.approvedByOid = principal?.objectId ?? req.auth?.oid ?? null;
+    poam.approvedByName = principal?.name ?? principal?.upn ?? req.auth?.name ?? null;
+    poam.approvedAt = MOCK ? new Date().toISOString() : new Date();
+
+    if (MOCK) {
+      poam.updatedAt = new Date().toISOString();
+    } else {
+      await AppDataSource.getRepository(PoamEntity).save(poam);
+    }
     await recordAudit(req, {
       action: 'poam.approved',
       entityType: 'poam',
       entityId: poam.id,
-      after: { status: 'risk_accepted', approvedByOid: poam.approvedByOid, rationale: poam.riskAcceptanceRationale },
+      before,
+      after: {
+        status: 'risk_accepted',
+        riskAcceptanceRationale: poam.riskAcceptanceRationale,
+        residualRisk: poam.residualRisk ?? null,
+        approvedByOid: poam.approvedByOid,
+        approvedByName: poam.approvedByName,
+      },
       result: 'Success',
     });
     return res.json(poam);

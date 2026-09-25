@@ -123,6 +123,17 @@ Scoping:
   on Collection B. Tenant-wide permissions (collection:manage, users:manage,
   notifications:manage, audit:read, stig:import) require a *global* grant.
 
+Role assignment limits (auth/grants.ts):
+  A role can only be granted or revoked in a scope where the assigner holds
+  roles:assign (global grants need a global roles:assign), and never above the
+  assigner's own highest role in that scope. Nobody can grant themselves a
+  role, directly or by mapping a group they belong to.
+
+Disabled users:
+  A user an admin disables (users.isActive = false) resolves to no roles from
+  any source, including token app roles. This takes effect immediately on the
+  instance that handled the change and within the 30 s role cache TTL on others.
+
 Backend identity (MSI):
   Assigned Reader role on subscriptions at deploy time
   Required API permissions:

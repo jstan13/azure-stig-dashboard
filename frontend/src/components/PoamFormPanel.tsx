@@ -6,8 +6,10 @@
  * weakness and fixes the severity to the finding's CAT.
  *
  * Edit: change any POA&M field except the linked finding. Only changed fields
- * are sent; clearing a text box clears the field. Risk acceptance is not set
- * here — it goes through the approval workflow.
+ * are sent; clearing a text box clears the field. The risk acceptance
+ * rationale can be drafted here; the acceptance itself is granted by an
+ * approver through RiskAcceptanceDialog, after which it is locked until the
+ * status is changed (which withdraws it).
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -17,6 +19,7 @@ import {
 } from '@fluentui/react';
 import { api } from '../hooks/useApi';
 import type { Finding, Machine, MachineDetail, PaginatedResponse } from '../types';
+import { RESIDUAL_RISK_OPTIONS } from './poamOptions';
 
 const SEVERITY_OPTIONS: IDropdownOption[] = [
   { key: 'high', text: 'CAT I (High) — due in 30 days' },
@@ -37,6 +40,7 @@ const CONTROL_RE = /^[A-Z]{2}-\d{1,2}(\(\d{1,2}\))?$/;
 const TEXT_FIELDS = [
   'weakness', 'controlAcronym', 'sourceIdentifyingControl', 'description', 'impact',
   'countermeasures', 'resourcesRequired', 'assignedToName', 'delayReason',
+  'riskAcceptanceRationale', 'residualRisk',
 ] as const;
 
 type TextKey = typeof TEXT_FIELDS[number];
@@ -50,6 +54,7 @@ type FormState = Record<TextKey, string> & {
 const EMPTY_FORM: FormState = {
   weakness: '', severity: '', status: 'open', controlAcronym: '', sourceIdentifyingControl: '',
   description: '', impact: '', countermeasures: '', resourcesRequired: '', assignedToName: '', delayReason: '',
+  riskAcceptanceRationale: '', residualRisk: '',
 };
 
 function formFromPoam(p: any): FormState {
@@ -145,6 +150,16 @@ export default function PoamFormPanel({ isOpen, poam, onDismiss, onSaved }: Poam
       : STATUS_OPTIONS),
     [poam],
   );
+  const residualRiskOptions: IDropdownOption[] = useMemo(() => {
+    const legacy = poam?.residualRisk && !RESIDUAL_RISK_OPTIONS.some((o) => o.key === poam.residualRisk)
+      ? [{ key: poam.residualRisk, text: `${poam.residualRisk} (legacy value)`, disabled: true }]
+      : [];
+    return [{ key: '', text: 'Not assessed' }, ...RESIDUAL_RISK_OPTIONS, ...legacy];
+  }, [poam]);
+
+  const wasAccepted = editing && poam.status === 'risk_accepted' && !!poam.approvedAt;
+  const acceptanceLocked = wasAccepted && form.status === 'risk_accepted';
+  const withdrawing = editing && poam.status === 'risk_accepted' && form.status !== 'risk_accepted';
 
   const set = (key: TextKey) => (_: unknown, v?: string) => setForm((f) => ({ ...f, [key]: v ?? '' }));
 
@@ -260,7 +275,7 @@ export default function PoamFormPanel({ isOpen, poam, onDismiss, onSaved }: Poam
           </>
         )}
 
-        <TextField label="Weakness" required multiline autoAdjustHeight value={form.weakness} onChange={set('weakness')} maxLength={2000} />
+        <TextField label="Weakness" required multiline autoAdjustHeight value={form.weakness} onChange={set('weakness')} maxLength={2000} disabled={acceptanceLocked} />
         <Dropdown
           label="Severity"
           required
@@ -270,7 +285,7 @@ export default function PoamFormPanel({ isOpen, poam, onDismiss, onSaved }: Poam
               ? (['high', 'medium', 'low'].includes(finding.severity) ? finding.severity : 'low')
               : (form.severity || null)
           }
-          disabled={severityLocked}
+          disabled={severityLocked || acceptanceLocked}
           placeholder="Select a CAT"
           onChange={(_, o) => setForm((f) => ({ ...f, severity: String(o?.key ?? '') }))}
         />
@@ -283,6 +298,12 @@ export default function PoamFormPanel({ isOpen, poam, onDismiss, onSaved }: Poam
             onChange={(_, o) => setForm((f) => ({ ...f, status: String(o?.key ?? f.status) }))}
           />
         )}
+        {withdrawing && (
+          <MessageBar messageBarType={MessageBarType.warning}>
+            Saving withdraws the risk acceptance{poam.approvedByName ? ` approved by ${poam.approvedByName}` : ''}.
+            It will need to be approved again.
+          </MessageBar>
+        )}
         <TextField
           label="Security control"
           placeholder="e.g. AC-2 or CM-6(1)"
@@ -290,6 +311,7 @@ export default function PoamFormPanel({ isOpen, poam, onDismiss, onSaved }: Poam
           onChange={set('controlAcronym')}
           errorMessage={controlError}
           maxLength={32}
+          disabled={acceptanceLocked}
         />
         <TextField
           label="Source identifying weakness"
@@ -297,10 +319,11 @@ export default function PoamFormPanel({ isOpen, poam, onDismiss, onSaved }: Poam
           value={form.sourceIdentifyingControl}
           onChange={set('sourceIdentifyingControl')}
           maxLength={500}
+          disabled={acceptanceLocked}
         />
-        <TextField label="Description" multiline autoAdjustHeight value={form.description} onChange={set('description')} maxLength={8000} />
-        <TextField label="Impact" multiline autoAdjustHeight value={form.impact} onChange={set('impact')} maxLength={4000} />
-        <TextField label="Mitigations / countermeasures" multiline autoAdjustHeight value={form.countermeasures} onChange={set('countermeasures')} maxLength={8000} />
+        <TextField label="Description" multiline autoAdjustHeight value={form.description} onChange={set('description')} maxLength={8000} disabled={acceptanceLocked} />
+        <TextField label="Impact" multiline autoAdjustHeight value={form.impact} onChange={set('impact')} maxLength={4000} disabled={acceptanceLocked} />
+        <TextField label="Mitigations / countermeasures" multiline autoAdjustHeight value={form.countermeasures} onChange={set('countermeasures')} maxLength={8000} disabled={acceptanceLocked} />
         <TextField label="Resources required" value={form.resourcesRequired} onChange={set('resourcesRequired')} maxLength={4000} />
         <DatePicker
           label="Scheduled completion"
@@ -322,6 +345,33 @@ export default function PoamFormPanel({ isOpen, poam, onDismiss, onSaved }: Poam
           />
         )}
         <TextField label="Assigned to" value={form.assignedToName} onChange={set('assignedToName')} maxLength={200} />
+        {editing && (
+          <>
+            <Separator>Risk acceptance</Separator>
+            <TextField
+              label="Risk acceptance rationale"
+              placeholder="Draft the justification for an approver to review"
+              multiline
+              autoAdjustHeight
+              value={form.riskAcceptanceRationale}
+              onChange={set('riskAcceptanceRationale')}
+              maxLength={8000}
+              disabled={acceptanceLocked}
+            />
+            <Dropdown
+              label="Residual risk"
+              options={residualRiskOptions}
+              selectedKey={form.residualRisk}
+              disabled={acceptanceLocked}
+              onChange={(_, o) => setForm((f) => ({ ...f, residualRisk: String(o?.key ?? '') }))}
+            />
+            <Text variant="small" style={{ color: '#605e5c' }}>
+              {acceptanceLocked
+                ? 'Locked after approval. Change the status to withdraw the acceptance before editing.'
+                : 'An approver (not the POA&M creator) accepts the risk from the POA&M details panel.'}
+            </Text>
+          </>
+        )}
       </Stack>
     </Panel>
   );

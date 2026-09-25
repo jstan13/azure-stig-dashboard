@@ -23,17 +23,19 @@
  * requires `roles:assign`. Every mutation flushes the authz resolver cache so
  * grants take effect on the next request.
  */
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { IsNull } from 'typeorm';
 import { AppDataSource } from '../database/dataSource';
 import { CollectionEntity } from '../models/Collection';
 import { CollectionAssetEntity } from '../models/CollectionAsset';
 import { RoleBindingEntity } from '../models/RoleBinding';
 import { GroupRoleMappingEntity } from '../models/GroupRoleMapping';
-import { requirePermission, invalidateAuthzCache } from '../middleware/authz';
+import { requirePermission, invalidateAuthzCache, resolveRoles } from '../middleware/authz';
 import { recordAudit } from '../auth';
 import { createError } from '../middleware/errorHandler';
-import { isRole, ROLES } from '../auth/permissions';
+import { isRole, ROLES, type Role } from '../auth/permissions';
+import { grantDenial } from '../auth/grants';
+import { permittedGlobally } from '../auth/can';
 
 const router = Router();
 
@@ -44,6 +46,22 @@ function ensureDb(): void {
   if (MOCK() || !AppDataSource.isInitialized) {
     throw createError('Administration endpoints are unavailable in mock mode', 503, 'MOCK_MODE');
   }
+}
+
+/** 403 unless the caller may grant/revoke ole in this scope (see auth/grants). */
+async function assertMayGrant(req: Request, role: string, collectionId: string | null): Promise<void> {
+  // An unrecognised stored role is treated as the most privileged one.
+  const target: Role = isRole(role) ? role : 'admin';
+  const reason = grantDenial(await resolveRoles(req.principal!), target, collectionId);
+  if (reason) throw createError(reason, 403, 'FORBIDDEN');
+}
+
+function collectionIdFrom(body: any): string | null {
+  const value = body?.collectionId ?? null;
+  if (value !== null && typeof value !== 'string') {
+    throw createError('collectionId must be a string', 400, 'VALIDATION_ERROR');
+  }
+  return value || null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -65,7 +83,7 @@ router.post('/role-bindings', requirePermission('roles:assign'), async (req, res
   try {
     ensureDb();
     const { subjectOid, role } = req.body ?? {};
-    const collectionId: string | null = req.body?.collectionId ?? null;
+    const collectionId = collectionIdFrom(req.body);
 
     if (!subjectOid || typeof subjectOid !== 'string') {
       return next(createError('subjectOid is required', 400, 'VALIDATION_ERROR'));
@@ -73,6 +91,10 @@ router.post('/role-bindings', requirePermission('roles:assign'), async (req, res
     if (!isRole(role)) {
       return next(createError(`role must be one of: ${ROLES.join(', ')}`, 400, 'VALIDATION_ERROR'));
     }
+    if (subjectOid === req.principal?.objectId) {
+      return next(createError('You cannot grant a role to yourself', 403, 'FORBIDDEN'));
+    }
+    await assertMayGrant(req, role, collectionId);
 
     const repo = AppDataSource.getRepository(RoleBindingEntity);
 
@@ -121,6 +143,7 @@ router.delete('/role-bindings/:id', requirePermission('roles:assign'), async (re
     const repo = AppDataSource.getRepository(RoleBindingEntity);
     const binding = await repo.findOne({ where: { id: req.params.id } });
     if (!binding) return next(createError('Role binding not found', 404, 'NOT_FOUND'));
+    await assertMayGrant(req, binding.role, binding.collectionId ?? null);
     if (binding.revokedAt) return res.status(200).json(binding);
 
     binding.revokedAt = new Date();
@@ -153,7 +176,7 @@ router.post('/group-mappings', requirePermission('roles:assign'), async (req, re
   try {
     ensureDb();
     const { groupObjectId, groupDisplayName, role } = req.body ?? {};
-    const collectionId: string | null = req.body?.collectionId ?? null;
+    const collectionId = collectionIdFrom(req.body);
 
     if (!groupObjectId || typeof groupObjectId !== 'string') {
       return next(createError('groupObjectId is required', 400, 'VALIDATION_ERROR'));
@@ -161,6 +184,16 @@ router.post('/group-mappings', requirePermission('roles:assign'), async (req, re
     if (!isRole(role)) {
       return next(createError(`role must be one of: ${ROLES.join(', ')}`, 400, 'VALIDATION_ERROR'));
     }
+    // Mapping a group you are in is a self-grant. With a groups overage the
+    // token cannot prove non-membership, so only a global assigner may map.
+    const principal = req.principal!;
+    if (principal.groups.includes(groupObjectId)) {
+      return next(createError('You cannot map a role to a group you belong to', 403, 'FORBIDDEN'));
+    }
+    if (principal.groupsOverage && !permittedGlobally(await resolveRoles(principal), 'roles:assign')) {
+      return next(createError('Your group memberships could not be verified; ask a global role assigner to map this group', 403, 'FORBIDDEN'));
+    }
+    await assertMayGrant(req, role, collectionId);
     if (collectionId) {
       const exists = await AppDataSource.getRepository(CollectionEntity).findOne({ where: { id: collectionId } });
       if (!exists) return next(createError('Collection not found', 404, 'NOT_FOUND'));
@@ -197,6 +230,7 @@ router.delete('/group-mappings/:id', requirePermission('roles:assign'), async (r
     const repo = AppDataSource.getRepository(GroupRoleMappingEntity);
     const mapping = await repo.findOne({ where: { id: req.params.id } });
     if (!mapping) return next(createError('Group mapping not found', 404, 'NOT_FOUND'));
+    await assertMayGrant(req, mapping.role, mapping.collectionId ?? null);
 
     await repo.remove(mapping);
     invalidateAuthzCache();

@@ -21,6 +21,7 @@ import { GroupRoleMappingEntity } from '../models/GroupRoleMapping';
 import { CollectionEntity } from '../models/Collection';
 import { CollectionAssetEntity } from '../models/CollectionAsset';
 import { MachineEntity } from '../models/Machine';
+import { UserEntity } from '../models/User';
 import { isRole, type Role } from './permissions';
 
 /** A principal's effective role grants, split into global vs per-Collection. */
@@ -73,6 +74,7 @@ export function createRoleResolver(
   const collectionRepo = () => ds.getRepository(CollectionEntity);
   const assetRepo = () => ds.getRepository(CollectionAssetEntity);
   const machineRepo = () => ds.getRepository(MachineEntity);
+  const userRepo = () => ds.getRepository(UserEntity);
 
   function rolesCacheKey(p: ResolvablePrincipal): string {
     // Group set affects the result, so include it in the key.
@@ -86,6 +88,14 @@ export function createRoleResolver(
 
     const global = new Set<Role>();
     const byCollection = new Map<string, Set<Role>>();
+
+    // 0. An administrator disabled this user: no grant from any source applies.
+    const user = await userRepo().findOne({ where: { oid: principal.objectId } });
+    if (user && user.isActive === false) {
+      const none: ResolvedRoles = { global, byCollection };
+      rolesCache.set(key, { value: none, expires: Date.now() + ttlMs });
+      return none;
+    }
 
     // 1. Token app roles are always global.
     for (const r of principal.appRoles) {
