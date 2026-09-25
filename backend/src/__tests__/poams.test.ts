@@ -12,9 +12,9 @@ import app from '../index';
 import { mockStore } from '../database/dataSource';
 import { seedMock } from '../database/mockSeed';
 
-// A POA&M must trace back to a finding, and its severity/scheduledCompletion are
-// derived from that finding rather than from the request body. Resolve one
-// finding id per severity up front so each test can link to a realistic one.
+// A finding-linked POA&M derives its severity/scheduledCompletion from that
+// finding rather than from the request body. Resolve one finding id per
+// severity up front so each test can link to a realistic one.
 const findingIdBySeverity: Record<string, string> = {};
 
 beforeAll(async () => {
@@ -31,9 +31,60 @@ describe('POST /api/poams', () => {
     expect(res.status).toBe(400);
   });
 
-  it('returns 400 when findingId is missing', async () => {
+  it('returns 400 when neither findingId nor severity is provided', async () => {
     const res = await request(app).post('/api/poams').send({ weakness: 'Orphan weakness' });
     expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/severity/i);
+  });
+
+  it('creates a standalone POA&M for a weakness found outside scanning', async () => {
+    const res = await request(app).post('/api/poams').send({
+      weakness: 'Annual assessment: no documented incident response test',
+      severity: 'medium',
+      controlAcronym: ' ir-3 (2) ',
+      sourceIdentifyingControl: 'FY25 security control assessment',
+      countermeasures: 'Schedule tabletop exercise',
+      description: '',
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.poamId).toMatch(/^POA-\d{4}-\d{4}$/);
+    expect(res.body.findingId).toBeNull();
+    expect(res.body.severity).toBe('medium');
+    expect(res.body.controlAcronym).toBe('IR-3(2)');
+    expect(res.body.sourceIdentifyingControl).toBe('FY25 security control assessment');
+    expect(res.body.description).toBeUndefined();
+    const days = Math.round((new Date(res.body.scheduledCompletion).getTime() - Date.now()) / 86_400_000);
+    expect(days).toBeGreaterThanOrEqual(88);
+    expect(days).toBeLessThanOrEqual(92);
+
+    const list = await request(app).get('/api/poams');
+    expect(list.body.data.some((p: any) => p.id === res.body.id)).toBe(true);
+  });
+
+  it('honours an explicit scheduledCompletion', async () => {
+    const res = await request(app).post('/api/poams').send({
+      weakness: 'Pen test finding', severity: 'high', scheduledCompletion: '2030-01-15',
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.scheduledCompletion.startsWith('2030-01-15')).toBe(true);
+  });
+
+  it.each<[Record<string, string>, string]>([
+    [{ severity: 'critical' }, 'unknown severity'],
+    [{ severity: 'low', controlAcronym: 'not a control' }, 'malformed control'],
+    [{ severity: 'low', scheduledCompletion: 'someday' }, 'unparseable date'],
+  ])('returns 400 for %j (%s)', async (extra, _why) => {
+    const res = await request(app).post('/api/poams').send({ weakness: 'Bad input', ...extra });
+    expect(res.status).toBe(400);
+  });
+
+  it('takes severity from the linked finding over the request body', async () => {
+    const res = await request(app).post('/api/poams').send({
+      findingId: findingIdBySeverity.high, weakness: 'Linked', severity: 'low',
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.severity).toBe('high');
+    expect(res.body.findingId).toBe(findingIdBySeverity.high);
   });
 
   it('returns 404 when findingId does not exist', async () => {

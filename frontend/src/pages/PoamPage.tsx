@@ -5,6 +5,7 @@
  *   - Filterable, sortable table with status badges
  *   - Overdue highlighting (red rows)
  *   - Detail panel with milestones & timeline
+ *   - Manual creation of a single POA&M (assessments, audits, specific findings)
  *   - Bulk-create from open CAT I findings
  *   - CSV export (DISA format)
  */
@@ -18,6 +19,8 @@ import {
   Dropdown, IDropdownOption, SearchBox, mergeStyleSets, Icon,
 } from '@fluentui/react';
 import { api } from '../hooks/useApi';
+import { usePermissions } from '../auth/AuthzProvider';
+import NewPoamPanel from '../components/NewPoamPanel';
 import { RUNTIME_CONFIG } from '../runtime-config';
 
 const BASE = RUNTIME_CONFIG.API_URL;
@@ -63,6 +66,10 @@ export default function PoamPage() {
   const [selected, setSelected]   = useState<any | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [bulkCreating, setBulkCreating] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [notice, setNotice] = useState('');
+  const { has } = usePermissions();
+  const canWrite = has('poam:write');
 
   const loadPoams = useCallback(async () => {
     setLoading(true);
@@ -146,11 +153,15 @@ export default function PoamPage() {
 
   // ── Command bar ───────────────────────────────────────────────────────────
   const commandItems: ICommandBarItemProps[] = [
+    ...(canWrite ? [{
+      key: 'new', text: 'New POA&M', iconProps: { iconName: 'Add' },
+      onClick: () => { setCreateOpen(true); },
+    }] : []),
     {
       key: 'refresh', text: 'Refresh', iconProps: { iconName: 'Refresh' },
       onClick: () => { void loadPoams(); },
     },
-    {
+    ...(canWrite ? [{
       key: 'bulkCreate', text: 'Bulk Create from Open Findings', iconProps: { iconName: 'BulkUpload' },
       disabled: bulkCreating,
       onClick: () => { void (async () => {
@@ -165,7 +176,7 @@ export default function PoamPage() {
           setBulkCreating(false);
         }
       })(); },
-    },
+    }] : []),
     {
       key: 'export', text: 'Export CSV', iconProps: { iconName: 'Download' },
       onClick: () => {
@@ -176,6 +187,13 @@ export default function PoamPage() {
 
   // ── Detail panel ──────────────────────────────────────────────────────────
   const openDetail = (item: any) => { setSelected(item); setPanelOpen(true); };
+
+  const handleCreated = (poam: any) => {
+    setCreateOpen(false);
+    setNotice(`Created ${poam.poamId}.`);
+    void loadPoams();
+    openDetail(poam);
+  };
 
   return (
     <Stack tokens={{ childrenGap: 16 }}>
@@ -192,6 +210,7 @@ export default function PoamPage() {
       </Stack>
 
       {error && <MessageBar messageBarType={MessageBarType.error}>{error}</MessageBar>}
+      {notice && <MessageBar messageBarType={MessageBarType.success} onDismiss={() => setNotice('')}>{notice}</MessageBar>}
 
       {/* Filters */}
       <Stack horizontal tokens={{ childrenGap: 12 }} wrap>
@@ -240,7 +259,10 @@ export default function PoamPage() {
             <PoamDetailField label="Weakness"                value={selected.weakness} />
             <PoamDetailField label="Status"                  value={selected.status?.replace(/_/g, ' ')} />
             <PoamDetailField label="Severity"                value={selected.severity === 'high' ? 'CAT I' : selected.severity === 'medium' ? 'CAT II' : 'CAT III'} />
-            <PoamDetailField label="Assigned To"             value={selected.assignedToName ?? 'Unassigned'} />
+            <PoamDetailField label="Security Control"        value={selected.controlAcronym ?? '—'} />
+            <PoamDetailField label="Source"                  value={selected.sourceIdentifyingControl ?? (selected.findingId ? 'STIG scan finding' : '—')} />
+            {selected.description && <PoamDetailField label="Description" value={selected.description} />}
+            {selected.impact && <PoamDetailField label="Impact" value={selected.impact} />}            <PoamDetailField label="Assigned To"             value={selected.assignedToName ?? 'Unassigned'} />
             <PoamDetailField label="Scheduled Completion"    value={selected.scheduledCompletion ? new Date(selected.scheduledCompletion).toLocaleDateString() : '—'} />
             <PoamDetailField label="Actual Completion"       value={selected.actualCompletion ? new Date(selected.actualCompletion).toLocaleDateString() : '—'} />
             <PoamDetailField label="Countermeasures"         value={selected.countermeasures ?? '—'} />
@@ -262,6 +284,8 @@ export default function PoamPage() {
           </Stack>
         )}
       </Panel>
+
+      <NewPoamPanel isOpen={createOpen} onDismiss={() => setCreateOpen(false)} onCreated={handleCreated} />
     </Stack>
   );
 }

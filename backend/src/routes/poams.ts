@@ -3,7 +3,7 @@
  *
  * GET    /api/poams                 — list all POA&Ms (filterable)
  * GET    /api/poams/:id             — single POA&M detail
- * POST   /api/poams                 — create new POA&M (from existing finding)
+ * POST   /api/poams                 — create a POA&M, linked to a finding or entered by hand
  * PATCH  /api/poams/:id             — update POA&M fields / status
  * POST   /api/poams/:id/milestones  — add milestone
  * PATCH  /api/poams/:id/milestones/:mid — update milestone
@@ -27,6 +27,7 @@ import { parsePage, parsePageSize } from '../utils/paging';
 import { logger } from '../utils/logger';
 import { randomUUID as uuidv4 } from 'crypto';
 import { generatePoamCsv } from '../exporters/poamExporter';
+import { z } from 'zod';
 
 const router = Router();
 
@@ -45,11 +46,57 @@ async function poamRequesterOid(req: import('express').Request): Promise<string 
   return poam?.createdByOid ?? poam?.issoOid ?? undefined;
 }
 
-// ── sequential POA&M counter (in-memory for mock; DB sequence in production) ──
+// ── sequential POA&M counter (in-memory for mock; derived from the DB otherwise) ──
 let mockPoamCounter = 100;
 function nextPoamId() {
   return `POA-${new Date().getFullYear()}-${String(++mockPoamCounter).padStart(4, '0')}`;
 }
+
+/**
+ * Next id for the current year, derived from the highest one stored so it
+ * survives restarts and multiple instances. Concurrent creates can still pick
+ * the same number; the unique index rejects the loser and the caller retries.
+ */
+async function nextPoamIdFromDb(): Promise<string> {
+  const year = new Date().getFullYear();
+  const [row]: Array<{ max: number }> = await AppDataSource.query(
+    `SELECT COALESCE(MAX(CAST(split_part("poamId", '-', 3) AS integer)), 0)::int AS max
+       FROM "poams" WHERE "poamId" ~ $1`,
+    [`^POA-${year}-[0-9]+$`],
+  );
+  return `POA-${year}-${String(Number(row?.max ?? 0) + 1).padStart(4, '0')}`;
+}
+
+const isUniqueViolation = (err: any) => (err?.driverError?.code ?? err?.code) === '23505';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const optionalText = (max: number) =>
+  z.string().trim().max(max).optional().transform((v) => v || undefined);
+
+const createPoamSchema = z.object({
+  findingId: optionalText(128),
+  weakness: z.string().trim().min(1, 'weakness is required').max(2000),
+  severity: z.enum(['high', 'medium', 'low']).optional(),
+  controlAcronym: optionalText(32)
+    .transform((v) => v?.toUpperCase().replace(/\s+/g, ''))
+    .refine((v) => v === undefined || /^[A-Z]{2}-\d{1,2}(\(\d{1,2}\))?$/.test(v), {
+      message: 'controlAcronym must be a NIST SP 800-53 control such as AC-2 or AC-2(1)',
+    }),
+  sourceIdentifyingControl: optionalText(500),
+  description: optionalText(8000),
+  impact: optionalText(4000),
+  countermeasures: optionalText(8000),
+  resourcesRequired: optionalText(4000),
+  scheduledCompletion: optionalText(40).refine((v) => v === undefined || !Number.isNaN(Date.parse(v)), {
+    message: 'scheduledCompletion must be a valid date',
+  }),
+  assignedToOid: optionalText(128),
+  assignedToName: optionalText(200),
+  issoOid: optionalText(128),
+}).refine((v) => v.findingId || v.severity, {
+  message: 'findingId or severity is required',
+  path: ['severity'],
+});
 
 function dueDateBySeverity(severity: string): Date {
   const d = new Date();
@@ -154,41 +201,65 @@ router.get('/:id', requirePermission('dashboard:read'), async (req, res, next) =
 // ─────────────────────────────────────────────────────────────────────────────
 router.post('/', requirePermission('poam:write'), async (req, res, next) => {
   try {
+    const parsed = createPoamSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      return next(createError(issue?.message ?? 'Invalid POA&M payload', 400, 'VALIDATION_ERROR'));
+    }
     const {
-      findingId, weakness, description, impact, scheduledCompletion,
-      assignedToOid, assignedToName, issoOid, countermeasures, resourcesRequired,
-    } = req.body;
+      findingId, weakness, severity: requestedSeverity, controlAcronym, sourceIdentifyingControl,
+      description, impact, scheduledCompletion, assignedToOid, assignedToName, issoOid,
+      countermeasures, resourcesRequired,
+    } = parsed.data;
 
     // Immutable creator identity taken from the verified token (never the body),
     // used for the separation-of-duties check on approval.
     const actor = (req as any).auth;
     const createdByOid: string | undefined = actor?.oid ?? actor?.sub;
 
-    if (!findingId || !weakness) {
-      return next(createError('findingId and weakness are required', 400, 'VALIDATION_ERROR'));
-    }
-
     const MOCK = process.env.MOCK_MODE === 'true';
     mockStore.poams = mockStore.poams ?? [];
 
-    if (MOCK) {
-      const finding = mockStore.findings.find((f: any) => f.id === findingId);
+    let finding: any = null;
+    if (findingId) {
+      if (MOCK) {
+        finding = mockStore.findings.find((f: any) => f.id === findingId) ?? null;
+      } else if (UUID_RE.test(findingId)) {
+        finding = await AppDataSource.getRepository(FindingEntity).findOne({ where: { id: findingId } });
+      }
       if (!finding) return next(createError('Finding not found', 404, 'NOT_FOUND'));
+    }
 
+    // A linked finding is the authority on severity; a manual entry states its own.
+    const severity: string = finding?.severity ?? requestedSeverity!;
+    const fields = {
+      findingId: finding ? findingId! : null,
+      weakness,
+      severity,
+      controlAcronym: controlAcronym ?? null,
+      sourceIdentifyingControl: sourceIdentifyingControl ?? null,
+      description,
+      impact,
+      status: 'open' as const,
+      scheduledCompletion: scheduledCompletion ? new Date(scheduledCompletion) : dueDateBySeverity(severity),
+      assignedToOid,
+      assignedToName,
+      issoOid,
+      createdByOid,
+      countermeasures,
+      resourcesRequired,
+    };
+    const auditAfter = {
+      findingId: fields.findingId, weakness, severity, controlAcronym: fields.controlAcronym, status: 'open',
+    };
+
+    if (MOCK) {
       const poam = {
+        ...fields,
         id: uuidv4(),
         poamId: nextPoamId(),
-        findingId,
         finding,
-        weakness,
-        description,
-        impact,
-        status: 'open',
-        severity: finding.severity,
-        scheduledCompletion: scheduledCompletion ?? dueDateBySeverity(finding.severity),
-        assignedToOid, assignedToName, issoOid,
-        createdByOid,
-        countermeasures, resourcesRequired,
+        scheduledCompletion: fields.scheduledCompletion.toISOString(),
         milestones: [],
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -198,38 +269,28 @@ router.post('/', requirePermission('poam:write'), async (req, res, next) => {
         action: 'poam.created',
         entityType: 'poam',
         entityId: poam.id,
-        after: { findingId, weakness, status: 'open', poamId: poam.poamId },
+        after: { ...auditAfter, poamId: poam.poamId },
         result: 'Success',
       });
       return res.status(201).json(poam);
     }
 
-    const findingRepo = AppDataSource.getRepository(FindingEntity);
-    const finding = await findingRepo.findOne({ where: { id: findingId } });
-    if (!finding) return next(createError('Finding not found', 404, 'NOT_FOUND'));
+    const repo = AppDataSource.getRepository(PoamEntity);
+    let poam: PoamEntity | undefined;
+    for (let attempt = 1; !poam; attempt++) {
+      const candidate = repo.create({ ...fields, poamId: await nextPoamIdFromDb() });
+      try {
+        poam = await repo.save(candidate);
+      } catch (err) {
+        if (!isUniqueViolation(err) || attempt >= 5) throw err;
+      }
+    }
 
-    const poam = AppDataSource.getRepository(PoamEntity).create({
-      findingId,
-      poamId: nextPoamId(),
-      weakness,
-      description,
-      impact,
-      status: 'open',
-      scheduledCompletion: scheduledCompletion ?? dueDateBySeverity(finding.severity),
-      assignedToOid,
-      assignedToName,
-      issoOid,
-      createdByOid,
-      countermeasures,
-      resourcesRequired,
-    });
-
-    await AppDataSource.getRepository(PoamEntity).save(poam);
     await recordAudit(req, {
       action: 'poam.created',
       entityType: 'poam',
       entityId: poam.id,
-      after: { findingId, weakness, status: 'open' },
+      after: { ...auditAfter, poamId: poam.poamId },
       result: 'Success',
     });
     return res.status(201).json(poam);
