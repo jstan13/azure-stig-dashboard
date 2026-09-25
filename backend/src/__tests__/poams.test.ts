@@ -192,6 +192,77 @@ describe('PATCH /api/poams/:id', () => {
     const res = await request(app).patch('/api/poams/no-such-id').send({ status: 'closed' });
     expect(res.status).toBe(404);
   });
+
+  it('refuses risk acceptance outside the approval workflow', async () => {
+    const res = await request(app).patch(`/api/poams/${poamId}`).send({ status: 'risk_accepted' });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/approve/);
+  });
+
+  it('refuses to change the severity of a finding-linked POA&M', async () => {
+    const res = await request(app).patch(`/api/poams/${poamId}`).send({ severity: 'low' });
+    expect(res.status).toBe(400);
+  });
+
+  it('stamps actualCompletion on resolve and clears it on reopen', async () => {
+    const resolved = await request(app).patch(`/api/poams/${poamId}`).send({ status: 'resolved' });
+    expect(resolved.body.actualCompletion).toBeTruthy();
+    const reopened = await request(app).patch(`/api/poams/${poamId}`).send({ status: 'open' });
+    expect(reopened.body.actualCompletion).toBeNull();
+  });
+});
+
+describe('PATCH /api/poams/:id (manual POA&M)', () => {
+  let poamId: string;
+
+  beforeAll(async () => {
+    const res = await request(app).post('/api/poams').send({
+      weakness: 'Editable', severity: 'low', controlAcronym: 'AC-2', sourceIdentifyingControl: 'Audit',
+    });
+    poamId = res.body.id;
+  });
+
+  it('edits severity, control, source and due date', async () => {
+    const res = await request(app).patch(`/api/poams/${poamId}`).send({
+      severity: 'high', controlAcronym: 'sc-7 (5)', sourceIdentifyingControl: 'Pen test', scheduledCompletion: '2031-03-01',
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ severity: 'high', controlAcronym: 'SC-7(5)', sourceIdentifyingControl: 'Pen test' });
+    expect(res.body.scheduledCompletion.startsWith('2031-03-01')).toBe(true);
+  });
+
+  it('clears optional fields with an empty string and leaves omitted fields alone', async () => {
+    const res = await request(app).patch(`/api/poams/${poamId}`).send({ controlAcronym: '' });
+    expect(res.status).toBe(200);
+    expect(res.body.controlAcronym).toBeNull();
+    expect(res.body.sourceIdentifyingControl).toBe('Pen test');
+  });
+
+  it.each<[Record<string, unknown>]>([
+    [{ controlAcronym: 'nope' }],
+    [{ weakness: '   ' }],
+    [{ scheduledCompletion: 'soon' }],
+    [{ severity: 'critical' }],
+  ])('rejects %j', async (body) => {
+    const res = await request(app).patch(`/api/poams/${poamId}`).send(body);
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('POST /api/poams/bulk-create', () => {
+  it('rejects an unknown severity', async () => {
+    const res = await request(app).post('/api/poams/bulk-create').send({ severity: 'critical' });
+    expect(res.status).toBe(400);
+  });
+
+  it('creates one POA&M per open finding without an existing POA&M', async () => {
+    const first = await request(app).post('/api/poams/bulk-create').send({ severity: 'medium' });
+    expect(first.status).toBe(201);
+    expect(first.body.created).toBeGreaterThan(0);
+    expect(first.body.poams.every((p: any) => p.severity === 'medium' && p.findingId)).toBe(true);
+    const again = await request(app).post('/api/poams/bulk-create').send({ severity: 'medium' });
+    expect(again.body.created).toBe(0);
+  });
 });
 
 describe('POST /api/poams/:id/milestones', () => {

@@ -203,7 +203,7 @@ router.post('/systems/:id/upload-cklb', requirePermission('emass:push'), async (
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
-function poamToEmass(p: any): emass.EmassPoamPayload {
+export function poamToEmass(p: any): emass.EmassPoamPayload {
   return {
     externalUid: p.poamId,
     controlAcronym: p.controlAcronym || p.controlId || 'CM-6',
@@ -218,14 +218,18 @@ function poamToEmass(p: any): emass.EmassPoamPayload {
     pocPhoneNumber:  p.pocPhoneNumber,
     resources:       p.resourcesRequired,
     scheduledCompletionDate: p.scheduledCompletion ? Math.floor(new Date(p.scheduledCompletion).getTime() / 1000) : undefined,
-    severity:        mapSeverity(p.severity || p.residualRisk),
-    rawSeverity:     mapRawSeverity(p.severity),
+    severity:        toEmassRiskLevel(p.severity),
+    rawSeverity:     toEmassRiskLevel(p.severity),
+    residualRiskLevel: toEmassRiskLevel(p.residualRisk),
     mitigation:      p.countermeasures,
     recommendations: p.delayReason,
-    milestones: (p.milestones || []).map((m: any) => ({
-      description: m.description,
-      scheduledCompletionDate: m.scheduledCompletion ? Math.floor(new Date(m.scheduledCompletion).getTime() / 1000) : Math.floor(Date.now() / 1000),
-    })),
+    milestones: (p.milestones || []).map((m: any) => {
+      const due = m.dueDate ?? m.scheduledCompletion;
+      return {
+        description: m.description,
+        scheduledCompletionDate: due ? Math.floor(new Date(due).getTime() / 1000) : Math.floor(Date.now() / 1000),
+      };
+    }),
   };
 }
 function mapStatus(s: string): emass.EmassPoamPayload['status'] {
@@ -236,21 +240,20 @@ function mapStatus(s: string): emass.EmassPoamPayload['status'] {
     default: return 'Ongoing';
   }
 }
-function mapSeverity(s?: string): emass.EmassPoamPayload['severity'] | undefined {
-  if (!s) return undefined;
-  const v = s.toLowerCase();
-  if (v.includes('high') || v === 'i')   return 'CAT I';
-  if (v.includes('mod') || v === 'ii')   return 'CAT II';
-  if (v.includes('low') || v === 'iii')  return 'CAT III';
-  return undefined;
-}
-function mapRawSeverity(s?: string): emass.EmassPoamPayload['rawSeverity'] | undefined {
-  if (!s) return undefined;
-  const v = s.toLowerCase();
-  if (v.includes('high'))   return 'I';
-  if (v.includes('medium')) return 'II';
-  if (v.includes('low'))    return 'III';
-  return undefined;
+/**
+ * DISA CAT levels (stored as high/medium/low) and free-text risk ratings mapped
+ * to the eMASS five-point scale. CAT I → High, CAT II → Moderate, CAT III → Low.
+ */
+export function toEmassRiskLevel(s?: string | null): emass.EmassRiskLevel | undefined {
+  const v = (s ?? '').trim().toLowerCase().replace(/[\s_-]+/g, ' ');
+  switch (v) {
+    case 'very high': case 'critical':                      return 'Very High';
+    case 'high': case 'cat i': case 'i':                     return 'High';
+    case 'moderate': case 'medium': case 'cat ii': case 'ii': return 'Moderate';
+    case 'low': case 'cat iii': case 'iii':                  return 'Low';
+    case 'very low': case 'informational': case 'info':      return 'Very Low';
+    default:                                                  return undefined;
+  }
 }
 
 export default router;

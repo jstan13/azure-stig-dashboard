@@ -5,7 +5,7 @@
  *   - Filterable, sortable table with status badges
  *   - Overdue highlighting (red rows)
  *   - Detail panel with milestones & timeline
- *   - Manual creation of a single POA&M (assessments, audits, specific findings)
+ *   - Manual creation and editing of a single POA&M (assessments, audits, specific findings)
  *   - Bulk-create from open CAT I findings
  *   - CSV export (DISA format)
  */
@@ -20,7 +20,7 @@ import {
 } from '@fluentui/react';
 import { api } from '../hooks/useApi';
 import { usePermissions } from '../auth/AuthzProvider';
-import NewPoamPanel from '../components/NewPoamPanel';
+import PoamFormPanel from '../components/PoamFormPanel';
 import { RUNTIME_CONFIG } from '../runtime-config';
 
 const BASE = RUNTIME_CONFIG.API_URL;
@@ -66,7 +66,8 @@ export default function PoamPage() {
   const [selected, setSelected]   = useState<any | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [bulkCreating, setBulkCreating] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<any | null>(null);
   const [notice, setNotice] = useState('');
   const { has } = usePermissions();
   const canWrite = has('poam:write');
@@ -155,7 +156,7 @@ export default function PoamPage() {
   const commandItems: ICommandBarItemProps[] = [
     ...(canWrite ? [{
       key: 'new', text: 'New POA&M', iconProps: { iconName: 'Add' },
-      onClick: () => { setCreateOpen(true); },
+      onClick: () => { setEditing(null); setFormOpen(true); },
     }] : []),
     {
       key: 'refresh', text: 'Refresh', iconProps: { iconName: 'Refresh' },
@@ -188,9 +189,9 @@ export default function PoamPage() {
   // ── Detail panel ──────────────────────────────────────────────────────────
   const openDetail = (item: any) => { setSelected(item); setPanelOpen(true); };
 
-  const handleCreated = (poam: any) => {
-    setCreateOpen(false);
-    setNotice(`Created ${poam.poamId}.`);
+  const handleSaved = (poam: any, mode: 'created' | 'updated') => {
+    setFormOpen(false);
+    setNotice(`${mode === 'created' ? 'Created' : 'Updated'} ${poam.poamId}.`);
     void loadPoams();
     openDetail(poam);
   };
@@ -256,6 +257,15 @@ export default function PoamPage() {
       >
         {selected && (
           <Stack tokens={{ childrenGap: 12 }} style={{ padding: '16px 0' }}>
+            {canWrite && (
+              <Stack horizontal>
+                <DefaultButton
+                  iconProps={{ iconName: 'Edit' }}
+                  text="Edit"
+                  onClick={() => { setEditing(selected); setPanelOpen(false); setFormOpen(true); }}
+                />
+              </Stack>
+            )}
             <PoamDetailField label="Weakness"                value={selected.weakness} />
             <PoamDetailField label="Status"                  value={selected.status?.replace(/_/g, ' ')} />
             <PoamDetailField label="Severity"                value={selected.severity === 'high' ? 'CAT I' : selected.severity === 'medium' ? 'CAT II' : 'CAT III'} />
@@ -267,6 +277,7 @@ export default function PoamPage() {
             <PoamDetailField label="Actual Completion"       value={selected.actualCompletion ? new Date(selected.actualCompletion).toLocaleDateString() : '—'} />
             <PoamDetailField label="Countermeasures"         value={selected.countermeasures ?? '—'} />
             <PoamDetailField label="Resources Required"      value={selected.resourcesRequired ?? '—'} />
+            {selected.delayReason && <PoamDetailField label="Delay Reason" value={selected.delayReason} />}
             <PoamDetailField label="Risk Acceptance"         value={selected.riskAcceptanceRationale ?? '—'} />
 
             {selected.milestones?.length > 0 && (
@@ -285,7 +296,12 @@ export default function PoamPage() {
         )}
       </Panel>
 
-      <NewPoamPanel isOpen={createOpen} onDismiss={() => setCreateOpen(false)} onCreated={handleCreated} />
+      <PoamFormPanel
+        isOpen={formOpen}
+        poam={editing ?? undefined}
+        onDismiss={() => setFormOpen(false)}
+        onSaved={handleSaved}
+      />
     </Stack>
   );
 }

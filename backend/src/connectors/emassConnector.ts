@@ -51,15 +51,18 @@ export interface EmassPoamPayload {
   scheduledCompletionDate?: number; // epoch seconds (eMASS convention)
   milestones?: { description: string; scheduledCompletionDate: number }[];
   reviewStatus?: 'Not Approved' | 'Under Review' | 'Approved';
-  severity?: 'CAT I' | 'CAT II' | 'CAT III';
-  rawSeverity?: 'I' | 'II' | 'III';
-  relevanceOfThreat?: 'Very Low' | 'Low' | 'Moderate' | 'High' | 'Very High';
-  likelihood?: 'Very Low' | 'Low' | 'Moderate' | 'High' | 'Very High';
-  impact?: 'Very Low' | 'Low' | 'Moderate' | 'High' | 'Very High';
-  residualRiskLevel?: 'Very Low' | 'Low' | 'Moderate' | 'High' | 'Very High';
+  /** eMASS rates POA&M risk on a five-point scale, not DISA CAT levels. */
+  severity?: EmassRiskLevel;
+  rawSeverity?: EmassRiskLevel;
+  relevanceOfThreat?: EmassRiskLevel;
+  likelihood?: EmassRiskLevel;
+  impact?: EmassRiskLevel;
+  residualRiskLevel?: EmassRiskLevel;
   recommendations?: string;
   mitigation?: string;
 }
+
+export type EmassRiskLevel = 'Very Low' | 'Low' | 'Moderate' | 'High' | 'Very High';
 
 export interface EmassSystem {
   systemId: number;

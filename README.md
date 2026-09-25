@@ -588,7 +588,7 @@ After signing in, the left rail groups every page into three sections.
 | Page | Path | What you do here |
 |---|---|---|
 | **Compliance Trends** | `/trends`           | Time-series of compliance score, CAT I drift, remediation throughput. Snapshots are taken nightly by the scheduler. |
-| **POA&M**             | `/poams`            | Create / edit / close Plans of Action & Milestones. **New POA&M** records a single weakness — from an assessment, audit or pen test, or linked to one open finding. Bulk-create from open findings; export as CSV. |
+| **POA&M**             | `/poams`            | Create / edit / close Plans of Action & Milestones. **New POA&M** records a single weakness — from an assessment, audit or pen test, or linked to one open finding — and **Edit** (in the detail panel) updates any field except the linked finding. Risk acceptance goes through approval. Bulk-create from open findings; export as CSV. |
 | **Vulnerabilities**   | `/vulnerabilities`  | CVE-class findings from Microsoft Defender Vulnerability Management. Filter by severity/exploit availability, change status (Open / Mitigated / Risk Accepted / False Positive), or click **Sync from Defender** to pull a fresh batch. |
 | **RMF / NIST**        | `/rmf`              | NIST 800-53 control coverage view, mapping STIG findings → RMF families. |
 | **STIG Library**      | `/stigs`            | Browse benchmarks pulled from DISA, with version history and per-rule details. |

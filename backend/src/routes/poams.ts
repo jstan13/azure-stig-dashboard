@@ -52,50 +52,87 @@ function nextPoamId() {
   return `POA-${new Date().getFullYear()}-${String(++mockPoamCounter).padStart(4, '0')}`;
 }
 
+const formatPoamId = (year: number, n: number) => `POA-${year}-${String(n).padStart(4, '0')}`;
+
 /**
- * Next id for the current year, derived from the highest one stored so it
- * survives restarts and multiple instances. Concurrent creates can still pick
- * the same number; the unique index rejects the loser and the caller retries.
+ * Next sequence number for the current year, derived from the highest id stored
+ * so it survives restarts and multiple instances. Concurrent creates can still
+ * pick the same number; the unique index rejects the loser and the caller retries.
  */
-async function nextPoamIdFromDb(): Promise<string> {
+async function nextPoamNumberFromDb(): Promise<{ year: number; next: number }> {
   const year = new Date().getFullYear();
   const [row]: Array<{ max: number }> = await AppDataSource.query(
     `SELECT COALESCE(MAX(CAST(split_part("poamId", '-', 3) AS integer)), 0)::int AS max
        FROM "poams" WHERE "poamId" ~ $1`,
     [`^POA-${year}-[0-9]+$`],
   );
-  return `POA-${year}-${String(Number(row?.max ?? 0) + 1).padStart(4, '0')}`;
+  return { year, next: Number(row?.max ?? 0) + 1 };
+}
+
+async function nextPoamIdFromDb(): Promise<string> {
+  const { year, next } = await nextPoamNumberFromDb();
+  return formatPoamId(year, next);
 }
 
 const isUniqueViolation = (err: any) => (err?.driverError?.code ?? err?.code) === '23505';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CONTROL_RE = /^[A-Z]{2}-\d{1,2}(\(\d{1,2}\))?$/;
+const CONTROL_MESSAGE = 'controlAcronym must be a NIST SP 800-53 control such as AC-2 or AC-2(1)';
+const DATE_MESSAGE = 'scheduledCompletion must be a valid date';
 
 const optionalText = (max: number) =>
   z.string().trim().max(max).optional().transform((v) => v || undefined);
 
 const createPoamSchema = z.object({
   findingId: optionalText(128),
-  weakness: z.string().trim().min(1, 'weakness is required').max(2000),
-  severity: z.enum(['high', 'medium', 'low']).optional(),
+  weakness: z.string({ message: 'weakness is required' }).trim().min(1, 'weakness is required').max(2000),
+  severity: z.enum(['high', 'medium', 'low'], { message: 'severity must be high, medium or low' }).optional(),
   controlAcronym: optionalText(32)
     .transform((v) => v?.toUpperCase().replace(/\s+/g, ''))
-    .refine((v) => v === undefined || /^[A-Z]{2}-\d{1,2}(\(\d{1,2}\))?$/.test(v), {
-      message: 'controlAcronym must be a NIST SP 800-53 control such as AC-2 or AC-2(1)',
-    }),
+    .refine((v) => v === undefined || CONTROL_RE.test(v), { message: CONTROL_MESSAGE }),
   sourceIdentifyingControl: optionalText(500),
   description: optionalText(8000),
   impact: optionalText(4000),
   countermeasures: optionalText(8000),
   resourcesRequired: optionalText(4000),
-  scheduledCompletion: optionalText(40).refine((v) => v === undefined || !Number.isNaN(Date.parse(v)), {
-    message: 'scheduledCompletion must be a valid date',
-  }),
+  scheduledCompletion: optionalText(40)
+    .refine((v) => v === undefined || !Number.isNaN(Date.parse(v)), { message: DATE_MESSAGE }),
   assignedToOid: optionalText(128),
   assignedToName: optionalText(200),
   issoOid: optionalText(128),
 }).refine((v) => v.findingId || v.severity, {
   message: 'findingId or severity is required',
   path: ['severity'],
+});
+
+/** For PATCH: undefined leaves a field alone, '' or null clears it. */
+const clearableText = (max: number) =>
+  z.string().trim().max(max).nullable().optional().transform((v) => (v === '' ? null : v));
+
+// risk_accepted is only reachable through POST /:id/approve, which enforces
+// poam:approve and separation of duties.
+const updatePoamSchema = z.object({
+  weakness: z.string().trim().min(1, 'weakness cannot be empty').max(2000).optional(),
+  status: z.enum(['open', 'in_remediation', 'resolved', 'false_positive', 'closed'], {
+    message: 'status must be open, in_remediation, resolved, false_positive or closed (use /approve for risk acceptance)',
+  }).optional(),
+  severity: z.enum(['high', 'medium', 'low'], { message: 'severity must be high, medium or low' }).optional(),
+  controlAcronym: clearableText(32)
+    .transform((v) => (typeof v === 'string' ? v.toUpperCase().replace(/\s+/g, '') : v))
+    .refine((v) => typeof v !== 'string' || CONTROL_RE.test(v), { message: CONTROL_MESSAGE }),
+  sourceIdentifyingControl: clearableText(500),
+  description: clearableText(8000),
+  impact: clearableText(4000),
+  countermeasures: clearableText(8000),
+  resourcesRequired: clearableText(4000),
+  delayReason: clearableText(4000),
+  residualRisk: clearableText(200),
+  riskAcceptanceRationale: clearableText(8000),
+  scheduledCompletion: clearableText(40)
+    .refine((v) => typeof v !== 'string' || !Number.isNaN(Date.parse(v)), { message: DATE_MESSAGE }),
+  assignedToOid: clearableText(128),
+  assignedToName: clearableText(200),
+  issoOid: clearableText(128),
 });
 
 function dueDateBySeverity(severity: string): Date {
@@ -305,45 +342,56 @@ router.patch('/:id', requirePermission('poam:write'), async (req, res, next) => 
     const { id } = req.params;
     const MOCK = process.env.MOCK_MODE === 'true';
 
-    const updatable = [
-      'weakness', 'description', 'impact', 'status', 'scheduledCompletion',
-      'assignedToOid', 'assignedToName', 'issoOid', 'delayReason',
-      'resourcesRequired', 'countermeasures', 'riskAcceptanceRationale', 'residualRisk',
-    ];
-
-    if (MOCK) {
-      const idx = (mockStore.poams ?? []).findIndex((x: any) => x.id === id);
-      if (idx === -1) return next(createError('POA&M not found', 404, 'NOT_FOUND'));
-      const before = { ...mockStore.poams[idx] };
-      for (const k of updatable) {
-        if (req.body[k] !== undefined) mockStore.poams[idx][k] = req.body[k];
-      }
-      if (req.body.status === 'resolved' || req.body.status === 'closed') {
-        mockStore.poams[idx].actualCompletion = new Date().toISOString();
-      }
-      mockStore.poams[idx].updatedAt = new Date().toISOString();
-      await recordAudit(req, {
-        action: 'poam.updated',
-        entityType: 'poam',
-        entityId: id,
-        before: { status: before.status },
-        after: { status: mockStore.poams[idx].status },
-        result: 'Success',
-      });
-      return res.json(mockStore.poams[idx]);
+    const parsed = updatePoamSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return next(createError(parsed.error.issues[0]?.message ?? 'Invalid POA&M update', 400, 'VALIDATION_ERROR'));
     }
+    const changes: Record<string, unknown> = Object.fromEntries(
+      Object.entries(parsed.data).filter(([, v]) => v !== undefined),
+    );
 
-    const repo = AppDataSource.getRepository(PoamEntity);
-    const poam = await repo.findOne({ where: [{ id }, { poamId: id }] });
+    const poam: any = MOCK
+      ? (mockStore.poams ?? []).find((x: any) => x.id === id || x.poamId === id)
+      : await AppDataSource.getRepository(PoamEntity).findOne({
+          where: UUID_RE.test(id) ? [{ id }, { poamId: id }] : [{ poamId: id }],
+        });
     if (!poam) return next(createError('POA&M not found', 404, 'NOT_FOUND'));
 
-    for (const k of updatable) {
-      if (req.body[k] !== undefined) (poam as any)[k] = req.body[k];
+    if (changes.severity !== undefined && poam.findingId) {
+      return next(createError('Severity follows the linked finding and cannot be changed', 400, 'VALIDATION_ERROR'));
+    }
+    if (changes.riskAcceptanceRationale !== undefined && poam.approvedAt
+        && changes.riskAcceptanceRationale !== poam.riskAcceptanceRationale) {
+      return next(createError('The rationale of an approved risk acceptance cannot be edited', 409, 'CONFLICT'));
+    }
+
+    const before: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(changes)) {
+      before[k] = poam[k] ?? null;
+      poam[k] = k === 'scheduledCompletion' && typeof v === 'string' ? new Date(v) : v;
     }
     if ((poam.status === 'resolved' || poam.status === 'closed') && !poam.actualCompletion) {
       poam.actualCompletion = new Date();
+    } else if ((poam.status === 'open' || poam.status === 'in_remediation') && poam.actualCompletion) {
+      poam.actualCompletion = null;
     }
-    await repo.save(poam);
+
+    if (MOCK) {
+      if (poam.scheduledCompletion instanceof Date) poam.scheduledCompletion = poam.scheduledCompletion.toISOString();
+      if (poam.actualCompletion instanceof Date) poam.actualCompletion = poam.actualCompletion.toISOString();
+      poam.updatedAt = new Date().toISOString();
+    } else {
+      await AppDataSource.getRepository(PoamEntity).save(poam);
+    }
+
+    await recordAudit(req, {
+      action: 'poam.updated',
+      entityType: 'poam',
+      entityId: poam.id,
+      before,
+      after: changes,
+      result: 'Success',
+    });
     return res.json(poam);
   } catch (err) { next(err); }
 });
@@ -471,45 +519,94 @@ router.post('/:id/approve', requirePermission('poam:approve'), requireDifferentA
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/poams/bulk-create — generate POA&Ms for all open findings
 // ─────────────────────────────────────────────────────────────────────────────
+const bulkCreateSchema = z.object({
+  machineIds: z.array(z.string().trim().min(1).max(128)).max(5000).optional(),
+  severity: z.enum(['high', 'medium', 'low'], { message: 'severity must be high, medium or low' }).optional(),
+  assignedToOid: optionalText(128),
+  assignedToName: optionalText(200),
+});
+
+const catLabel = (severity: string) => (severity === 'high' ? 'I' : severity === 'medium' ? 'II' : 'III');
+
 router.post('/bulk-create', requirePermission('poam:write'), async (req, res, next) => {
   try {
-    const { machineIds, severity, assignedToOid, assignedToName } = req.body;
+    const parsed = bulkCreateSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return next(createError(parsed.error.issues[0]?.message ?? 'Invalid request', 400, 'VALIDATION_ERROR'));
+    }
+    const { machineIds, severity, assignedToOid, assignedToName } = parsed.data;
+    const actor = (req as any).auth;
+    const createdByOid: string | undefined = actor?.oid ?? actor?.sub;
     const MOCK = process.env.MOCK_MODE === 'true';
 
-    mockStore.poams = mockStore.poams ?? [];
+    const fromFinding = (f: any, ctl: any, mac: any) => ({
+      findingId: f.id,
+      weakness: ctl?.title ?? f.controlId,
+      description: ctl?.description ?? '',
+      impact: `CAT ${catLabel(f.severity)} finding on ${mac?.name ?? f.machineId}`,
+      status: 'open' as const,
+      severity: f.severity,
+      scheduledCompletion: dueDateBySeverity(f.severity),
+      assignedToOid,
+      assignedToName,
+      createdByOid,
+    });
 
-    const openFindings = MOCK
-      ? mockStore.findings.filter((f: any) => {
-          if (f.status !== 'open') return false;
-          if (machineIds?.length && !machineIds.includes(f.machineId)) return false;
-          if (severity && f.severity !== severity) return false;
-          // Skip if POA&M already exists
-          return !(mockStore.poams ?? []).some((p: any) => p.findingId === f.id);
-        })
-      : [];
+    let created: any[];
+    if (MOCK) {
+      mockStore.poams = mockStore.poams ?? [];
+      const openFindings = mockStore.findings.filter((f: any) => {
+        if (f.status !== 'open') return false;
+        if (machineIds?.length && !machineIds.includes(f.machineId)) return false;
+        if (severity && f.severity !== severity) return false;
+        return !(mockStore.poams ?? []).some((p: any) => p.findingId === f.id);
+      });
+      created = openFindings.map((f: any) => {
+        const ctl = mockStore.controls.find((c: any) => c.id === f.controlId);
+        const mac = mockStore.machines.find((m: any) => m.id === f.machineId);
+        return {
+          ...fromFinding(f, ctl, mac),
+          id: uuidv4(),
+          poamId: nextPoamId(),
+          milestones: [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      });
+      mockStore.poams.push(...created);
+    } else {
+      // Machine ids are UUIDs in Postgres; anything else can't match and would
+      // make the IN (...) cast fail.
+      const ids = machineIds?.filter((id) => UUID_RE.test(id));
+      if (machineIds?.length && !ids?.length) {
+        created = [];
+      } else {
+        const qb = AppDataSource.getRepository(FindingEntity)
+          .createQueryBuilder('f')
+          .innerJoinAndSelect('f.machine', 'm')
+          .leftJoinAndSelect('f.control', 'c')
+          .where('f.status = :status', { status: 'open' })
+          .andWhere('m.isActive = :isActive', { isActive: true })
+          .andWhere('NOT EXISTS (SELECT 1 FROM "poams" p WHERE p."findingId" = "f"."id")');
+        if (ids?.length) qb.andWhere('f.machineId IN (:...ids)', { ids });
+        if (severity) qb.andWhere('f.severity = :severity', { severity });
+        const findings = await qb.getMany();
 
-    const created: any[] = [];
-    for (const f of openFindings) {
-      const ctl = mockStore.controls.find((c: any) => c.id === f.controlId);
-      const mac = mockStore.machines.find((m: any) => m.id === f.machineId);
-      const poam = {
-        id: uuidv4(),
-        poamId: nextPoamId(),
-        findingId: f.id,
-        weakness: ctl?.title ?? f.controlId,
-        description: ctl?.description ?? '',
-        impact: `CAT ${f.severity === 'high' ? 'I' : f.severity === 'medium' ? 'II' : 'III'} finding on ${mac?.name ?? f.machineId}`,
-        status: 'open',
-        severity: f.severity,
-        scheduledCompletion: dueDateBySeverity(f.severity),
-        assignedToOid: assignedToOid ?? null,
-        assignedToName: assignedToName ?? null,
-        milestones: [],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      mockStore.poams.push(poam);
-      created.push(poam);
+        const repo = AppDataSource.getRepository(PoamEntity);
+        created = [];
+        for (let attempt = 1; findings.length && !created.length; attempt++) {
+          const { year, next: first } = await nextPoamNumberFromDb();
+          const rows = findings.map((f: any, i) =>
+            repo.create({ ...fromFinding(f, f.control, f.machine), poamId: formatPoamId(year, first + i) }));
+          try {
+            // One transaction: a clash on any id rolls back the batch so it can
+            // be renumbered as a whole.
+            created = await AppDataSource.transaction((em) => em.getRepository(PoamEntity).save(rows, { chunk: 200 }));
+          } catch (err) {
+            if (!isUniqueViolation(err) || attempt >= 5) throw err;
+          }
+        }
+      }
     }
 
     logger.info(`[POAMs] Bulk-created ${created.length} POA&Ms`);
