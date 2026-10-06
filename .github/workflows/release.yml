@@ -163,6 +163,9 @@ jobs:
           # what CI tested, then lifted wholesale into the package.
           npm ci --omit=dev --ignore-scripts --workspace=functions
           cp -a node_modules func-pkg/node_modules
+          # Versions npm could not hoist live under the workspace; overlay them
+          # so the function gets exactly what it declares.
+          if [ -d functions/node_modules ]; then cp -a functions/node_modules/. func-pkg/node_modules/; fi
           # npm links each workspace into node_modules; those symlinks point
           # outside the package and would dangle in the zip.
           find func-pkg/node_modules -maxdepth 2 -type l -not -path '*/.bin/*' -delete

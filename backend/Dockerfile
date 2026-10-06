@@ -19,8 +19,10 @@ COPY backend/ ./backend/
 # Build TypeScript
 RUN npm run build --workspace=backend
 
-# Re-resolve without dev dependencies, still pinned by the lockfile.
-RUN npm ci --omit=dev --ignore-scripts --workspace=backend
+# Re-resolve without dev dependencies, still pinned by the lockfile. The mkdir
+# guarantees the workspace folder exists for the COPY below even when npm
+# hoisted everything.
+RUN npm ci --omit=dev --ignore-scripts --workspace=backend && mkdir -p backend/node_modules
 
 # ── Stage 2: Production ───────────────────────────────────────────────────────
 FROM node:20-alpine AS runtime
@@ -31,8 +33,11 @@ ENV NODE_ENV=production
 
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
-# Copy built artifacts and minimal packages
+# Copy built artifacts and minimal packages. npm nests a backend dependency
+# under backend/node_modules when another workspace needs a different version
+# at the root, so overlay those to give the backend exactly what it declares.
 COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/backend/node_modules ./node_modules
 COPY --from=builder /app/backend/dist ./dist
 COPY --from=builder /app/backend/package.json ./
 COPY --from=builder /app/backend/openapi.yaml ./
