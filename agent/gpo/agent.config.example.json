@@ -1,0 +1,58 @@
+{
+  "TrackerUrl": "https://contoso-stig-api.azurewebsites.us",
+  "PollSeconds": 300,
+  "WorkDirectory": "C:\\ProgramData\\StigGpoAgent",
+  "Auth": {
+    "Mode": "Certificate",
+    "Authority": "https://login.microsoftonline.us",
+    "TenantId": "00000000-0000-0000-0000-000000000000",
+    "ClientId": "11111111-1111-1111-1111-111111111111",
+    "CertificateThumbprint": "0123456789ABCDEF0123456789ABCDEF01234567",
+    "Scope": "api://22222222-2222-2222-2222-222222222222/.default"
+  },
+  "Environments": [
+    {
+      "Name": "test",
+      "Domain": "test.contoso.mil",
+      "Server": "tdc01.test.contoso.mil",
+      "GpoNameFormat": "{DisplayName} [{Label} TEST]",
+      "MigrationTable": null,
+      "AllowDisaPlaceholders": false,
+      "Baselines": [
+        {
+          "Match": "DoD Windows 11 Computer STIG",
+          "LinkTargets": ["OU=STIG Pilot,OU=Workstations,DC=test,DC=contoso,DC=mil"],
+          "ReplaceLinksMatching": ["DoD Windows 11 Computer STIG*"]
+        },
+        {
+          "Match": "DoD WinSvr 2022 MS STIG Comp",
+          "LinkTargets": ["OU=STIG Pilot,OU=Member Servers,DC=test,DC=contoso,DC=mil"],
+          "WmiFilter": "Windows Server 2022 Member Server",
+          "ReplaceLinksMatching": ["DoD WinSvr 2022 MS STIG Comp*"]
+        }
+      ],
+      "ValidationComputers": ["TESTWS01", "TESTSRV01"],
+      "ValidationScript": "C:\\ProgramData\\StigGpoAgent\\Invoke-StigValidation.ps1",
+      "GpUpdateTimeoutSeconds": 300
+    },
+    {
+      "Name": "production",
+      "Domain": "contoso.mil",
+      "Server": "dc01.contoso.mil",
+      "GpoNameFormat": "{DisplayName} [{Label}]",
+      "Baselines": [
+        {
+          "Match": "DoD Windows 11 Computer STIG",
+          "LinkTargets": ["OU=Workstations,DC=contoso,DC=mil"],
+          "ReplaceLinksMatching": ["DoD Windows 11 Computer STIG*"]
+        },
+        {
+          "Match": "DoD WinSvr 2022 MS STIG Comp",
+          "LinkTargets": ["OU=Member Servers,DC=contoso,DC=mil"],
+          "WmiFilter": "Windows Server 2022 Member Server",
+          "ReplaceLinksMatching": ["DoD WinSvr 2022 MS STIG Comp*"]
+        }
+      ]
+    }
+  ]
+}

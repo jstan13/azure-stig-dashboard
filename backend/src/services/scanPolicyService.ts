@@ -62,7 +62,7 @@ interface LocalParts {
 
 const formatters = new Map<string, Intl.DateTimeFormat>();
 
-function localParts(timeZone: string, date: Date): LocalParts {
+export function localParts(timeZone: string, date: Date): LocalParts {
   let formatter = formatters.get(timeZone);
   if (!formatter) {
     formatter = new Intl.DateTimeFormat('en-US', {

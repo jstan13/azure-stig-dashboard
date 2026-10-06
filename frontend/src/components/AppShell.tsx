@@ -43,6 +43,7 @@ const NAV: NavGroup[] = [
       { key: 'vulns',     label: 'Vulnerabilities',  icon: 'Bug',              path: '/vulnerabilities' },
       { key: 'rmf',       label: 'RMF / NIST',       icon: 'Compliance',       path: '/rmf' },
       { key: 'stigs',     label: 'STIG Library',     icon: 'Shield',           path: '/stigs' },
+      { key: 'gpo',       label: 'GPO Releases',     icon: 'Org',              path: '/gpo' },
     ],
   },
   {

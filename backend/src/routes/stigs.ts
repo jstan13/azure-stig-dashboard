@@ -12,6 +12,7 @@
 
 import { Router } from 'express';
 import { In } from 'typeorm';
+import { z } from 'zod';
 import { AppDataSource } from '../database/dataSource';
 import { StigBenchmarkEntity } from '../models/StigBenchmark';
 import { StigVersionEntity } from '../models/StigVersion';
@@ -34,6 +35,10 @@ import {
   isOperatingSystemBenchmark,
   resolveApplicableStigs,
 } from '../services/stigAssessmentService';
+import {
+  applyReleaseCandidate,
+  listReleaseCandidates,
+} from '../stigs/stigReleaseService';
 
 const router = Router();
 
@@ -168,6 +173,44 @@ router.get('/update-check/status', requirePermission('dashboard:read'), (_req, r
 router.get('/import/status', requirePermission('dashboard:read'), (_req, res) => {
   res.json(importStatus);
 });
+
+router.get('/release-candidates', requirePermission('dashboard:read'), async (_req, res, next) => {
+  try {
+    if (process.env.MOCK_MODE === 'true') return res.json({ data: [], total: 0 });
+    const candidates = await listReleaseCandidates(AppDataSource);
+    return res.json({ data: candidates, total: candidates.length });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post(
+  '/release-candidates/:candidateId/apply',
+  requirePermission('stig:import'),
+  async (req, res, next) => {
+    try {
+      const parsedId = z.string().uuid().safeParse(req.params.candidateId);
+      if (!parsedId.success) {
+        return res.status(400).json({ error: 'Invalid staged release ID' });
+      }
+      if (process.env.MOCK_MODE === 'true') {
+        return res.status(202).json({ message: 'Release applied (mock mode)' });
+      }
+      const actor = req.principal?.upn || req.principal?.objectId || 'unknown';
+      const result = await applyReleaseCandidate(AppDataSource, parsedId.data, actor);
+      await recordAudit(req, {
+        action: 'stig.release_approved',
+        entityType: 'stig_release_candidate',
+        entityId: parsedId.data,
+        after: result,
+        result: 'Success',
+      });
+      return res.status(201).json(result);
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
 
 router.get('/catalog', requirePermission('stig:import'), async (_req, res, next) => {
   try {

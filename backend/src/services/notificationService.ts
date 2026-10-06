@@ -277,6 +277,27 @@ export async function notifyStigUpdate(
   );
 }
 
+export async function notifyGpoRelease(
+  title: string,
+  body: string,
+  metadata: Record<string, unknown>,
+  severity: 'high' | 'medium' | 'low' = 'medium',
+  dataSource?: DataSource,
+): Promise<void> {
+  const base = process.env.FRONTEND_URL?.replace(/\/+$/, '');
+  await dispatchNotification(
+    {
+      trigger: 'gpo_review',
+      title,
+      body,
+      severity,
+      actionUrl: base ? `${base}/gpo` : undefined,
+      metadata,
+    },
+    dataSource,
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -299,6 +320,7 @@ function triggerLabel(t: NotificationTrigger): string {
     new_finding:    'New Finding',
     overdue_poam:   'Overdue POA&M',
     stig_update:    'STIG Update Available',
+    gpo_review:     'GPO Release Needs Attention',
     daily_digest:   'Daily Digest',
     weekly_digest:  'Weekly Report',
     scan_complete:  'Scan Complete',

@@ -28,7 +28,7 @@ export interface ParsedBenchmark {
 }
 
 export interface ParsedControl {
-  id: string;              // composite key: "<benchmarkId>|<vulnId>"
+  id: string;              // source identity: "<benchmarkId>|<vulnId>"
   vulnId: string;          // V-220700
   ruleId: string;          // SV-220700r849121_rule
   stigId: string;          // WN10-AU-000005 (Rule_Ver)

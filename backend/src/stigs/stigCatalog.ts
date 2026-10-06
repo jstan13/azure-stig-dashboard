@@ -40,9 +40,27 @@ export interface CatalogResult {
   fetchedAt: Date;
 }
 
+export type RawCatalogItem = z.infer<typeof catalogResponseSchema>['returnValue'][number];
+
+export function parseRawCatalog(data: unknown): RawCatalogItem[] {
+  return catalogResponseSchema.parse(data).returnValue;
+}
+
+/** Fetches every document in the Cyber.mil STIG library without filtering. */
+export async function fetchRawCatalog(): Promise<RawCatalogItem[]> {
+  const response = await axios.post(CATALOG_URL, CATALOG_REQUEST, {
+    timeout: 30000,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      Referer: 'https://www.cyber.mil/stigs/downloads/',
+      'User-Agent': 'azure-stig-dashboard/1.0',
+    },
+  });
+  return parseRawCatalog(response.data);
+}
+
 export function parseCatalogResponse(data: unknown): CatalogEntry[] {
-  const parsed = catalogResponseSchema.parse(data);
-  const entries = parsed.returnValue
+  const entries = parseRawCatalog(data)
     .filter((item) => {
       const isZip = item.DownloadLink.toLowerCase().endsWith('.zip');
       const isStig = item.RawDownloadType.split(';').includes('STIGs');
@@ -76,16 +94,7 @@ export function parseCatalogResponse(data: unknown): CatalogEntry[] {
 export async function fetchStigCatalog(): Promise<CatalogResult> {
   try {
     logger.info('[STIGCatalog] Fetching DISA STIG catalog from cyber.mil');
-    const response = await axios.post(CATALOG_URL, CATALOG_REQUEST, {
-      timeout: 30000,
-      headers: {
-        'Content-Type': 'application/json; charset=utf-8',
-        Referer: 'https://www.cyber.mil/stigs/downloads/',
-        'User-Agent': 'azure-stig-dashboard/1.0',
-      },
-    });
-
-    const entries = parseCatalogResponse(response.data);
+    const entries = parseCatalogResponse({ returnValue: await fetchRawCatalog() });
     if (entries.length === 0) {
       throw new Error('Cyber.mil returned no manual STIG ZIP entries');
     }

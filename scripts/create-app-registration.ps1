@@ -208,6 +208,24 @@ $appRoles = @(
     displayName         = 'Auditor'
     isEnabled           = $true
     value               = 'auditor'
+  },
+  # Application-only roles for the on-premises GPO agents
+  # (scripts/register-gpo-agent.ps1 creates the agent identities).
+  @{
+    id                  = [guid]::NewGuid().ToString()
+    allowedMemberTypes  = @('Application')
+    description         = 'GPO agent (test) — deploy and validate DISA GPOs in the test domain.'
+    displayName         = 'gpo-agent-test'
+    isEnabled           = $true
+    value               = 'gpo-agent-test'
+  },
+  @{
+    id                  = [guid]::NewGuid().ToString()
+    allowedMemberTypes  = @('Application')
+    description         = 'GPO agent (production) — stage, release, and roll back DISA GPOs in production.'
+    displayName         = 'gpo-agent-production'
+    isEnabled           = $true
+    value               = 'gpo-agent-production'
   }
 ) | ConvertTo-Json -Depth 6 -Compress
 
@@ -215,7 +233,7 @@ $rolesFile = New-TemporaryFile
 Set-Content -Path $rolesFile -Value $appRoles -Encoding utf8
 az ad app update --id $appId --app-roles "@$rolesFile" --only-show-errors | Out-Null
 Remove-Item $rolesFile -Force
-Write-Host "[5/6] App roles defined: admin, issm, isso, operator, auditor."
+Write-Host "[5/6] App roles defined: admin, issm, isso, operator, auditor, gpo-agent-test, gpo-agent-production."
 
 # ── 4b. Emit group membership in tokens (the 'use existing Entra groups' path) ─
 # 'ApplicationGroup' emits only groups assigned to this app, which keeps the

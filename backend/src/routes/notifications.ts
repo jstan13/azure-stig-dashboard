@@ -23,7 +23,7 @@ const router = Router();
 const isMock = () => process.env.MOCK_MODE === 'true';
 
 const NOTIFICATION_TRIGGERS = [
-  'new_cat1', 'new_finding', 'overdue_poam', 'stig_update',
+  'new_cat1', 'new_finding', 'overdue_poam', 'stig_update', 'gpo_review',
   'daily_digest', 'weekly_digest', 'scan_complete',
 ] as const;
 const NOTIFICATION_CHANNELS = ['email', 'teams_webhook', 'azure_monitor'] as const;

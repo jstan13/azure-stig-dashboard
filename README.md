@@ -400,6 +400,110 @@ Note: East US retail feed did not return `B1` for App Service during sampling, e
 
 This dashboard is the **central system of record and reporting layer** for STIG compliance across your Azure (and Azure Arc-connected) estate. It is *not* a SCAP scanner, a vulnerability scanner, or a remediation engine on its own — it **orchestrates, ingests, normalises, and reports** on data those other tools produce.
 
+### Quarterly STIG content lifecycle
+
+The tracker polls the official DISA Cyber Exchange catalog weekly by default
+instead of assuming the STIG and GPO packages appear on the first day of a
+quarter. When an installed benchmark has a newer release, the backend:
+
+1. downloads the manual XCCDF package from the DISA catalog URL;
+2. records its SHA-256 hash and parses it without changing the active release;
+3. stages a rule-level summary of added, removed, changed, and
+   severity-changed vulnerability IDs in **STIG Library**;
+4. requires an operator with `stig:import` to approve and activate that exact
+   hashed package; and
+5. retains the old version and version-qualified controls so historical
+   findings continue to reference the content against which they were assessed.
+
+The defaults are approval-gated:
+
+```env
+STIG_CHECK_CRON=0 6 * * 1
+STIG_IMPORT_CRON=0 3 1 1,4,7,10 *
+STIG_AUTO_IMPORT=false
+```
+
+Set `STIG_AUTO_IMPORT=true` only if the authorization boundary permits
+unattended activation. The quarterly job stages whatever is available at run
+time and activates ready candidates; the weekly discovery means a late DISA
+publication is still detected.
+
+### DISA GPO release lifecycle (test → production)
+
+When DISA publishes a new quarterly GPO package, the tracker prepares it for
+review and then moves it through a test domain and production only with human
+approval at both gates:
+
+```
+DISA publishes ─▶ Production survey ─▶ 1. Review ─(approve)─▶ 2. Test deploy
+   ─▶ 3. Test validation ─(evidence passes)─▶ 4. Production staging (links disabled)
+   ─▶ 5. Production approval ─(approve)─▶ 6. Released ─(optional)─▶ Roll back
+```
+
+| Stage | Who | What happens |
+|---|---|---|
+| Discovery | Tracker — manually (**Check DISA now**) or on a schedule, chosen in **Settings → GPO releases** | Downloads `U_STIG_GPO_Package_<Month>_<Year>.zip`, pins its SHA-256, parses every GPO backup's `gpreport.xml`, and diffs it **setting by setting** against what is live in production. |
+| Production survey | Production agent (automatic, read-only) | Backs up each live production GPO the release will replace and compares it with the DISA backup it was imported from. Settings your team changed become exceptions, so the new release keeps them. |
+| 1. Review | Human with `gpo:approve` (ISSM) | Reviews the DISA diff, the customizations found in production, and the exceptions. Approval freezes all approved exceptions into the release. |
+| 2. Test deploy | Test agent | Imports the selected backups as new GPOs (e.g. `DoD WinSvr 2022 MS STIG Comp v2r9 [October 2026 TEST]`), applies the frozen exceptions, uploads each GPO's report, and links them to the configured **test** OUs in place of the previous release. |
+| 3. Validation | Test agent, after the configured soak period | Runs `gpupdate` + `gpresult` on each validation computer and, optionally, your scan script (Evaluate-STIG, PowerSTIG). The **tracker** decides pass/fail from the raw evidence: every computer reachable, every linked GPO applied, no client-side extension errors, every GPO applied somewhere, scan passed. |
+| 4. Production staging | Production agent (automatic after a pass) | Re-surveys production, imports the same hashed package and exceptions, and links each new GPO to its production OUs **with the link disabled**, directly above the live GPO it replaces, so both can be compared in GPMC. Nothing that applies to computers changes. |
+| 5. Approval | Human with `gpo:approve` | Second review of test evidence and production deviations. Blocked if production GPOs were edited after the first review (restart the release to include those edits); differences the agent cannot carry forward must be acknowledged. Optionally requires a different person than step 1. |
+| 6. Release | Production agent | Enables the staged links, then removes the links of the GPOs they replace (recorded for rollback). |
+| Rollback | Human with `gpo:approve` | Unlinks the release and restores the replaced links; the previous release is marked live again. |
+
+**Production customizations carry forward.** The survey performs a three-way
+comparison per GPO: the DISA backup the production GPO came from, the
+production GPO today, and the new DISA backup. Local changes to Administrative
+Template/registry settings (`registry.pol`) and security settings
+(`GptTmpl.inf`: account policy, user rights, security options, event log,
+restricted groups) become exceptions. A local change DISA has since adopted is
+dropped. With **Carry forward automatically** (the default) they are recorded as
+approved exceptions; with **Hold for approval** they wait on the Exceptions
+tab. If the original DISA release of a production GPO is unknown (for example a
+GPO deployed before the agent), differences are compared with the new DISA GPO
+and always wait for approval. Differences in advanced audit policy, Group Policy
+Preferences, scripts, and registry/file permissions are listed as **not carried
+forward** and must be acknowledged at production approval.
+
+**Exceptions carry forward.** An exception targets a GPO *family* (the DISA name
+without its version) and is re-applied to every future release. Manual
+exceptions are authored with `exception:write` and must be approved by someone
+else with `exception:approve`. DISA ships `ADD YOUR …` placeholders in the
+Windows deny-logon user rights; if your production GPOs already fill them in,
+the survey carries your accounts forward. Otherwise agents refuse to import
+those GPOs until a security-template exception supplies your accounts, because
+clients would fail with error 1332.
+
+**Security boundaries.**
+
+- The tracker never holds AD credentials. Agents run on-premises under a gMSA and
+  connect outbound over HTTPS.
+- Agent endpoints accept only *application* tokens carrying
+  `gpo-agent-test` or `gpo-agent-production`; a signed-in user cannot act as an
+  agent, and a test agent cannot claim production work. Use one Entra
+  registration per environment ([`register-gpo-agent.ps1`](scripts/register-gpo-agent.ps1)).
+- Each agent's local config is the allow-list for which DISA GPOs it imports,
+  which OUs it may link, and which computers it validates. Instructions outside
+  it are refused, and the agent will not overwrite or link GPOs it did not create
+  for the same release and environment.
+- Every environment verifies the approved SHA-256 before importing. The
+  production agent keeps a local archive of every package it deploys, so the
+  survey still has the original baseline after DISA removes old packages.
+
+Setup is in [agent/gpo/README.md](agent/gpo/README.md). Discovery mode and
+schedule, carry-forward mode, test soak period, and separation of approvers are
+set in **Settings → GPO releases** (administrators, `gpo:configure`). The
+environment variables below only seed those settings on first start:
+
+```env
+GPO_LIFECYCLE_ENABLED=false        # true = start in scheduled mode
+GPO_CHECK_CRON=30 6 * * 1          # initial schedule (minute hour * * weekday)
+GPO_TEST_SOAK_HOURS=24
+GPO_REQUIRE_DISTINCT_APPROVERS=false
+GPO_JOB_LEASE_MINUTES=60           # agent lease before a job is retried (3 attempts)
+```
+
 ### TL;DR — what to keep, what to retire
 
 | Tool | Role | After deploying this dashboard |

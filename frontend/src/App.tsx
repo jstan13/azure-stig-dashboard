@@ -24,6 +24,7 @@ import BulkRemediationPage from './pages/BulkRemediationPage';
 import EmassPage from './pages/EmassPage';
 import AdminPage from './pages/AdminPage';
 import SettingsPage from './pages/SettingsPage';
+import GpoReleasesPage from './pages/GpoReleasesPage';
 
 // Initialize Fluent UI icons
 initializeIcons();
@@ -46,6 +47,7 @@ function SignedInApp() {
           <Route path="/audit" element={<AuditPage />} />
           <Route path="/stigs" element={<StigLibraryPage />} />
           <Route path="/stigs/:benchmarkId" element={<StigDetailPage />} />
+          <Route path="/gpo" element={<GpoReleasesPage />} />
           <Route path="/poams" element={<PoamPage />} />
           <Route path="/trends" element={<ComplianceTrendPage />} />
           <Route path="/users" element={<UserManagementPage />} />

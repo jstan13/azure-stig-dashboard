@@ -7,7 +7,7 @@ import { StigVersionEntity } from './StigVersion';
 @Entity('controls')
 @Index(['stigVersionId', 'vulnId'])
 export class ControlEntity {
-  /** Composite: "<benchmarkId>|<vulnId>", e.g. "Windows_10_STIG|V-220700" */
+  /** Composite: "<benchmarkId>|<version>|<vulnId>" for immutable release history. */
   @PrimaryColumn() id!: string;
 
   // ── XCCDF identifiers ──────────────────────────────────────────────────

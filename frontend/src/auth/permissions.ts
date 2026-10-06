@@ -19,6 +19,7 @@ export const PERMISSIONS = [
   'poam:approve',
   'exception:approve',
   'remediation:approve',
+  'gpo:approve',
   'roles:assign',
   'collection:manage',
   'users:manage',
@@ -29,6 +30,7 @@ export const PERMISSIONS = [
   'power:schedule',
   'power:report',
   'emass:configure',
+  'gpo:configure',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];

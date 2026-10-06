@@ -12,8 +12,9 @@ import PowerSchedulePage from './PowerSchedulePage';
 import ScanSchedulePage from './ScanSchedulePage';
 import UpdatesPage from './UpdatesPage';
 import EmassSettingsPage from './EmassSettingsPage';
+import GpoSettingsPage from './GpoSettingsPage';
 
-const TABS = ['power', 'scans', 'updates', 'emass'] as const;
+const TABS = ['power', 'scans', 'updates', 'gpo', 'emass'] as const;
 type Tab = (typeof TABS)[number];
 
 const isTab = (value: string | undefined): value is Tab =>
@@ -48,6 +49,9 @@ export default function SettingsPage() {
         </PivotItem>
         <PivotItem itemKey="updates" headerText="Updates" itemIcon="Sync">
           <Stack styles={{ root: { paddingTop: 18 } }}><UpdatesPage /></Stack>
+        </PivotItem>
+        <PivotItem itemKey="gpo" headerText="GPO releases" itemIcon="Org">
+          <Stack styles={{ root: { paddingTop: 18 } }}><GpoSettingsPage /></Stack>
         </PivotItem>
         <PivotItem itemKey="emass" headerText="eMASS" itemIcon="CloudUpload">
           <Stack styles={{ root: { paddingTop: 18 } }}><EmassSettingsPage /></Stack>

@@ -18,7 +18,9 @@ import { ControlEntity } from '../models/Control';
 import { AuditLogEntity } from '../models/AuditLog';
 import { downloadStigZip } from './xccdfDownloader';
 import { parseXccdf, ParsedBenchmark } from './xccdfParser';
-import { fetchStigCatalog, filterCatalog, normaliseVersionString } from './stigCatalog';
+import {
+  CatalogEntry, fetchStigCatalog, filterCatalog, normaliseVersionString,
+} from './stigCatalog';
 import { rebuildControlMappings } from '../data/controlMappingSeeder';
 import { logger } from '../utils/logger';
 
@@ -31,6 +33,8 @@ export interface ImportOptions {
   dryRun?: boolean;
   /** Data source to write to. If omitted, import is parsed only (dry run). */
   dataSource?: DataSource;
+  /** Require the downloaded archive to match the package that was staged and reviewed. */
+  expectedHash?: string;
 }
 
 export interface ImportResult {
@@ -102,11 +106,11 @@ export async function importStigs(options: ImportOptions = {}): Promise<ImportRe
 
   // 2. For each match, download + parse + persist
   for (const entry of matching) {
-    const version = normaliseVersionString(entry.version);
     try {
-      const result = await importOneBenchmark(entry, version, options);
+      const result = await importCatalogEntry(entry, options);
       results.push(result);
     } catch (err: any) {
+      const version = normaliseVersionString(entry.version);
       logger.error(`[STIGImporter] Failed to import "${entry.title}": ${err.message}`);
       results.push({
         benchmarkId: '',
@@ -124,11 +128,11 @@ export async function importStigs(options: ImportOptions = {}): Promise<ImportRe
   return results;
 }
 
-async function importOneBenchmark(
-  entry: { title: string; downloadUrl: string; filename: string },
-  version: string,
+export async function importCatalogEntry(
+  entry: CatalogEntry,
   options: ImportOptions,
 ): Promise<ImportResult> {
+  const version = normaliseVersionString(entry.version);
   const ds = options.dataSource;
 
   // Check if already installed
@@ -156,7 +160,15 @@ async function importOneBenchmark(
   }
 
   // Download + parse
-  const { xccdfXml, sha256, filename } = await downloadStigZip(entry.downloadUrl);
+  const { xccdfXml, sha256, filename } = await downloadStigZip(
+    entry.downloadUrl,
+    options.expectedHash,
+  );
+  if (options.expectedHash && sha256 !== options.expectedHash) {
+    throw new Error(
+      `Staged package hash changed: expected ${options.expectedHash}, received ${sha256}`,
+    );
+  }
   const parsed = parseXccdf(xccdfXml);
 
   if (!ds) {
@@ -171,7 +183,7 @@ async function importOneBenchmark(
     };
   }
 
-  return persistParsedBenchmark(parsed, sha256, filename, ds);
+  return persistParsedBenchmark(parsed, sha256, filename, ds, entry.downloadUrl);
 }
 
 async function persistParsedBenchmark(
@@ -179,6 +191,7 @@ async function persistParsedBenchmark(
   sha256: string,
   filename: string,
   ds: DataSource,
+  sourceUrl?: string,
 ): Promise<ImportResult> {
   const benchmarkRepo = ds.getRepository(StigBenchmarkEntity);
   const versionRepo = ds.getRepository(StigVersionEntity);
@@ -196,6 +209,8 @@ async function persistParsedBenchmark(
   }
   benchmark.title = parsed.title;
   benchmark.latestInstalledVersion = parsed.version;
+  benchmark.latestAvailableVersion = parsed.version;
+  if (sourceUrl) benchmark.sourceUrl = sourceUrl;
   benchmark.lastContentUpdate = new Date();
   await benchmarkRepo.save(benchmark);
 
@@ -226,7 +241,8 @@ async function persistParsedBenchmark(
   for (let i = 0; i < parsed.controls.length; i += BATCH_SIZE) {
     const batch = parsed.controls.slice(i, i + BATCH_SIZE);
     for (const c of batch) {
-      const existing = await controlRepo.findOne({ where: { id: c.id } });
+      const versionedId = `${parsed.benchmarkId}|${parsed.version}|${c.vulnId}`;
+      const existing = await controlRepo.findOne({ where: { id: versionedId } });
       if (existing) {
         Object.assign(existing, {
           vulnId: c.vulnId,
@@ -250,6 +266,7 @@ async function persistParsedBenchmark(
         await controlRepo.save(
           controlRepo.create({
             ...c,
+            id: versionedId,
             stigVersionId: versionRecord!.id,
           }),
         );

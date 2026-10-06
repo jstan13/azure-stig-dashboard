@@ -44,9 +44,11 @@ import collectionsRouter from './routes/collections';
 import poolsRouter from './routes/pools';
 import updatesRouter from './routes/updates';
 import powerScheduleRouter from './routes/powerSchedule';
+import { gpoRouter, gpoAgentRouter } from './routes/gpo';
 
 import { startStigUpdateScheduler } from './stigs/stigUpdateScheduler';
 import { startScanScheduler } from './scanning/scanScheduler';
+import { startGpoScheduler } from './gpo/gpoScheduler';
 
 // ─── Production safety: MOCK_MODE needs an explicit opt-in (Audit #1) ─────
 // Demo deployments legitimately pair MOCK_MODE with NODE_ENV=production, so the
@@ -111,6 +113,8 @@ app.use(cors({
   credentials: true,
 }));
 app.use(compression());
+// GPO agents upload full Get-GPOReport XML; parse those before the 1 MB default.
+app.use('/api/gpo/agent', json({ limit: '10mb' }));
 app.use(json({ limit: '1mb' }));
 app.use(morgan('combined', { stream: { write: (msg) => logger.http(msg.trim()) } }));
 
@@ -172,10 +176,12 @@ app.use('/api', auditMiddleware({ auditor }));
 
 // Swagger / OpenAPI — mounted after auth so it requires a valid token
 try {
-  // Required lazily so a missing yamljs degrades to "no /api/docs" instead of failing boot.
+  // Required lazily so a missing YAML parser degrades to "no /api/docs" instead of failing boot.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const YAML = require('yamljs');
-  const swaggerDocument = YAML.load(path.join(__dirname, '../openapi.yaml'));
+  const YAML = require('yaml');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const fs = require('fs');
+  const swaggerDocument = YAML.parse(fs.readFileSync(path.join(__dirname, '../openapi.yaml'), 'utf8'));
   // Swagger UI ships inline bootstrap script/styles, so it needs a relaxed CSP.
   // Scope that relaxation to this route only, keeping the strict policy global.
   const swaggerCsp = helmet.contentSecurityPolicy({
@@ -218,6 +224,8 @@ app.use('/api/collections', collectionsRouter);
 app.use('/api/pools', poolsRouter);
 app.use('/api/updates', updatesRouter);
 app.use('/api/power-schedule', powerScheduleRouter);
+app.use('/api/gpo/agent', gpoAgentRouter);
+app.use('/api/gpo', gpoRouter);
 
 // ─── Error handling ──────────────────────────────────────────────────────────
 app.use(errorHandler);
@@ -236,6 +244,7 @@ async function bootstrap() {
     // Start STIG update scheduler (skip in mock mode — no DB)
     if (process.env.MOCK_MODE !== 'true') {
       startStigUpdateScheduler(AppDataSource);
+      startGpoScheduler(AppDataSource);
       // Automated compliance scans (opt-in via SCAN_SCHEDULE_ENABLED=true)
       startScanScheduler();
     }

@@ -18,8 +18,6 @@ import {
   DialogFooter,
   CommandBar,
   ICommandBarItemProps,
-  Pivot,
-  PivotItem,
   TooltipHost,
   Icon,
   ComboBox,
@@ -27,6 +25,7 @@ import {
 } from '@fluentui/react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../hooks/useApi';
+import { usePermissions } from '../auth/AuthzProvider';
 
 interface StigBenchmark {
   benchmarkId: string | null;
@@ -76,6 +75,32 @@ interface CatalogResponse {
   total: number;
 }
 
+interface ReleaseCandidate {
+  id: string;
+  title: string;
+  version: string;
+  releaseDate: string | null;
+  status: 'ready' | 'approved' | 'importing' | 'failed';
+  addedRules: number;
+  removedRules: number;
+  changedRules: number;
+  severityChanges: number;
+  diff: {
+    added: string[];
+    removed: string[];
+    changed: string[];
+    severityChanged: string[];
+  };
+  errorMessage: string | null;
+}
+
+function diffPreview(label: string, values: string[]): string | null {
+  if (values.length === 0) return null;
+  const shown = values.slice(0, 12).join(', ');
+  const remainder = values.length > 12 ? ` (+${values.length - 12} more)` : '';
+  return `${label}: ${shown}${remainder}`;
+}
+
 const categoryColor: Record<string, string> = {
   'Operating System': '#0078d4',
   'Browser':          '#107c10',
@@ -88,6 +113,8 @@ const PAGE_SIZE = 25;
 
 export default function StigLibraryPage() {
   const navigate = useNavigate();
+  const { has } = usePermissions();
+  const canImport = has('stig:import');
 
   const [benchmarks, setBenchmarks] = useState<StigBenchmark[]>([]);
   const [total, setTotal] = useState(0);
@@ -104,6 +131,7 @@ export default function StigLibraryPage() {
   const [activeImportJobId, setActiveImportJobId] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [releaseCandidates, setReleaseCandidates] = useState<ReleaseCandidate[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -128,10 +156,20 @@ export default function StigLibraryPage() {
     }
   }, []);
 
+  const loadReleaseCandidates = useCallback(async () => {
+    try {
+      const res = await api.get<{ data: ReleaseCandidate[] }>('/api/stigs/release-candidates');
+      setReleaseCandidates(res.data.data);
+    } catch {
+      // Benchmark listing remains usable if staged-release status is unavailable.
+    }
+  }, []);
+
   useEffect(() => {
     load();
     pollUpdateStatus();
-  }, [load, pollUpdateStatus]);
+    loadReleaseCandidates();
+  }, [load, loadReleaseCandidates, pollUpdateStatus]);
 
   useEffect(() => {
     if (!activeImportJobId) return;
@@ -184,8 +222,26 @@ export default function StigLibraryPage() {
     setActionMessage(null);
     try {
       await api.post('/api/stigs/update-check', {});
-      setActionMessage('Update check started — results will appear below shortly.');
-      setTimeout(pollUpdateStatus, 3000);
+      setActionMessage('Update check started — changed releases will be staged with a rule-level diff.');
+      window.setTimeout(() => {
+        void pollUpdateStatus();
+        void loadReleaseCandidates();
+        void load();
+      }, 3000);
+    } catch (e: any) {
+      setActionMessage(`Error: ${e.message}`);
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function applyRelease(candidate: ReleaseCandidate) {
+    setActionBusy(true);
+    setActionMessage(null);
+    try {
+      await api.post(`/api/stigs/release-candidates/${candidate.id}/apply`, {});
+      setActionMessage(`${candidate.title} ${candidate.version} was approved and activated.`);
+      await Promise.all([load(), loadReleaseCandidates()]);
     } catch (e: any) {
       setActionMessage(`Error: ${e.message}`);
     } finally {
@@ -235,6 +291,7 @@ export default function StigLibraryPage() {
       text: 'Check for Updates',
       iconProps: { iconName: 'Refresh' },
       disabled: actionBusy,
+      hidden: !canImport,
       onClick: () => void handleUpdateCheck(),
     },
     {
@@ -242,6 +299,7 @@ export default function StigLibraryPage() {
       text: 'Import STIGs',
       iconProps: { iconName: 'Download' },
       disabled: actionBusy,
+      hidden: !canImport,
       onClick: () => void openImportDialog(),
     },
   ];
@@ -359,6 +417,52 @@ export default function StigLibraryPage() {
       )}
 
       <CommandBar items={commandItems} />
+
+      {releaseCandidates.length > 0 && (
+        <Stack tokens={{ childrenGap: 10 }}>
+          <Text variant="large" style={{ fontWeight: 600 }}>Staged DISA Releases</Text>
+          <Text style={{ color: '#605e5c' }}>
+            Packages are downloaded from Cyber.mil, SHA-256 hashed, parsed, and compared with the
+            active release. Activation retains the prior version and its findings for audit history.
+          </Text>
+          {releaseCandidates.map((candidate) => (
+            <MessageBar
+              key={candidate.id}
+              messageBarType={candidate.status === 'failed'
+                ? MessageBarType.error
+                : MessageBarType.warning}
+            >
+              <Stack tokens={{ childrenGap: 6 }}>
+                <Text>
+                  <strong>{candidate.title} {candidate.version}</strong>
+                  {candidate.releaseDate
+                    ? ` — published ${new Date(candidate.releaseDate).toLocaleDateString()}`
+                    : ''}
+                </Text>
+                <Text>
+                  {candidate.addedRules} added, {candidate.removedRules} removed,{' '}
+                  {candidate.changedRules} changed ({candidate.severityChanges} severity changes)
+                </Text>
+                {[
+                  diffPreview('Added', candidate.diff.added),
+                  diffPreview('Removed', candidate.diff.removed),
+                  diffPreview('Changed', candidate.diff.changed),
+                  diffPreview('Severity changed', candidate.diff.severityChanged),
+                ].filter(Boolean).map((line) => <Text key={line!}>{line}</Text>)}
+                {candidate.errorMessage && <Text>{candidate.errorMessage}</Text>}
+                {canImport && (
+                  <PrimaryButton
+                    text={candidate.status === 'failed' ? 'Retry approval and activation' : 'Approve and activate'}
+                    disabled={actionBusy || candidate.status === 'importing'}
+                    onClick={() => void applyRelease(candidate)}
+                    styles={{ root: { alignSelf: 'flex-start' } }}
+                  />
+                )}
+              </Stack>
+            </MessageBar>
+          ))}
+        </Stack>
+      )}
 
       <SearchBox
         placeholder="Search by title, ID, or category…"

@@ -19,10 +19,10 @@
 
 import cron from 'node-cron';
 import { DataSource } from 'typeorm';
-import { StigBenchmarkEntity } from '../models/StigBenchmark';
-import { fetchStigCatalog, normaliseVersionString } from './stigCatalog';
-import { importStigs } from './stigImporter';
 import { logger } from '../utils/logger';
+import {
+  applyReadyReleases, stageAvailableReleases, StagedReleaseResult,
+} from './stigReleaseService';
 
 const CHECK_CRON = process.env.STIG_CHECK_CRON || '0 6 * * 1';
 const IMPORT_CRON = process.env.STIG_IMPORT_CRON || '0 3 1 1,4,7,10 *';
@@ -55,45 +55,7 @@ export function startStigUpdateScheduler(dataSource: DataSource): void {
  */
 export async function checkForUpdates(dataSource: DataSource): Promise<UpdateCheckResult[]> {
   logger.info('[STIGScheduler] Checking DISA catalog for STIG updates');
-  const catalog = await fetchStigCatalog();
-  const entries = catalog.entries;
-
-  const benchmarkRepo = dataSource.getRepository(StigBenchmarkEntity);
-  const installed = await benchmarkRepo.find();
-
-  const results: UpdateCheckResult[] = [];
-
-  for (const entry of entries) {
-    const availableVersion = normaliseVersionString(entry.version);
-    const match = installed.find((b) =>
-      b.title.toLowerCase().includes(entry.title.toLowerCase().substring(0, 20)),
-    );
-
-    if (match) {
-      const hasUpdate =
-        match.latestInstalledVersion &&
-        availableVersion !== match.latestInstalledVersion;
-
-      if (match.latestAvailableVersion !== availableVersion) {
-        match.latestAvailableVersion = availableVersion;
-        await benchmarkRepo.save(match);
-      }
-
-      results.push({
-        benchmarkId: match.benchmarkId,
-        title: match.title,
-        installedVersion: match.latestInstalledVersion || 'none',
-        availableVersion,
-        updateAvailable: hasUpdate || false,
-      });
-
-      if (hasUpdate) {
-        logger.info(
-          `[STIGScheduler] UPDATE AVAILABLE: "${match.title}" ${match.latestInstalledVersion} → ${availableVersion}`,
-        );
-      }
-    }
-  }
+  const results: StagedReleaseResult[] = await stageAvailableReleases(dataSource);
 
   logger.info(`[STIGScheduler] Update check complete. ${results.filter((r) => r.updateAvailable).length} update(s) available.`);
   return results;
@@ -104,9 +66,9 @@ export async function checkForUpdates(dataSource: DataSource): Promise<UpdateChe
  */
 export async function runQuarterlyImport(dataSource: DataSource): Promise<void> {
   logger.info('[STIGScheduler] Running quarterly STIG import');
-  const results = await importStigs({ dataSource, force: false });
-  const updated = results.filter((r) => !r.skipped && !r.error);
-  logger.info(`[STIGScheduler] Quarterly import complete. ${updated.length} benchmark(s) updated.`);
+  await stageAvailableReleases(dataSource);
+  const results = await applyReadyReleases(dataSource);
+  logger.info(`[STIGScheduler] Quarterly import complete. ${results.length} benchmark(s) updated.`);
 }
 
 export interface UpdateCheckResult {

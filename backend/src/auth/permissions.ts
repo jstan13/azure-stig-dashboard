@@ -48,6 +48,8 @@ export const PERMISSIONS = [
   'poam:approve',
   'exception:approve',
   'remediation:approve',
+  // Approve DISA GPO releases into test and production domains.
+  'gpo:approve',
   'roles:assign',
   // Global platform administration
   'collection:manage',
@@ -57,6 +59,8 @@ export const PERMISSIONS = [
   'updates:manage',
   'power:schedule',
   'emass:configure',
+  // DISA GPO lifecycle settings (discovery schedule, carry-forward, soak).
+  'gpo:configure',
   // Reporting what the scheduler *did*, as opposed to deciding the policy.
   // Held by the scheduler Function's own identity, which is an operator.
   'updates:report',
@@ -82,6 +86,8 @@ export const GLOBAL_PERMISSIONS: ReadonlySet<Permission> = new Set<Permission>([
   'power:report',
   'audit:read',
   'stig:import',
+  'gpo:approve',
+  'gpo:configure',
 ]);
 
 /** Incremental permissions introduced at each role tier. */
@@ -105,6 +111,7 @@ const ROLE_GRANTS: Record<Role, Permission[]> = {
     'poam:approve',
     'exception:approve',
     'remediation:approve',
+    'gpo:approve',
     'roles:assign',
   ],
   admin: [
@@ -115,6 +122,7 @@ const ROLE_GRANTS: Record<Role, Permission[]> = {
     'updates:manage',
     'power:schedule',
     'emass:configure',
+    'gpo:configure',
   ],
 };
 

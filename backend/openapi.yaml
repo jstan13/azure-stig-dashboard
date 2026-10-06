@@ -15,6 +15,239 @@ security:
   - bearerAuth: []
 
 paths:
+  /gpo/settings:
+    get:
+      summary: GPO lifecycle settings — discovery mode (manual or scheduled), schedule, carry-forward mode, soak, approvers
+      tags: [GPO]
+      responses:
+        '200': { description: Settings with lastCheckedAt, lastCheckOutcome, and nextCheckAt }
+    put:
+      summary: Change GPO lifecycle settings (requires gpo:configure)
+      tags: [GPO]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [discoveryMode, frequency, dayOfWeek, hour, minute, timeZone, carryForwardMode, testSoakHours, requireDistinctApprovers]
+              properties:
+                discoveryMode: { type: string, enum: [manual, scheduled] }
+                frequency: { type: string, enum: [daily, weekly] }
+                dayOfWeek: { type: integer, minimum: 0, maximum: 6 }
+                hour: { type: integer, minimum: 0, maximum: 23 }
+                minute: { type: integer, minimum: 0, maximum: 59 }
+                timeZone: { type: string, example: America/Denver }
+                carryForwardMode: { type: string, enum: [auto, review], description: What to do with customizations found in production GPOs }
+                testSoakHours: { type: integer, minimum: 0, maximum: 720 }
+                requireDistinctApprovers: { type: boolean }
+      responses:
+        '200': { description: Saved settings }
+        '400': { description: Validation error }
+        '403': { description: Requires gpo:configure }
+
+  /gpo/releases/{id}/survey:
+    post:
+      summary: Queue a fresh read-only survey of the GPOs live in production
+      tags: [GPO]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Survey queued }
+        '409': { description: A survey is already queued, or the release is past production approval }
+
+  /gpo/releases/{id}/restart:
+    post:
+      summary: Send a release back to review so newly approved or detected exceptions are tested and staged with it
+      tags: [GPO]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Release awaiting test approval; production survey queued }
+
+  /gpo/releases:
+    get:
+      summary: List discovered DISA GPO packages and their lifecycle stage
+      tags: [GPO]
+      responses:
+        '200': { description: Releases (latest 50) }
+
+  /gpo/releases/{id}:
+    get:
+      summary: Release detail — setting diff, frozen exceptions, per-environment evidence, decisions, and agent jobs
+      tags: [GPO]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Release detail }
+        '404': { description: Not found }
+
+  /gpo/check:
+    post:
+      summary: Look for a new DISA GPO package now and stage it for review
+      tags: [GPO]
+      responses:
+        '200': { description: "outcome is new, unchanged, or none" }
+        '403': { description: Requires gpo:approve }
+
+  /gpo/releases/{id}/approve-test:
+    post:
+      summary: Review 1 — freeze approved exceptions and deploy to the test environment
+      tags: [GPO]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { comment: { type: string, maxLength: 2000 } } }
+      responses:
+        '200': { description: Test deployment queued }
+        '409': { description: Wrong stage, or another release is in progress }
+
+  /gpo/releases/{id}/approve-production:
+    post:
+      summary: Review 2 — enable the staged (disabled) links of the test-validated GPOs in production
+      tags: [GPO]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                comment: { type: string, maxLength: 2000 }
+                acknowledgeUnsupported: { type: boolean, description: Required when production has differences that cannot be carried forward }
+      responses:
+        '200': { description: Production release queued }
+        '403': { description: Separation of duties (when distinct approvers are required) }
+        '409': { description: Wrong stage, a frozen exception was revoked, production changed since review, or unsupported differences not acknowledged }
+
+  /gpo/releases/{id}/retry:
+    post:
+      summary: Re-run the stage that failed
+      tags: [GPO]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Retry queued }
+
+  /gpo/releases/{id}/reject:
+    post:
+      summary: Stop a release awaiting review or after a failure
+      tags: [GPO]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [reason], properties: { reason: { type: string, minLength: 5 } } }
+      responses:
+        '200': { description: Rejected }
+
+  /gpo/releases/{id}/rollback:
+    post:
+      summary: Unlink a released package in production and restore the links it replaced
+      tags: [GPO]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [reason], properties: { reason: { type: string, minLength: 5 } } }
+      responses:
+        '200': { description: Rollback queued }
+
+  /gpo/exceptions:
+    get:
+      summary: List GPO exceptions (overrides carried forward to every release of a GPO family)
+      tags: [GPO]
+      responses:
+        '200': { description: Exceptions }
+    post:
+      summary: Request a registry or security-template exception (requires exception:write)
+      tags: [GPO]
+      responses:
+        '201': { description: Pending approval }
+        '400': { description: Validation error }
+
+  /gpo/exceptions/{id}/approve:
+    post:
+      summary: Approve an exception (exception:approve; must differ from the requester)
+      tags: [GPO]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Approved }
+
+  /gpo/agent/jobs/claim:
+    post:
+      summary: Agent — lease the next job for an environment (application token with gpo-agent-<environment>)
+      tags: [GPO agent]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [environment]
+              properties:
+                environment: { type: string, enum: [test, production] }
+                hostname: { type: string }
+                version: { type: string }
+      responses:
+        '200': { description: Job payload }
+        '204': { description: No work }
+        '403': { description: Not an application token with the environment's agent role }
+
+  /gpo/agent/jobs/{id}/reports:
+    post:
+      summary: Agent — upload Get-GPOReport XML for an imported GPO; compared against the DISA baseline
+      tags: [GPO agent]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Added/removed/changed setting counts }
+
+  /gpo/agent/jobs/{id}/complete:
+    post:
+      summary: Agent — report job outcome and evidence; the tracker decides the next stage
+      tags: [GPO agent]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: New release status }
+
+  /gpo/agent/releases/{id}/package:
+    get:
+      summary: Agent — download the approved archive (only while holding an import job for it)
+      tags: [GPO agent]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: ZIP with X-Content-SHA256 header }
+        '403': { description: No active import job for this agent }
+
+  /stigs/release-candidates:
+    get:
+      summary: List staged DISA STIG releases and rule-level change summaries
+      tags: [STIGs]
+      responses:
+        '200': { description: Staged releases }
+
+  /stigs/release-candidates/{candidateId}/apply:
+    post:
+      summary: Approve and activate the exact hashed package for a staged release
+      tags: [STIGs]
+      parameters:
+        - { name: candidateId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '201': { description: Release activated }
+        '400': { description: Invalid candidate ID }
+        '403': { description: STIG import permission required }
+
   /scan/trigger:
     post:
       summary: Run a comprehensive inventory and compliance scan
@@ -539,4 +772,3 @@ components:
           description: Whether this benchmark can be assessed automatically from its detail page
         lastContentUpdate:      { type: string, format: date-time, nullable: true }
         active:                 { type: boolean }
-

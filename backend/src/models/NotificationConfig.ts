@@ -14,6 +14,7 @@ export type NotificationTrigger =
   | 'new_finding'
   | 'overdue_poam'
   | 'stig_update'
+  | 'gpo_review'
   | 'daily_digest'
   | 'weekly_digest'
   | 'scan_complete';

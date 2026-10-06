@@ -31,6 +31,12 @@ import { UpdatePolicyEntity } from '../models/UpdatePolicy';
 import { ScanPolicyEntity } from '../models/ScanPolicy';
 import { PowerScheduleEntity } from '../models/PowerSchedule';
 import { EmassConfigEntity } from '../models/EmassConfig';
+import { StigReleaseCandidateEntity } from '../models/StigReleaseCandidate';
+import {
+  GpoReleaseEntity, GpoJobEntity, GpoAgentEntity,
+} from '../models/GpoRelease';
+import { GpoExceptionEntity } from '../models/GpoException';
+import { GpoSettingsEntity } from '../models/GpoSettings';
 
 const isMockMode = process.env.MOCK_MODE === 'true';
 
@@ -81,6 +87,12 @@ export const AppDataSource = new DataSource({
     ScanPolicyEntity,
     PowerScheduleEntity,
     EmassConfigEntity,
+    StigReleaseCandidateEntity,
+    GpoReleaseEntity,
+    GpoJobEntity,
+    GpoAgentEntity,
+    GpoExceptionEntity,
+    GpoSettingsEntity,
   ],
   migrations: ['dist/database/migrations/*.js'],
   migrationsTableName: 'migrations',
